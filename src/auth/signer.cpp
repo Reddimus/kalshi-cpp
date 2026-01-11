@@ -95,7 +95,8 @@ Result<Signer> Signer::from_pem_file(std::string_view api_key_id, std::string_vi
 
 Result<AuthHeaders> Signer::sign(std::string_view method, std::string_view path) const {
 	std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
-	std::int64_t ms = std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
+	std::int64_t ms =
+		std::chrono::duration_cast<std::chrono::milliseconds>(now.time_since_epoch()).count();
 	return sign_with_timestamp(method, path, ms);
 }
 

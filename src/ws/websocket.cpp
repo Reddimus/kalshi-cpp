@@ -1,13 +1,12 @@
 #include "kalshi/websocket.hpp"
 
-#include <libwebsockets.h>
-
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
+#include <deque>
+#include <libwebsockets.h>
 #include <mutex>
-#include <queue>
 #include <sstream>
 #include <thread>
 
@@ -15,8 +14,8 @@ namespace kalshi {
 
 // Forward declaration for the callback
 struct WsImplData;
-static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
-					   void* user, void* in, size_t len);
+static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in,
+					   size_t len);
 
 namespace {
 
@@ -27,17 +26,26 @@ std::string build_subscribe_command(std::int32_t id, Channel channel,
 	ss << "{\"id\":" << id << ",\"cmd\":\"subscribe\",\"params\":{\"channels\":[\"";
 
 	switch (channel) {
-		case Channel::OrderbookDelta: ss << "orderbook_delta"; break;
-		case Channel::Trade: ss << "trade"; break;
-		case Channel::Fill: ss << "fill"; break;
-		case Channel::MarketLifecycle: ss << "market_lifecycle"; break;
+		case Channel::OrderbookDelta:
+			ss << "orderbook_delta";
+			break;
+		case Channel::Trade:
+			ss << "trade";
+			break;
+		case Channel::Fill:
+			ss << "fill";
+			break;
+		case Channel::MarketLifecycle:
+			ss << "market_lifecycle";
+			break;
 	}
 	ss << "\"]";
 
 	if (!market_tickers.empty()) {
 		ss << ",\"market_tickers\":[";
 		for (size_t i = 0; i < market_tickers.size(); ++i) {
-			if (i > 0) ss << ",";
+			if (i > 0)
+				ss << ",";
 			ss << "\"" << market_tickers[i] << "\"";
 		}
 		ss << "]";
@@ -62,7 +70,8 @@ std::string build_update_command(std::int32_t id, std::int32_t sid, const std::s
 	ss << "\"sids\":[" << sid << "],";
 	ss << "\"market_tickers\":[";
 	for (size_t i = 0; i < market_tickers.size(); ++i) {
-		if (i > 0) ss << ",";
+		if (i > 0)
+			ss << ",";
 		ss << "\"" << market_tickers[i] << "\"";
 	}
 	ss << "]}}";
@@ -92,9 +101,9 @@ struct WsImplData {
 	lws* wsi{nullptr};
 	std::thread service_thread;
 
-	// Send queue
+	// Send queue - deque provides contiguous storage and efficient front removal
 	std::mutex send_mutex;
-	std::queue<std::string> send_queue;
+	std::deque<std::string> send_queue;
 	std::string current_send_buffer;
 
 	// Receive buffer
@@ -112,7 +121,7 @@ struct WsImplData {
 
 	void queue_send(const std::string& msg) {
 		std::lock_guard lock(send_mutex);
-		send_queue.push(msg);
+		send_queue.push_back(msg);
 		if (wsi) {
 			lws_callback_on_writable(wsi);
 		}
@@ -150,12 +159,12 @@ struct WebSocketClient::Impl {
 };
 
 // libwebsockets callback
-static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
-					   void* user, void* in, size_t len) {
-	WsImplData* impl = static_cast<WsImplData*>(
-		lws_context_user(lws_get_context(wsi)));
+static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in,
+					   size_t len) {
+	WsImplData* impl = static_cast<WsImplData*>(lws_context_user(lws_get_context(wsi)));
 
-	if (!impl) return 0;
+	if (!impl)
+		return 0;
 
 	switch (reason) {
 		case LWS_CALLBACK_CLIENT_ESTABLISHED:
@@ -193,7 +202,7 @@ static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
 			std::lock_guard lock(impl->send_mutex);
 			if (!impl->send_queue.empty()) {
 				std::string msg = impl->send_queue.front();
-				impl->send_queue.pop();
+				impl->send_queue.pop_front();
 
 				// Allocate buffer with LWS_PRE padding
 				std::vector<unsigned char> buf(LWS_PRE + msg.size());
@@ -222,16 +231,20 @@ static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason,
 void WsImplData::handle_message(const std::string& json) {
 	// Simple JSON type detection
 	size_t type_pos = json.find("\"type\"");
-	if (type_pos == std::string::npos) return;
+	if (type_pos == std::string::npos)
+		return;
 
 	size_t colon = json.find(':', type_pos);
-	if (colon == std::string::npos) return;
+	if (colon == std::string::npos)
+		return;
 
 	size_t quote1 = json.find('"', colon);
-	if (quote1 == std::string::npos) return;
+	if (quote1 == std::string::npos)
+		return;
 
 	size_t quote2 = json.find('"', quote1 + 1);
-	if (quote2 == std::string::npos) return;
+	if (quote2 == std::string::npos)
+		return;
 
 	std::string msg_type = json.substr(quote1 + 1, quote2 - quote1 - 1);
 
@@ -239,11 +252,14 @@ void WsImplData::handle_message(const std::string& json) {
 	auto extract_int = [&](const std::string& key) -> std::int32_t {
 		std::string search = "\"" + key + "\"";
 		size_t pos = json.find(search);
-		if (pos == std::string::npos) return 0;
+		if (pos == std::string::npos)
+			return 0;
 		pos = json.find(':', pos);
-		if (pos == std::string::npos) return 0;
+		if (pos == std::string::npos)
+			return 0;
 		pos++;
-		while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t')) pos++;
+		while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t'))
+			pos++;
 		std::int32_t val = 0;
 		while (pos < json.size() && json[pos] >= '0' && json[pos] <= '9') {
 			val = val * 10 + (json[pos] - '0');
@@ -255,14 +271,18 @@ void WsImplData::handle_message(const std::string& json) {
 	auto extract_string = [&](const std::string& key) -> std::string {
 		std::string search = "\"" + key + "\"";
 		size_t pos = json.find(search);
-		if (pos == std::string::npos) return "";
+		if (pos == std::string::npos)
+			return "";
 		pos = json.find(':', pos);
-		if (pos == std::string::npos) return "";
+		if (pos == std::string::npos)
+			return "";
 		pos = json.find('"', pos);
-		if (pos == std::string::npos) return "";
+		if (pos == std::string::npos)
+			return "";
 		size_t start = pos + 1;
 		size_t end = json.find('"', start);
-		if (end == std::string::npos) return "";
+		if (end == std::string::npos)
+			return "";
 		return json.substr(start, end - start);
 	};
 
@@ -275,16 +295,14 @@ void WsImplData::handle_message(const std::string& json) {
 			err.message = extract_string("message");
 		}
 		invoke_error_callback(err);
-	}
-	else if (msg_type == "orderbook_snapshot") {
+	} else if (msg_type == "orderbook_snapshot") {
 		OrderbookSnapshot snap;
 		snap.sid = extract_int("sid");
 		snap.seq = extract_int("seq");
 		snap.market_ticker = extract_string("market_ticker");
 		// Note: Full implementation would parse yes/no arrays
 		invoke_message_callback(snap);
-	}
-	else if (msg_type == "orderbook_delta") {
+	} else if (msg_type == "orderbook_delta") {
 		OrderbookDelta delta;
 		delta.sid = extract_int("sid");
 		delta.seq = extract_int("seq");
@@ -294,8 +312,7 @@ void WsImplData::handle_message(const std::string& json) {
 		std::string side_str = extract_string("side");
 		delta.side = (side_str == "yes") ? Side::Yes : Side::No;
 		invoke_message_callback(delta);
-	}
-	else if (msg_type == "trade") {
+	} else if (msg_type == "trade") {
 		WsTrade trade;
 		trade.sid = extract_int("sid");
 		trade.trade_id = extract_string("trade_id");
@@ -307,8 +324,7 @@ void WsImplData::handle_message(const std::string& json) {
 		trade.taker_side = (side_str == "yes") ? Side::Yes : Side::No;
 		trade.timestamp = extract_int("ts");
 		invoke_message_callback(trade);
-	}
-	else if (msg_type == "fill") {
+	} else if (msg_type == "fill") {
 		WsFill fill;
 		fill.sid = extract_int("sid");
 		fill.trade_id = extract_string("trade_id");
@@ -324,28 +340,28 @@ void WsImplData::handle_message(const std::string& json) {
 		fill.action = (action_str == "buy") ? Action::Buy : Action::Sell;
 		fill.timestamp = extract_int("ts");
 		invoke_message_callback(fill);
-	}
-	else if (msg_type == "market_lifecycle") {
+	} else if (msg_type == "market_lifecycle") {
 		MarketLifecycle lc;
 		lc.sid = extract_int("sid");
 		lc.market_ticker = extract_string("market_ticker");
 		lc.open_ts = extract_int("open_ts");
 		lc.close_ts = extract_int("close_ts");
 		std::int64_t det = extract_int("determination_ts");
-		if (det > 0) lc.determination_ts = det;
+		if (det > 0)
+			lc.determination_ts = det;
 		std::int64_t set = extract_int("settled_ts");
-		if (set > 0) lc.settled_ts = set;
+		if (set > 0)
+			lc.settled_ts = set;
 		std::string result = extract_string("result");
-		if (!result.empty()) lc.result = result;
+		if (!result.empty())
+			lc.result = result;
 		lc.is_deactivated = (extract_string("is_deactivated") == "true");
 		invoke_message_callback(lc);
 	}
 }
 
-static const struct lws_protocols protocols[] = {
-	{"kalshi-ws", ws_callback, 0, 65536},
-	LWS_PROTOCOL_LIST_TERM
-};
+static const struct lws_protocols protocols[] = {{"kalshi-ws", ws_callback, 0, 65536},
+												 LWS_PROTOCOL_LIST_TERM};
 
 WebSocketClient::WebSocketClient(const Signer& signer, WsConfig config)
 	: impl_(std::make_unique<Impl>(signer, std::move(config))) {}
@@ -404,7 +420,7 @@ Result<void> WebSocketClient::connect() {
 	}
 
 	// Create context
-	struct lws_context_creation_info ctx_info{};
+	struct lws_context_creation_info ctx_info {};
 	std::memset(&ctx_info, 0, sizeof(ctx_info));
 	ctx_info.port = CONTEXT_PORT_NO_LISTEN;
 	ctx_info.protocols = protocols;
@@ -417,7 +433,7 @@ Result<void> WebSocketClient::connect() {
 	}
 
 	// Create connection
-	struct lws_client_connect_info conn_info{};
+	struct lws_client_connect_info conn_info {};
 	std::memset(&conn_info, 0, sizeof(conn_info));
 	conn_info.context = data->context;
 	conn_info.address = host.c_str();
@@ -428,8 +444,8 @@ Result<void> WebSocketClient::connect() {
 	conn_info.protocol = protocols[0].name;
 
 	if (use_ssl) {
-		conn_info.ssl_connection = LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED |
-								   LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+		conn_info.ssl_connection =
+			LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
 	}
 
 	data->wsi = lws_client_connect_via_info(&conn_info);
@@ -577,8 +593,8 @@ Result<void> WebSocketClient::add_markets(SubscriptionId sub_id,
 	}
 
 	std::int32_t id = data->get_next_id();
-	std::string cmd = build_update_command(id, sub_id.sid, "add_markets",
-										   sub_id.channel, market_tickers);
+	std::string cmd =
+		build_update_command(id, sub_id.sid, "add_markets", sub_id.channel, market_tickers);
 	data->queue_send(cmd);
 
 	return {};
@@ -597,8 +613,8 @@ Result<void> WebSocketClient::remove_markets(SubscriptionId sub_id,
 	}
 
 	std::int32_t id = data->get_next_id();
-	std::string cmd = build_update_command(id, sub_id.sid, "delete_markets",
-										   sub_id.channel, market_tickers);
+	std::string cmd =
+		build_update_command(id, sub_id.sid, "delete_markets", sub_id.channel, market_tickers);
 	data->queue_send(cmd);
 
 	return {};

@@ -11,7 +11,8 @@ RateLimiter::RateLimiter(Config config)
 
 void RateLimiter::refill() noexcept {
 	std::chrono::steady_clock::time_point now = std::chrono::steady_clock::now();
-	std::chrono::milliseconds elapsed = std::chrono::duration_cast<std::chrono::milliseconds>(now - last_refill_);
+	std::chrono::milliseconds elapsed =
+		std::chrono::duration_cast<std::chrono::milliseconds>(now - last_refill_);
 
 	if (elapsed >= config_.refill_interval) {
 		std::int32_t tokens_to_add = static_cast<std::int32_t>(elapsed / config_.refill_interval);
@@ -49,9 +50,9 @@ bool RateLimiter::acquire_for(std::chrono::milliseconds max_wait) {
 		if (try_acquire()) {
 			return true;
 		}
-		std::chrono::milliseconds sleep_time = std::min(config_.refill_interval / 10,
-								   std::chrono::duration_cast<std::chrono::milliseconds>(
-									   deadline - std::chrono::steady_clock::now()));
+		std::chrono::milliseconds sleep_time = std::min(
+			config_.refill_interval / 10, std::chrono::duration_cast<std::chrono::milliseconds>(
+											  deadline - std::chrono::steady_clock::now()));
 		if (sleep_time.count() > 0) {
 			std::this_thread::sleep_for(sleep_time);
 		}

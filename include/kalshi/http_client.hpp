@@ -8,12 +8,13 @@
 #include <optional>
 #include <string>
 #include <string_view>
-#include <unordered_map>
+#include <utility>
+#include <vector>
 
 namespace kalshi {
 
 /// HTTP methods
-enum class HttpMethod { GET, POST, PUT, DELETE };
+enum class HttpMethod : std::uint8_t { GET, POST, PUT, DELETE };
 
 /// Convert HTTP method to string
 [[nodiscard]] constexpr std::string_view to_string(HttpMethod method) noexcept {
@@ -31,10 +32,12 @@ enum class HttpMethod { GET, POST, PUT, DELETE };
 }
 
 /// HTTP response
+/// Uses contiguous vector storage for headers instead of unordered_map
+/// for better cache locality (typically <10 headers in a response).
 struct HttpResponse {
-	int status_code;
+	std::int16_t status_code; // HTTP status codes fit in int16 (100-599)
 	std::string body;
-	std::unordered_map<std::string, std::string> headers;
+	std::vector<std::pair<std::string, std::string>> headers;
 };
 
 /// HTTP client configuration
