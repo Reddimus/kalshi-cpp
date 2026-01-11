@@ -106,6 +106,9 @@ make build
 # Run tests
 make test
 
+# Run benchmark (254 iterations by default)
+make bench
+
 # Check formatting
 make lint
 ```

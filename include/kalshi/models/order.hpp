@@ -9,17 +9,17 @@
 namespace kalshi {
 
 /// Order type
-enum class OrderType { Limit, Market };
+enum class OrderType : std::uint8_t { Limit, Market };
 
 /// Time in force for orders
-enum class TimeInForce {
+enum class TimeInForce : std::uint8_t {
 	GTC, // Good til cancelled
 	IOC, // Immediate or cancel
-	FOK  // Fill or kill
+	FOK	 // Fill or kill
 };
 
 /// Order status
-enum class OrderStatus { Pending, Open, Filled, Cancelled, PartiallyFilled };
+enum class OrderStatus : std::uint8_t { Pending, Open, Filled, Cancelled, PartiallyFilled };
 
 /// Order request (for creating new orders)
 struct OrderRequest {
@@ -27,7 +27,7 @@ struct OrderRequest {
 	Side side{Side::Yes};
 	Action action{Action::Buy};
 	OrderType type{OrderType::Limit};
-	std::int32_t count{0};             // Number of contracts
+	std::int32_t count{0};			   // Number of contracts
 	std::optional<std::int32_t> price; // Price in cents (required for limit orders)
 	TimeInForce tif{TimeInForce::GTC};
 	std::optional<std::int64_t> expiration_ts; // Unix ms for GTC orders
