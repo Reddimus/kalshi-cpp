@@ -13,21 +13,23 @@
 namespace kalshi {
 
 /// Retry policy configuration
+/// Fields ordered for minimal padding; narrowed types reduce cache footprint.
 struct RetryPolicy {
-	std::int32_t max_attempts{3};
 	std::chrono::milliseconds initial_delay{100};
 	std::chrono::milliseconds max_delay{10000};
 	double backoff_multiplier{2.0};
-	double jitter_factor{0.1}; // Random jitter as fraction of delay
+	double jitter_factor{0.1};	  // Random jitter as fraction of delay
+	std::uint8_t max_attempts{3}; // max 255 attempts (UINT8_MAX)
 	bool retry_on_network_error{true};
 	bool retry_on_rate_limit{true};
 	bool retry_on_server_error{true}; // 5xx errors
 };
 
 /// Result of a retry operation
+/// Reordered for optimal packing.
 struct RetryResult {
-	std::int32_t attempts_made;
 	std::chrono::milliseconds total_delay;
+	std::uint8_t attempts_made; // max 255 attempts
 	bool succeeded;
 };
 
@@ -54,11 +56,11 @@ struct RetryResult {
 }
 
 /// Calculate delay for a retry attempt with exponential backoff and jitter
-[[nodiscard]] inline std::chrono::milliseconds calculate_retry_delay(std::int32_t attempt,
+[[nodiscard]] inline std::chrono::milliseconds calculate_retry_delay(std::uint8_t attempt,
 																	 const RetryPolicy& policy) {
 	// Exponential backoff
 	double delay_ms = static_cast<double>(policy.initial_delay.count());
-	for (std::int32_t i = 1; i < attempt; ++i) {
+	for (std::uint8_t i = 1; i < attempt; ++i) {
 		delay_ms *= policy.backoff_multiplier;
 	}
 
@@ -85,7 +87,7 @@ template <typename Operation>
 [[nodiscard]] Result<HttpResponse> with_retry(Operation&& operation, const RetryPolicy& policy) {
 	std::chrono::milliseconds total_delay{0};
 
-	for (std::int32_t attempt = 1; attempt <= policy.max_attempts; ++attempt) {
+	for (std::uint8_t attempt = 1; attempt <= policy.max_attempts; ++attempt) {
 		Result<HttpResponse> result = operation();
 
 		if (result.has_value()) {

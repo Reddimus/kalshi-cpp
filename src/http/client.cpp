@@ -30,7 +30,7 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata) {
 }
 
 size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
-	std::unordered_map<std::string, std::string>* headers = static_cast<std::unordered_map<std::string, std::string>*>(userdata);
+	auto* headers = static_cast<std::vector<std::pair<std::string, std::string>>*>(userdata);
 	std::string line(buffer, size * nitems);
 
 	std::size_t colon = line.find(':');
@@ -44,7 +44,7 @@ size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata)
 		while (!value.empty() && (value.back() == '\r' || value.back() == '\n')) {
 			value.pop_back();
 		}
-		(*headers)[key] = value;
+		headers->emplace_back(std::move(key), std::move(value));
 	}
 	return size * nitems;
 }
@@ -87,7 +87,8 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 	}
 
 	// Sign the request
-	Result<AuthHeaders> headers_result = impl_->signer.sign(std::string(to_string(method)), std::string(path));
+	Result<AuthHeaders> headers_result =
+		impl_->signer.sign(std::string(to_string(method)), std::string(path));
 	if (!headers_result) {
 		return std::unexpected(headers_result.error());
 	}
@@ -159,7 +160,7 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 	// Get status code
 	long status_code = 0;
 	curl_easy_getinfo(impl_->curl, CURLINFO_RESPONSE_CODE, &status_code);
-	response.status_code = static_cast<int>(status_code);
+	response.status_code = static_cast<std::int16_t>(status_code);
 
 	return response;
 }

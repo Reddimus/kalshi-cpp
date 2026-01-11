@@ -19,7 +19,7 @@
 namespace kalshi {
 
 /// WebSocket channels available for subscription
-enum class Channel { OrderbookDelta, Trade, Fill, MarketLifecycle };
+enum class Channel : std::uint8_t { OrderbookDelta, Trade, Fill, MarketLifecycle };
 
 /// Convert channel to string for API
 [[nodiscard]] constexpr std::string_view to_string(Channel ch) noexcept {

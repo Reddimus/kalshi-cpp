@@ -9,6 +9,31 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 # Options
 option(KALSHI_BUILD_TESTS "Build tests" ON)
 option(KALSHI_BUILD_EXAMPLES "Build examples" ON)
+option(KALSHI_ENABLE_LTO "Enable Link Time Optimization" ON)
+option(KALSHI_NATIVE_ARCH "Use -march=native for CPU-specific tuning" OFF)
+
+# Aggressive optimization flags for Release builds
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+
+# Enable LTO if requested and supported
+if(KALSHI_ENABLE_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT LTO_SUPPORTED OUTPUT LTO_ERROR)
+    if(LTO_SUPPORTED)
+        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
+        message(STATUS "LTO enabled for Release builds")
+    else()
+        message(WARNING "LTO not supported: ${LTO_ERROR}")
+    endif()
+endif()
+
+# CPU-specific tuning (optional, not portable)
+if(KALSHI_NATIVE_ARCH)
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=native")
+    message(STATUS "Using -march=native for CPU-specific optimizations")
+else()
+    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -mtune=generic")
+endif()
 
 # Find dependencies
 find_package(OpenSSL REQUIRED)

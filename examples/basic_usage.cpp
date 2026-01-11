@@ -16,7 +16,8 @@ int main() {
 	}
 
 	// Create signer from PEM file
-	kalshi::Result<kalshi::Signer> signer_result = kalshi::Signer::from_pem_file(api_key_id, api_key_file);
+	kalshi::Result<kalshi::Signer> signer_result =
+		kalshi::Signer::from_pem_file(api_key_id, api_key_file);
 	if (!signer_result) {
 		std::cerr << "Failed to create signer: " << signer_result.error().message << "\n";
 		return 1;

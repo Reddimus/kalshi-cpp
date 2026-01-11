@@ -4,8 +4,9 @@
 BUILD_DIR := build
 CMAKE := cmake
 NPROC := $(shell nproc 2>/dev/null || echo 4)
+BENCH_ITERATIONS := 254
 
-.PHONY: all build test lint clean configure help
+.PHONY: all build test lint clean configure help bench bench-compare format
 
 # Default target
 all: build
@@ -48,14 +49,27 @@ clean:
 	@rm -rf $(BUILD_DIR)
 	@echo "Cleaned build directory"
 
+# Run benchmark
+bench: build
+	@./tools/bench.sh $(BENCH_ITERATIONS)
+
+# Compare benchmarks between HEAD and working tree (or two refs)
+bench-compare:
+	@./tools/bench.sh --compare $(BENCH_ITERATIONS)
+
 # Help
 help:
 	@echo "Kalshi C++ SDK Build System"
 	@echo ""
 	@echo "Targets:"
-	@echo "  make build    - Configure and build the SDK"
-	@echo "  make test     - Run tests"
-	@echo "  make lint     - Check code formatting"
-	@echo "  make format   - Format code in place"
-	@echo "  make clean    - Remove build artifacts"
-	@echo "  make help     - Show this help"
+	@echo "  make build         - Configure and build the SDK"
+	@echo "  make test          - Run tests"
+	@echo "  make bench         - Run benchmark ($(BENCH_ITERATIONS) iterations)"
+	@echo "  make bench-compare - Compare HEAD vs working tree"
+	@echo "  make lint          - Check code formatting"
+	@echo "  make format        - Format code in place"
+	@echo "  make clean         - Remove build artifacts"
+	@echo "  make help          - Show this help"
+	@echo ""
+	@echo "Variables:"
+	@echo "  BENCH_ITERATIONS=N  - Override benchmark iterations (default: 254)"

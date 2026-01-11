@@ -18,9 +18,9 @@ class RateLimiter {
 public:
 	/// Configuration for rate limiting
 	struct Config {
-		std::int32_t max_tokens = 10;                      // Maximum tokens in bucket
+		std::int32_t max_tokens = 10;					   // Maximum tokens in bucket
 		std::chrono::milliseconds refill_interval{1000};   // Time to add one token
-		std::int32_t initial_tokens = 10;                  // Starting tokens
+		std::int32_t initial_tokens = 10;				   // Starting tokens
 		std::optional<std::chrono::milliseconds> max_wait; // Max time to wait
 	};
 
