@@ -1,8 +1,8 @@
 #include "kalshi/api.hpp"
 
 #include <charconv>
-#include <sstream>
 #include <cstring>
+#include <sstream>
 
 namespace kalshi {
 
@@ -12,8 +12,7 @@ struct KalshiClient::Impl {
 	explicit Impl(HttpClient c) : client(std::move(c)) {}
 };
 
-KalshiClient::KalshiClient(HttpClient client)
-	: impl_(std::make_unique<Impl>(std::move(client))) {}
+KalshiClient::KalshiClient(HttpClient client) : impl_(std::make_unique<Impl>(std::move(client))) {}
 
 KalshiClient::~KalshiClient() = default;
 
@@ -35,17 +34,21 @@ namespace {
 std::string extract_string(const std::string& json, const std::string& key) {
 	std::string search = "\"" + key + "\"";
 	size_t pos = json.find(search);
-	if (pos == std::string::npos) return "";
+	if (pos == std::string::npos)
+		return "";
 
 	pos = json.find(':', pos);
-	if (pos == std::string::npos) return "";
+	if (pos == std::string::npos)
+		return "";
 
 	pos = json.find('"', pos);
-	if (pos == std::string::npos) return "";
+	if (pos == std::string::npos)
+		return "";
 
 	size_t start = pos + 1;
 	size_t end = json.find('"', start);
-	if (end == std::string::npos) return "";
+	if (end == std::string::npos)
+		return "";
 
 	return json.substr(start, end - start);
 }
@@ -53,14 +56,17 @@ std::string extract_string(const std::string& json, const std::string& key) {
 std::int64_t extract_int(const std::string& json, const std::string& key) {
 	std::string search = "\"" + key + "\"";
 	size_t pos = json.find(search);
-	if (pos == std::string::npos) return 0;
+	if (pos == std::string::npos)
+		return 0;
 
 	pos = json.find(':', pos);
-	if (pos == std::string::npos) return 0;
+	if (pos == std::string::npos)
+		return 0;
 
 	// Skip whitespace
 	pos++;
-	while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t')) pos++;
+	while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t'))
+		pos++;
 
 	// Parse number
 	std::int64_t result = 0;
@@ -79,14 +85,17 @@ std::int64_t extract_int(const std::string& json, const std::string& key) {
 bool extract_bool(const std::string& json, const std::string& key) {
 	std::string search = "\"" + key + "\"";
 	size_t pos = json.find(search);
-	if (pos == std::string::npos) return false;
+	if (pos == std::string::npos)
+		return false;
 
 	pos = json.find(':', pos);
-	if (pos == std::string::npos) return false;
+	if (pos == std::string::npos)
+		return false;
 
 	// Skip whitespace
 	pos++;
-	while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t')) pos++;
+	while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t'))
+		pos++;
 
 	return (pos < json.size() && json[pos] == 't');
 }
@@ -99,7 +108,8 @@ std::string extract_cursor(const std::string& json) {
 size_t find_object_start(const std::string& json, const std::string& key) {
 	std::string search = "\"" + key + "\"";
 	size_t pos = json.find(search);
-	if (pos == std::string::npos) return std::string::npos;
+	if (pos == std::string::npos)
+		return std::string::npos;
 
 	pos = json.find('{', pos);
 	return pos;
@@ -107,13 +117,16 @@ size_t find_object_start(const std::string& json, const std::string& key) {
 
 // Find matching closing brace
 size_t find_object_end(const std::string& json, size_t start) {
-	if (start >= json.size() || json[start] != '{') return std::string::npos;
+	if (start >= json.size() || json[start] != '{')
+		return std::string::npos;
 
 	int depth = 1;
 	size_t pos = start + 1;
 	while (pos < json.size() && depth > 0) {
-		if (json[pos] == '{') depth++;
-		else if (json[pos] == '}') depth--;
+		if (json[pos] == '{')
+			depth++;
+		else if (json[pos] == '}')
+			depth--;
 		pos++;
 	}
 	return depth == 0 ? pos : std::string::npos;
@@ -123,7 +136,8 @@ size_t find_object_end(const std::string& json, size_t start) {
 size_t find_array_start(const std::string& json, const std::string& key) {
 	std::string search = "\"" + key + "\"";
 	size_t pos = json.find(search);
-	if (pos == std::string::npos) return std::string::npos;
+	if (pos == std::string::npos)
+		return std::string::npos;
 
 	pos = json.find('[', pos);
 	return pos;
@@ -131,18 +145,21 @@ size_t find_array_start(const std::string& json, const std::string& key) {
 
 // Find matching closing bracket
 size_t find_array_end(const std::string& json, size_t start) {
-	if (start >= json.size() || json[start] != '[') return std::string::npos;
+	if (start >= json.size() || json[start] != '[')
+		return std::string::npos;
 
 	int depth = 1;
 	size_t pos = start + 1;
 	bool in_string = false;
 	while (pos < json.size() && depth > 0) {
 		char c = json[pos];
-		if (c == '"' && (pos == 0 || json[pos-1] != '\\')) {
+		if (c == '"' && (pos == 0 || json[pos - 1] != '\\')) {
 			in_string = !in_string;
 		} else if (!in_string) {
-			if (c == '[') depth++;
-			else if (c == ']') depth--;
+			if (c == '[')
+				depth++;
+			else if (c == ']')
+				depth--;
 		}
 		pos++;
 	}
@@ -154,10 +171,12 @@ std::vector<std::string> extract_array_objects(const std::string& json, const st
 	std::vector<std::string> result;
 
 	size_t array_start = find_array_start(json, key);
-	if (array_start == std::string::npos) return result;
+	if (array_start == std::string::npos)
+		return result;
 
 	size_t array_end = find_array_end(json, array_start);
-	if (array_end == std::string::npos) return result;
+	if (array_end == std::string::npos)
+		return result;
 
 	std::string array_content = json.substr(array_start + 1, array_end - array_start - 2);
 
@@ -166,10 +185,12 @@ std::vector<std::string> extract_array_objects(const std::string& json, const st
 	while (pos < array_content.size()) {
 		// Find next object start
 		size_t obj_start = array_content.find('{', pos);
-		if (obj_start == std::string::npos) break;
+		if (obj_start == std::string::npos)
+			break;
 
 		size_t obj_end = find_object_end(array_content, obj_start);
-		if (obj_end == std::string::npos) break;
+		if (obj_end == std::string::npos)
+			break;
 
 		result.push_back(array_content.substr(obj_start, obj_end - obj_start));
 		pos = obj_end;
@@ -183,19 +204,32 @@ std::string escape_json_string(const std::string& s) {
 	result.reserve(s.size() + 10);
 	for (char c : s) {
 		switch (c) {
-			case '"': result += "\\\""; break;
-			case '\\': result += "\\\\"; break;
-			case '\n': result += "\\n"; break;
-			case '\r': result += "\\r"; break;
-			case '\t': result += "\\t"; break;
-			default: result += c; break;
+			case '"':
+				result += "\\\"";
+				break;
+			case '\\':
+				result += "\\\\";
+				break;
+			case '\n':
+				result += "\\n";
+				break;
+			case '\r':
+				result += "\\r";
+				break;
+			case '\t':
+				result += "\\t";
+				break;
+			default:
+				result += c;
+				break;
 		}
 	}
 	return result;
 }
 
 void append_query_param(std::string& query, const std::string& key, const std::string& value) {
-	if (value.empty()) return;
+	if (value.empty())
+		return;
 	query += (query.find('?') == std::string::npos ? '?' : '&');
 	query += key + "=" + value;
 }
@@ -221,9 +255,10 @@ Result<ExchangeStatus> KalshiClient::get_exchange_status() {
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get exchange status: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get exchange status: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 
 	ExchangeStatus status;
@@ -241,9 +276,10 @@ Result<Market> KalshiClient::get_market(const std::string& ticker) {
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get market: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get market: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 
 	return parse_market(response->body);
@@ -252,9 +288,10 @@ Result<Market> KalshiClient::get_market(const std::string& ticker) {
 Result<Market> KalshiClient::parse_market(const std::string& json) {
 	// Find market object (may be nested under "market" key or at root)
 	size_t market_start = find_object_start(json, "market");
-	std::string market_json = market_start != std::string::npos
-		? json.substr(market_start, find_object_end(json, market_start) - market_start)
-		: json;
+	std::string market_json =
+		market_start != std::string::npos
+			? json.substr(market_start, find_object_end(json, market_start) - market_start)
+			: json;
 
 	Market market;
 	market.ticker = extract_string(market_json, "ticker");
@@ -304,12 +341,18 @@ Result<std::vector<Market>> KalshiClient::parse_markets(const std::string& json)
 std::string KalshiClient::build_markets_query(const GetMarketsParams& params) {
 	std::string query = "/markets";
 
-	if (params.limit) append_query_param(query, "limit", *params.limit);
-	if (params.cursor) append_query_param(query, "cursor", *params.cursor);
-	if (params.event_ticker) append_query_param(query, "event_ticker", *params.event_ticker);
-	if (params.series_ticker) append_query_param(query, "series_ticker", *params.series_ticker);
-	if (params.status) append_query_param(query, "status", *params.status);
-	if (params.tickers) append_query_param(query, "tickers", *params.tickers);
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	if (params.event_ticker)
+		append_query_param(query, "event_ticker", *params.event_ticker);
+	if (params.series_ticker)
+		append_query_param(query, "series_ticker", *params.series_ticker);
+	if (params.status)
+		append_query_param(query, "status", *params.status);
+	if (params.tickers)
+		append_query_param(query, "tickers", *params.tickers);
 
 	return query;
 }
@@ -322,9 +365,10 @@ Result<PaginatedResponse<Market>> KalshiClient::get_markets(const GetMarketsPara
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get markets: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get markets: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 
 	auto markets = parse_markets(response->body);
@@ -344,7 +388,7 @@ Result<PaginatedResponse<Market>> KalshiClient::get_markets(const GetMarketsPara
 }
 
 Result<OrderBook> KalshiClient::get_market_orderbook(const std::string& ticker,
-													  std::optional<std::int32_t> depth) {
+													 std::optional<std::int32_t> depth) {
 	std::string path = "/markets/" + ticker + "/orderbook";
 	if (depth) {
 		append_query_param(path, "depth", *depth);
@@ -356,9 +400,10 @@ Result<OrderBook> KalshiClient::get_market_orderbook(const std::string& ticker,
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get orderbook: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get orderbook: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 
 	return parse_orderbook(response->body);
@@ -370,8 +415,8 @@ Result<OrderBook> KalshiClient::parse_orderbook(const std::string& json) {
 	// Find orderbook object
 	size_t ob_start = find_object_start(json, "orderbook");
 	std::string ob_json = ob_start != std::string::npos
-		? json.substr(ob_start, find_object_end(json, ob_start) - ob_start)
-		: json;
+							  ? json.substr(ob_start, find_object_end(json, ob_start) - ob_start)
+							  : json;
 
 	book.market_ticker = extract_string(ob_json, "market_ticker");
 
@@ -385,11 +430,13 @@ Result<OrderBook> KalshiClient::parse_orderbook(const std::string& json) {
 		size_t pos = 0;
 		while (pos < yes_content.size()) {
 			size_t inner_start = yes_content.find('[', pos);
-			if (inner_start == std::string::npos || inner_start == 0) break;
+			if (inner_start == std::string::npos || inner_start == 0)
+				break;
 
 			size_t comma = yes_content.find(',', inner_start);
 			size_t inner_end = yes_content.find(']', comma);
-			if (comma == std::string::npos || inner_end == std::string::npos) break;
+			if (comma == std::string::npos || inner_end == std::string::npos)
+				break;
 
 			std::string price_str = yes_content.substr(inner_start + 1, comma - inner_start - 1);
 			std::string qty_str = yes_content.substr(comma + 1, inner_end - comma - 1);
@@ -412,11 +459,13 @@ Result<OrderBook> KalshiClient::parse_orderbook(const std::string& json) {
 		size_t pos = 0;
 		while (pos < no_content.size()) {
 			size_t inner_start = no_content.find('[', pos);
-			if (inner_start == std::string::npos || inner_start == 0) break;
+			if (inner_start == std::string::npos || inner_start == 0)
+				break;
 
 			size_t comma = no_content.find(',', inner_start);
 			size_t inner_end = no_content.find(']', comma);
-			if (comma == std::string::npos || inner_end == std::string::npos) break;
+			if (comma == std::string::npos || inner_end == std::string::npos)
+				break;
 
 			std::string price_str = no_content.substr(inner_start + 1, comma - inner_start - 1);
 			std::string qty_str = no_content.substr(comma + 1, inner_end - comma - 1);
@@ -433,11 +482,14 @@ Result<OrderBook> KalshiClient::parse_orderbook(const std::string& json) {
 	return book;
 }
 
-Result<std::vector<Candlestick>> KalshiClient::get_market_candlesticks(const GetCandlesticksParams& params) {
+Result<std::vector<Candlestick>>
+KalshiClient::get_market_candlesticks(const GetCandlesticksParams& params) {
 	std::string path = "/markets/" + params.ticker + "/candlesticks";
 	append_query_param(path, "period", params.period);
-	if (params.start_ts) append_query_param(path, "start_ts", *params.start_ts);
-	if (params.end_ts) append_query_param(path, "end_ts", *params.end_ts);
+	if (params.start_ts)
+		append_query_param(path, "start_ts", *params.start_ts);
+	if (params.end_ts)
+		append_query_param(path, "end_ts", *params.end_ts);
 
 	auto response = impl_->client.get(path);
 	if (!response) {
@@ -445,9 +497,10 @@ Result<std::vector<Candlestick>> KalshiClient::get_market_candlesticks(const Get
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get candlesticks: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get candlesticks: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 
 	std::vector<Candlestick> candlesticks;
@@ -470,11 +523,16 @@ Result<std::vector<Candlestick>> KalshiClient::get_market_candlesticks(const Get
 std::string KalshiClient::build_trades_query(const GetTradesParams& params) {
 	std::string query = "/trades";
 
-	if (params.limit) append_query_param(query, "limit", *params.limit);
-	if (params.cursor) append_query_param(query, "cursor", *params.cursor);
-	if (params.market_ticker) append_query_param(query, "ticker", *params.market_ticker);
-	if (params.min_ts) append_query_param(query, "min_ts", *params.min_ts);
-	if (params.max_ts) append_query_param(query, "max_ts", *params.max_ts);
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	if (params.market_ticker)
+		append_query_param(query, "ticker", *params.market_ticker);
+	if (params.min_ts)
+		append_query_param(query, "min_ts", *params.min_ts);
+	if (params.max_ts)
+		append_query_param(query, "max_ts", *params.max_ts);
 
 	return query;
 }
@@ -487,9 +545,10 @@ Result<PaginatedResponse<PublicTrade>> KalshiClient::get_trades(const GetTradesP
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get trades: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get trades: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 
 	std::vector<PublicTrade> trades;
@@ -523,10 +582,14 @@ Result<PaginatedResponse<PublicTrade>> KalshiClient::get_trades(const GetTradesP
 std::string KalshiClient::build_events_query(const GetEventsParams& params) {
 	std::string query = "/events";
 
-	if (params.limit) append_query_param(query, "limit", *params.limit);
-	if (params.cursor) append_query_param(query, "cursor", *params.cursor);
-	if (params.series_ticker) append_query_param(query, "series_ticker", *params.series_ticker);
-	if (params.status) append_query_param(query, "status", *params.status);
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	if (params.series_ticker)
+		append_query_param(query, "series_ticker", *params.series_ticker);
+	if (params.status)
+		append_query_param(query, "status", *params.status);
 
 	return query;
 }
@@ -538,16 +601,18 @@ Result<Event> KalshiClient::get_event(const std::string& event_ticker) {
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get event: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(Error{
+			ErrorCode::ServerError, "Failed to get event: " + std::to_string(response->status_code),
+			response->status_code});
 	}
 
 	// Find event object
 	size_t evt_start = find_object_start(response->body, "event");
-	std::string evt_json = evt_start != std::string::npos
-		? response->body.substr(evt_start, find_object_end(response->body, evt_start) - evt_start)
-		: response->body;
+	std::string evt_json =
+		evt_start != std::string::npos
+			? response->body.substr(evt_start,
+									find_object_end(response->body, evt_start) - evt_start)
+			: response->body;
 
 	Event event;
 	event.event_ticker = extract_string(evt_json, "event_ticker");
@@ -567,9 +632,10 @@ Result<PaginatedResponse<Event>> KalshiClient::get_events(const GetEventsParams&
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get events: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get events: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 
 	std::vector<Event> events;
@@ -604,15 +670,18 @@ Result<Series> KalshiClient::get_series(const std::string& series_ticker) {
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get series: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get series: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 
 	size_t series_start = find_object_start(response->body, "series");
-	std::string series_json = series_start != std::string::npos
-		? response->body.substr(series_start, find_object_end(response->body, series_start) - series_start)
-		: response->body;
+	std::string series_json =
+		series_start != std::string::npos
+			? response->body.substr(series_start,
+									find_object_end(response->body, series_start) - series_start)
+			: response->body;
 
 	Series series;
 	series.ticker = extract_string(series_json, "ticker");
@@ -632,9 +701,10 @@ Result<Balance> KalshiClient::get_balance() {
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get balance: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get balance: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 
 	Balance balance;
@@ -647,11 +717,16 @@ Result<Balance> KalshiClient::get_balance() {
 std::string KalshiClient::build_positions_query(const GetPositionsParams& params) {
 	std::string query = "/portfolio/positions";
 
-	if (params.limit) append_query_param(query, "limit", *params.limit);
-	if (params.cursor) append_query_param(query, "cursor", *params.cursor);
-	if (params.event_ticker) append_query_param(query, "event_ticker", *params.event_ticker);
-	if (params.market_ticker) append_query_param(query, "market_ticker", *params.market_ticker);
-	if (params.settlement_status) append_query_param(query, "settlement_status", *params.settlement_status);
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	if (params.event_ticker)
+		append_query_param(query, "event_ticker", *params.event_ticker);
+	if (params.market_ticker)
+		append_query_param(query, "market_ticker", *params.market_ticker);
+	if (params.settlement_status)
+		append_query_param(query, "settlement_status", *params.settlement_status);
 
 	return query;
 }
@@ -664,9 +739,10 @@ Result<PaginatedResponse<Position>> KalshiClient::get_positions(const GetPositio
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get positions: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get positions: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 
 	std::vector<Position> positions;
@@ -695,10 +771,14 @@ Result<PaginatedResponse<Position>> KalshiClient::get_positions(const GetPositio
 std::string KalshiClient::build_orders_query(const GetOrdersParams& params) {
 	std::string query = "/portfolio/orders";
 
-	if (params.limit) append_query_param(query, "limit", *params.limit);
-	if (params.cursor) append_query_param(query, "cursor", *params.cursor);
-	if (params.market_ticker) append_query_param(query, "ticker", *params.market_ticker);
-	if (params.status) append_query_param(query, "status", *params.status);
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	if (params.market_ticker)
+		append_query_param(query, "ticker", *params.market_ticker);
+	if (params.status)
+		append_query_param(query, "status", *params.status);
 
 	return query;
 }
@@ -706,9 +786,10 @@ std::string KalshiClient::build_orders_query(const GetOrdersParams& params) {
 Result<Order> KalshiClient::parse_order(const std::string& json) {
 	// Find order object
 	size_t order_start = find_object_start(json, "order");
-	std::string order_json = order_start != std::string::npos
-		? json.substr(order_start, find_object_end(json, order_start) - order_start)
-		: json;
+	std::string order_json =
+		order_start != std::string::npos
+			? json.substr(order_start, find_object_end(json, order_start) - order_start)
+			: json;
 
 	Order order;
 	order.order_id = extract_string(order_json, "order_id");
@@ -766,9 +847,10 @@ Result<PaginatedResponse<Order>> KalshiClient::get_orders(const GetOrdersParams&
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get orders: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get orders: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 
 	auto orders = parse_orders(response->body);
@@ -794,9 +876,9 @@ Result<Order> KalshiClient::get_order(const std::string& order_id) {
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get order: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(Error{
+			ErrorCode::ServerError, "Failed to get order: " + std::to_string(response->status_code),
+			response->status_code});
 	}
 
 	return parse_order(response->body);
@@ -805,12 +887,18 @@ Result<Order> KalshiClient::get_order(const std::string& order_id) {
 std::string KalshiClient::build_fills_query(const GetFillsParams& params) {
 	std::string query = "/portfolio/fills";
 
-	if (params.limit) append_query_param(query, "limit", *params.limit);
-	if (params.cursor) append_query_param(query, "cursor", *params.cursor);
-	if (params.market_ticker) append_query_param(query, "ticker", *params.market_ticker);
-	if (params.order_id) append_query_param(query, "order_id", *params.order_id);
-	if (params.min_ts) append_query_param(query, "min_ts", *params.min_ts);
-	if (params.max_ts) append_query_param(query, "max_ts", *params.max_ts);
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	if (params.market_ticker)
+		append_query_param(query, "ticker", *params.market_ticker);
+	if (params.order_id)
+		append_query_param(query, "order_id", *params.order_id);
+	if (params.min_ts)
+		append_query_param(query, "min_ts", *params.min_ts);
+	if (params.max_ts)
+		append_query_param(query, "max_ts", *params.max_ts);
 
 	return query;
 }
@@ -823,9 +911,9 @@ Result<PaginatedResponse<Fill>> KalshiClient::get_fills(const GetFillsParams& pa
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get fills: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(Error{
+			ErrorCode::ServerError, "Failed to get fills: " + std::to_string(response->status_code),
+			response->status_code});
 	}
 
 	std::vector<Fill> fills;
@@ -857,12 +945,16 @@ Result<PaginatedResponse<Fill>> KalshiClient::get_fills(const GetFillsParams& pa
 	return result;
 }
 
-Result<PaginatedResponse<Settlement>> KalshiClient::get_settlements(const GetPositionsParams& params) {
+Result<PaginatedResponse<Settlement>>
+KalshiClient::get_settlements(const GetPositionsParams& params) {
 	std::string path = "/portfolio/settlements";
 
-	if (params.limit) append_query_param(path, "limit", *params.limit);
-	if (params.cursor) append_query_param(path, "cursor", *params.cursor);
-	if (params.market_ticker) append_query_param(path, "market_ticker", *params.market_ticker);
+	if (params.limit)
+		append_query_param(path, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(path, "cursor", *params.cursor);
+	if (params.market_ticker)
+		append_query_param(path, "market_ticker", *params.market_ticker);
 
 	auto response = impl_->client.get(path);
 	if (!response) {
@@ -870,9 +962,10 @@ Result<PaginatedResponse<Settlement>> KalshiClient::get_settlements(const GetPos
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get settlements: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get settlements: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 
 	std::vector<Settlement> settlements;
@@ -976,12 +1069,14 @@ std::string KalshiClient::serialize_amend_order(const AmendOrderParams& params) 
 		first = false;
 	}
 	if (params.yes_price) {
-		if (!first) ss << ",";
+		if (!first)
+			ss << ",";
 		ss << "\"yes_price\":" << *params.yes_price;
 		first = false;
 	}
 	if (params.no_price) {
-		if (!first) ss << ",";
+		if (!first)
+			ss << ",";
 		ss << "\"no_price\":" << *params.no_price;
 	}
 
@@ -1034,7 +1129,8 @@ std::string KalshiClient::serialize_batch_create(const BatchOrderRequest& reques
 	ss << "{\"orders\":[";
 
 	for (size_t i = 0; i < request.orders.size(); ++i) {
-		if (i > 0) ss << ",";
+		if (i > 0)
+			ss << ",";
 		ss << serialize_create_order(request.orders[i]);
 	}
 
@@ -1070,7 +1166,8 @@ std::string KalshiClient::serialize_batch_cancel(const BatchCancelRequest& reque
 	ss << "{\"order_ids\":[";
 
 	for (size_t i = 0; i < request.order_ids.size(); ++i) {
-		if (i > 0) ss << ",";
+		if (i > 0)
+			ss << ",";
 		ss << "\"" << escape_json_string(request.order_ids[i]) << "\"";
 	}
 
@@ -1078,7 +1175,8 @@ std::string KalshiClient::serialize_batch_cancel(const BatchCancelRequest& reque
 	return ss.str();
 }
 
-Result<BatchResponse<std::string>> KalshiClient::batch_cancel_orders(const BatchCancelRequest& request) {
+Result<BatchResponse<std::string>>
+KalshiClient::batch_cancel_orders(const BatchCancelRequest& request) {
 	std::string body = serialize_batch_cancel(request);
 
 	auto response = impl_->client.del("/portfolio/orders/batched");

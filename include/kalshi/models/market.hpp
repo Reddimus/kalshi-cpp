@@ -8,13 +8,13 @@
 namespace kalshi {
 
 /// Side of a position or order (yes/no for binary markets)
-enum class Side { Yes, No };
+enum class Side : std::uint8_t { Yes, No };
 
 /// Order action (buy or sell)
-enum class Action { Buy, Sell };
+enum class Action : std::uint8_t { Buy, Sell };
 
 /// Market status
-enum class MarketStatus { Open, Closed, Settled };
+enum class MarketStatus : std::uint8_t { Open, Closed, Settled };
 
 /// Price-quantity pair in an order book
 struct OrderBookEntry {

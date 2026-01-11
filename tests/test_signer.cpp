@@ -70,7 +70,8 @@ W5f5X5R5L5P5M5J5H5N5K5d5b5G5Q5S5z5Y5V5T5m5D5X5C5q5E5j5L5o5n5l5k5
 )";
 
 TEST(signer_from_invalid_pem_fails) {
-	kalshi::Result<kalshi::Signer> result = kalshi::Signer::from_pem("test_key_id", "invalid pem data");
+	kalshi::Result<kalshi::Signer> result =
+		kalshi::Signer::from_pem("test_key_id", "invalid pem data");
 	ASSERT_FALSE(result.has_value());
 }
 
@@ -84,7 +85,8 @@ TEST(signer_api_key_id_stored) {
 }
 
 TEST(sign_produces_headers) {
-	kalshi::Result<kalshi::Signer> signer_result = kalshi::Signer::from_pem("test_key", TEST_RSA_KEY);
+	kalshi::Result<kalshi::Signer> signer_result =
+		kalshi::Signer::from_pem("test_key", TEST_RSA_KEY);
 	// Skip if key parsing fails (test key format issue)
 	if (!signer_result.has_value()) {
 		return;

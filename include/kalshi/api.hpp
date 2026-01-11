@@ -46,7 +46,7 @@ struct ExchangeStatus {
 
 /// Account balance
 struct Balance {
-	std::int64_t balance{0};          // cents
+	std::int64_t balance{0};		   // cents
 	std::int64_t available_balance{0}; // cents
 };
 
@@ -103,7 +103,7 @@ struct GetMarketsParams {
 	std::optional<std::string> cursor;
 	std::optional<std::string> event_ticker;
 	std::optional<std::string> series_ticker;
-	std::optional<std::string> status;  // "open", "closed", "settled"
+	std::optional<std::string> status;	// "open", "closed", "settled"
 	std::optional<std::string> tickers; // comma-separated
 };
 
@@ -120,7 +120,7 @@ struct GetOrdersParams {
 	std::optional<std::int32_t> limit;
 	std::optional<std::string> cursor;
 	std::optional<std::string> market_ticker;
-	std::optional<std::string> status;  // "open", "pending", etc.
+	std::optional<std::string> status; // "open", "pending", etc.
 };
 
 /// Parameters for listing fills
@@ -154,7 +154,7 @@ struct GetTradesParams {
 /// Parameters for market candlesticks
 struct GetCandlesticksParams {
 	std::string ticker;
-	std::string period;              // "1m", "5m", "1h", "1d"
+	std::string period; // "1m", "5m", "1h", "1d"
 	std::optional<std::int64_t> start_ts;
 	std::optional<std::int64_t> end_ts;
 };
@@ -164,7 +164,7 @@ struct CreateOrderParams {
 	std::string ticker;
 	Side side{Side::Yes};
 	Action action{Action::Buy};
-	std::string type{"limit"};       // "limit" or "market"
+	std::string type{"limit"}; // "limit" or "market"
 	std::int32_t count{0};
 	std::optional<std::int32_t> yes_price;
 	std::optional<std::int32_t> no_price;
@@ -206,7 +206,7 @@ struct CreateOrderResponse {
 };
 
 /// Response for batch operations
-template<typename T>
+template <typename T>
 struct BatchResponse {
 	std::vector<T> results;
 	std::vector<std::string> errors;
@@ -240,17 +240,21 @@ public:
 	[[nodiscard]] Result<Market> get_market(const std::string& ticker);
 
 	/// List markets with optional filters
-	[[nodiscard]] Result<PaginatedResponse<Market>> get_markets(const GetMarketsParams& params = {});
+	[[nodiscard]] Result<PaginatedResponse<Market>>
+	get_markets(const GetMarketsParams& params = {});
 
 	/// Get market orderbook
-	[[nodiscard]] Result<OrderBook> get_market_orderbook(const std::string& ticker,
-														 std::optional<std::int32_t> depth = std::nullopt);
+	[[nodiscard]] Result<OrderBook>
+	get_market_orderbook(const std::string& ticker,
+						 std::optional<std::int32_t> depth = std::nullopt);
 
 	/// Get market candlesticks (price history)
-	[[nodiscard]] Result<std::vector<Candlestick>> get_market_candlesticks(const GetCandlesticksParams& params);
+	[[nodiscard]] Result<std::vector<Candlestick>>
+	get_market_candlesticks(const GetCandlesticksParams& params);
 
 	/// Get public trades for a market
-	[[nodiscard]] Result<PaginatedResponse<PublicTrade>> get_trades(const GetTradesParams& params = {});
+	[[nodiscard]] Result<PaginatedResponse<PublicTrade>>
+	get_trades(const GetTradesParams& params = {});
 
 	// ===== Events API =====
 
@@ -271,7 +275,8 @@ public:
 	[[nodiscard]] Result<Balance> get_balance();
 
 	/// Get user positions
-	[[nodiscard]] Result<PaginatedResponse<Position>> get_positions(const GetPositionsParams& params = {});
+	[[nodiscard]] Result<PaginatedResponse<Position>>
+	get_positions(const GetPositionsParams& params = {});
 
 	/// Get user orders
 	[[nodiscard]] Result<PaginatedResponse<Order>> get_orders(const GetOrdersParams& params = {});
@@ -283,7 +288,8 @@ public:
 	[[nodiscard]] Result<PaginatedResponse<Fill>> get_fills(const GetFillsParams& params = {});
 
 	/// Get user settlements
-	[[nodiscard]] Result<PaginatedResponse<Settlement>> get_settlements(const GetPositionsParams& params = {});
+	[[nodiscard]] Result<PaginatedResponse<Settlement>>
+	get_settlements(const GetPositionsParams& params = {});
 
 	// ===== Order Management (Authenticated) =====
 
@@ -300,10 +306,12 @@ public:
 	[[nodiscard]] Result<Order> decrease_order(const DecreaseOrderParams& params);
 
 	/// Create multiple orders in a batch
-	[[nodiscard]] Result<BatchResponse<Order>> batch_create_orders(const BatchOrderRequest& request);
+	[[nodiscard]] Result<BatchResponse<Order>>
+	batch_create_orders(const BatchOrderRequest& request);
 
 	/// Cancel multiple orders in a batch
-	[[nodiscard]] Result<BatchResponse<std::string>> batch_cancel_orders(const BatchCancelRequest& request);
+	[[nodiscard]] Result<BatchResponse<std::string>>
+	batch_cancel_orders(const BatchCancelRequest& request);
 
 	/// Access the underlying HTTP client
 	[[nodiscard]] HttpClient& http_client();
@@ -360,18 +368,25 @@ private:
 
 /// Parse MarketStatus from JSON string
 [[nodiscard]] inline MarketStatus parse_market_status(std::string_view s) {
-	if (s == "active" || s == "open" || s == "initialized") return MarketStatus::Open;
-	if (s == "settled" || s == "determined") return MarketStatus::Settled;
+	if (s == "active" || s == "open" || s == "initialized")
+		return MarketStatus::Open;
+	if (s == "settled" || s == "determined")
+		return MarketStatus::Settled;
 	return MarketStatus::Closed;
 }
 
 /// Parse OrderStatus from JSON string
 [[nodiscard]] inline OrderStatus parse_order_status(std::string_view s) {
-	if (s == "open" || s == "resting") return OrderStatus::Open;
-	if (s == "pending") return OrderStatus::Pending;
-	if (s == "filled" || s == "executed") return OrderStatus::Filled;
-	if (s == "cancelled" || s == "canceled") return OrderStatus::Cancelled;
-	if (s == "partial") return OrderStatus::PartiallyFilled;
+	if (s == "open" || s == "resting")
+		return OrderStatus::Open;
+	if (s == "pending")
+		return OrderStatus::Pending;
+	if (s == "filled" || s == "executed")
+		return OrderStatus::Filled;
+	if (s == "cancelled" || s == "canceled")
+		return OrderStatus::Cancelled;
+	if (s == "partial")
+		return OrderStatus::PartiallyFilled;
 	return OrderStatus::Pending;
 }
 
