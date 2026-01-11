@@ -3,7 +3,7 @@ Language: Cpp
 BasedOnStyle: LLVM
 IndentWidth: 4
 TabWidth: 4
-UseTab: Never
+UseTab: Always
 ColumnLimit: 100
 AccessModifierOffset: -4
 AlignAfterOpenBracket: Align
