@@ -377,6 +377,7 @@ This matrix compares feature coverage across official SDKs and this C++ implemen
 | `GET /exchange/status` | ✅ | ✅ | ❌ | ✅ |
 | `GET /exchange/schedule` | ✅ | ✅ | ❌ | ✅ |
 | `GET /exchange/announcements` | ✅ | ✅ | ❌ | ✅ |
+| `GET /exchange/user-data-timestamp` | ✅ | ✅ | ❌ | ✅ |
 
 ### REST API - Markets
 
@@ -408,6 +409,7 @@ This matrix compares feature coverage across official SDKs and this C++ implemen
 | `GET /portfolio/orders/{id}` | ✅ | ✅ | ❌ | ✅ |
 | `GET /portfolio/fills` | ✅ | ✅ | ❌ | ✅ |
 | `GET /portfolio/settlements` | ✅ | ✅ | ❌ | ✅ |
+| `GET /portfolio/total-resting-order-value` | ✅ | ✅ | ❌ | ✅ |
 
 ### REST API - Order Management (Authenticated)
 
@@ -426,10 +428,10 @@ This matrix compares feature coverage across official SDKs and this C++ implemen
 | -------- | ----------- | ------------ | ---------- | --- |
 | Order Groups | ✅ | ✅ | ❌ | ✅ |
 | Order Queue Position | ✅ | ✅ | ❌ | ✅ |
-| RFQ/Quotes | ✅ | ✅ | ❌ | ✅ |
-| API Keys Management | ✅ | ✅ | ❌ | ✅ |
+| RFQ/Quotes (full lifecycle) | ✅ | ✅ | ❌ | ✅ |
+| API Keys Management (incl. generate) | ✅ | ✅ | ❌ | ✅ |
 | Milestones | ✅ | ✅ | ❌ | ✅ |
-| Multivariate Collections | ✅ | ✅ | ❌ | ✅ |
+| Multivariate Collections (incl. lookup) | ✅ | ✅ | ❌ | ✅ |
 | Structured Targets | ✅ | ✅ | ❌ | ✅ |
 | Communications | ✅ | ✅ | ❌ | ✅ |
 | Search API | ❌ | ✅ | ❌ | ✅ |
