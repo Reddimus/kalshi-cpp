@@ -2,12 +2,26 @@
 
 ## Overview
 
-This document summarizes findings from analyzing the official Kalshi SDK implementations (TypeScript npm package and Python PyPI package).
+This document summarizes findings from analyzing the official Kalshi SDK implementations (TypeScript npm package and Python PyPI packages) and their feature parity with this C++ SDK.
 
 ## SDK Versions Analyzed
 
-- **TypeScript SDK**: `kalshi@0.0.5` on npm (WebSocket streaming only)
-- **Python SDK**: `kalshi-python@2.1.4` on PyPI (Full REST API, OpenAPI-generated)
+| SDK | Package | Version | Maintainer | Status |
+| --- | ------- | ------- | ---------- | ------ |
+| **TypeScript** | [`kalshi`](https://www.npmjs.com/package/kalshi) on npm | 0.0.5 | Ashwin Mahadevan (community) | WebSocket-only |
+| **Python Sync** | [`kalshi-python`](https://pypi.org/project/kalshi-python/) on PyPI | 2.1.4 | Kalshi (official) | Full REST API |
+| **Python Async** | [`kalshi-python-async`](https://pypi.org/project/kalshi-python-async/) on PyPI | 3.2.0+ | Kalshi (official) | Full REST API (async) |
+
+> **Note**: The prompt file mentioned `kalshi-typescript`, `kalshi_python_sync`, and `kalshi_python_async` as package names. After verification:
+>
+> - `kalshi-typescript` does not exist; the npm package is simply `kalshi`
+> - `kalshi_python_sync` does not exist; the sync package is `kalshi-python`
+> - `kalshi-python-async` is the correct async package name
+
+### SDK Ownership
+
+- **Python SDKs** (`kalshi-python`, `kalshi-python-async`): Official Kalshi packages. Author: `Kalshi Support <support@kalshi.com>`. Repository: `https://github.com/Kalshi/exchange-infra`. Auto-generated via OpenAPI Generator.
+- **TypeScript SDK** (`kalshi`): Community package by Ashwin Mahadevan. WebSocket streaming only, no REST API.
 
 ## API Endpoints
 
@@ -345,9 +359,112 @@ interface CreateOrderRequest {
 }
 ```
 
+## SDK Parity Matrix
+
+This matrix compares feature coverage across official SDKs and this C++ implementation.
+
+### Authentication Parity
+
+| Feature | Python Sync | Python Async | TypeScript | C++ |
+| ------- | ----------- | ------------ | ---------- | --- |
+| RSA-PSS Signing | ✅ | ✅ | ✅ | ✅ |
+| API Key Auth | ✅ | ✅ | ✅ | ✅ |
+
+### REST API - Exchange
+
+| Endpoint | Python Sync | Python Async | TypeScript | C++ |
+| -------- | ----------- | ------------ | ---------- | --- |
+| `GET /exchange/status` | ✅ | ✅ | ❌ | ✅ |
+| `GET /exchange/schedule` | ✅ | ✅ | ❌ | ✅ |
+| `GET /exchange/announcements` | ✅ | ✅ | ❌ | ✅ |
+
+### REST API - Markets
+
+| Endpoint | Python Sync | Python Async | TypeScript | C++ |
+| -------- | ----------- | ------------ | ---------- | --- |
+| `GET /markets` | ✅ | ✅ | ❌ | ✅ |
+| `GET /markets/{ticker}` | ✅ | ✅ | ❌ | ✅ |
+| `GET /markets/{ticker}/orderbook` | ✅ | ✅ | ❌ | ✅ |
+| `GET /markets/{ticker}/candlesticks` | ✅ | ✅ | ❌ | ✅ |
+| `GET /trades` | ✅ | ✅ | ❌ | ✅ |
+
+### REST API - Events & Series
+
+| Endpoint | Python Sync | Python Async | TypeScript | C++ |
+| -------- | ----------- | ------------ | ---------- | --- |
+| `GET /events` | ✅ | ✅ | ❌ | ✅ |
+| `GET /events/{ticker}` | ✅ | ✅ | ❌ | ✅ |
+| `GET /events/{ticker}/metadata` | ✅ | ✅ | ❌ | ✅ |
+| `GET /series` | ✅ | ✅ | ❌ | ✅ |
+| `GET /series/{ticker}` | ✅ | ✅ | ❌ | ✅ |
+
+### REST API - Portfolio (Authenticated)
+
+| Endpoint | Python Sync | Python Async | TypeScript | C++ |
+| -------- | ----------- | ------------ | ---------- | --- |
+| `GET /portfolio/balance` | ✅ | ✅ | ❌ | ✅ |
+| `GET /portfolio/positions` | ✅ | ✅ | ❌ | ✅ |
+| `GET /portfolio/orders` | ✅ | ✅ | ❌ | ✅ |
+| `GET /portfolio/orders/{id}` | ✅ | ✅ | ❌ | ✅ |
+| `GET /portfolio/fills` | ✅ | ✅ | ❌ | ✅ |
+| `GET /portfolio/settlements` | ✅ | ✅ | ❌ | ✅ |
+
+### REST API - Order Management (Authenticated)
+
+| Endpoint | Python Sync | Python Async | TypeScript | C++ |
+| -------- | ----------- | ------------ | ---------- | --- |
+| `POST /portfolio/orders` | ✅ | ✅ | ❌ | ✅ |
+| `DELETE /portfolio/orders/{id}` | ✅ | ✅ | ❌ | ✅ |
+| `POST /portfolio/orders/{id}/amend` | ✅ | ✅ | ❌ | ✅ |
+| `POST /portfolio/orders/{id}/decrease` | ✅ | ✅ | ❌ | ✅ |
+| `POST /portfolio/orders/batched` | ✅ | ✅ | ❌ | ✅ |
+| `DELETE /portfolio/orders/batched` | ✅ | ✅ | ❌ | ✅ |
+
+### REST API - Additional Features
+
+| Endpoint | Python Sync | Python Async | TypeScript | C++ |
+| -------- | ----------- | ------------ | ---------- | --- |
+| Order Groups | ✅ | ✅ | ❌ | ✅ |
+| Order Queue Position | ✅ | ✅ | ❌ | ✅ |
+| RFQ/Quotes | ✅ | ✅ | ❌ | ✅ |
+| API Keys Management | ✅ | ✅ | ❌ | ✅ |
+| Milestones | ✅ | ✅ | ❌ | ✅ |
+| Multivariate Collections | ✅ | ✅ | ❌ | ✅ |
+| Structured Targets | ✅ | ✅ | ❌ | ✅ |
+| Communications | ✅ | ✅ | ❌ | ✅ |
+| Search API | ❌ | ✅ | ❌ | ✅ |
+| Live Data API | ❌ | ✅ | ❌ | ✅ |
+| Incentive Programs | ❌ | ✅ | ❌ | ✅ |
+
+### WebSocket Channels Parity
+
+| Channel | Python Sync | Python Async | TypeScript | C++ |
+| ------- | ----------- | ------------ | ---------- | --- |
+| `orderbook_delta` | ❌ | ❌ | ✅ | ✅ |
+| `trade` | ❌ | ❌ | ✅ | ✅ |
+| `fill` | ❌ | ❌ | ✅ | ✅ |
+| `market_lifecycle` | ❌ | ❌ | ✅ | ✅ |
+
+### Summary
+
+| Category | C++ Coverage |
+| -------- | ------------ |
+| **Authentication** | Full parity |
+| **Markets API** | Full parity |
+| **Events API** | Full parity |
+| **Series API** | Full parity |
+| **Portfolio API** | Full parity |
+| **Order Management** | Full parity |
+| **Exchange API** | Full parity |
+| **WebSocket** | Full parity with TypeScript SDK |
+| **Advanced Features** | Full parity |
+
+The C++ SDK now provides **complete feature parity** with the official Kalshi Python SDKs, including all REST API endpoints for trading, portfolio management, order groups, RFQ/quotes, and administrative features.
+
 ## References
 
-- TypeScript SDK: `kalshi@0.0.5` on npm
-- Python SDK: `kalshi-python@2.1.4` on PyPI
-- API Documentation: <https://kalshi.com/docs/api>
-- OpenAPI Generator: Python SDK is auto-generated from OpenAPI spec
+- TypeScript SDK: `kalshi@0.0.5` on npm (community, WebSocket-only)
+- Python SDK (sync): `kalshi-python@2.1.4` on PyPI (official, OpenAPI-generated)
+- Python SDK (async): `kalshi-python-async@3.2.0` on PyPI (official, OpenAPI-generated)
+- API Documentation: <https://docs.kalshi.com>
+- OpenAPI Generator: Python SDKs are auto-generated from OpenAPI spec

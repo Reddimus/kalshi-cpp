@@ -4,9 +4,9 @@ SDK documentation and research notes.
 
 ## Contents
 
-| File           | Description                                       |
-| -------------- | ------------------------------------------------- |
-| `research.md`  | Analysis of official Kalshi SDKs and API behavior |
+| File          | Description                                                       |
+| ------------- | ----------------------------------------------------------------- |
+| `research.md` | Analysis of official Kalshi SDKs, API behavior, and parity matrix |
 
 ## API Reference
 
@@ -105,5 +105,8 @@ auto result = kalshi::with_retry([&]() { return client.get("/markets"); }, polic
 
 ## External Resources
 
-- [Kalshi API Documentation](https://kalshi.com/docs/api)
+- [Kalshi API Documentation](https://docs.kalshi.com)
 - [Kalshi Trading Platform](https://kalshi.com)
+- [Python SDK (sync)](https://pypi.org/project/kalshi-python/) - Official, v2.1.4
+- [Python SDK (async)](https://pypi.org/project/kalshi-python-async/) - Official, v3.2.0+
+- [TypeScript SDK](https://www.npmjs.com/package/kalshi) - Community, WebSocket-only, v0.0.5

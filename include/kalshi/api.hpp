@@ -95,6 +95,160 @@ struct PublicTrade {
 	std::int64_t created_time{0};
 };
 
+// ===== Phase 1: Exchange API Models =====
+
+/// Weekly schedule entry for exchange hours
+struct WeeklySchedule {
+	std::string day;
+	std::string open;
+	std::string close;
+};
+
+/// Maintenance window
+struct MaintenanceWindow {
+	std::int64_t start{0};
+	std::int64_t end{0};
+	std::string description;
+};
+
+/// Exchange schedule
+struct Schedule {
+	std::vector<WeeklySchedule> standard_hours;
+	std::vector<MaintenanceWindow> maintenance_windows;
+};
+
+/// Exchange announcement
+struct Announcement {
+	std::string id;
+	std::string title;
+	std::string body;
+	std::int64_t created_time{0};
+	std::string type;
+};
+
+// ===== Phase 2: Events/Series API Models =====
+
+/// Event metadata
+struct EventMetadata {
+	std::string event_ticker;
+	std::string description;
+	std::string rules;
+	std::string resolution_source;
+};
+
+// ===== Phase 3: Order Groups Models =====
+
+/// Order group
+struct OrderGroup {
+	std::string id;
+	std::vector<std::string> order_ids;
+	std::string status;
+	std::string type;
+	std::int64_t created_time{0};
+};
+
+// ===== Phase 4: Order Queue Position Models =====
+
+/// Order queue position
+struct OrderQueuePosition {
+	std::string order_id;
+	std::int32_t position{0};
+	std::int32_t total_at_price{0};
+};
+
+// ===== Phase 5: RFQ/Quotes Models =====
+
+/// Request for quote
+struct Rfq {
+	std::string id;
+	std::string market_ticker;
+	Side side{Side::Yes};
+	Action action{Action::Buy};
+	std::int32_t count{0};
+	std::string status;
+	std::int64_t expires_at{0};
+	std::int64_t created_time{0};
+};
+
+/// Quote response to RFQ
+struct Quote {
+	std::string id;
+	std::string rfq_id;
+	std::int32_t price{0};
+	std::int32_t count{0};
+	std::string status;
+	std::int64_t created_time{0};
+	std::int64_t expires_at{0};
+};
+
+// ===== Phase 6: Administrative Models =====
+
+/// API key
+struct ApiKey {
+	std::string id;
+	std::string name;
+	std::vector<std::string> scopes;
+	std::int64_t created_time{0};
+	std::optional<std::int64_t> expires_at;
+};
+
+/// Milestone
+struct Milestone {
+	std::string id;
+	std::string event_ticker;
+	std::string title;
+	std::string description;
+	std::int64_t deadline{0};
+	std::string status;
+};
+
+/// Multivariate collection
+struct MultivariateCollection {
+	std::string id;
+	std::string title;
+	std::string description;
+	std::vector<std::string> event_tickers;
+};
+
+/// Structured target
+struct StructuredTarget {
+	std::string id;
+	std::string title;
+	std::string description;
+	std::string target_type;
+};
+
+/// Communication
+struct Communication {
+	std::string id;
+	std::string title;
+	std::string body;
+	std::string type;
+	std::int64_t created_time{0};
+};
+
+// ===== Phase 7: Search/Live Data Models =====
+
+/// Live market data
+struct LiveData {
+	std::string ticker;
+	std::int32_t yes_bid{0};
+	std::int32_t yes_ask{0};
+	std::int32_t no_bid{0};
+	std::int32_t no_ask{0};
+	std::int32_t last_price{0};
+	std::int64_t volume{0};
+};
+
+/// Incentive program
+struct IncentiveProgram {
+	std::string id;
+	std::string title;
+	std::string description;
+	std::int64_t start_time{0};
+	std::int64_t end_time{0};
+};
+
 // Request parameter structures
 
 /// Parameters for listing markets
@@ -113,6 +267,92 @@ struct GetEventsParams {
 	std::optional<std::string> cursor;
 	std::optional<std::string> series_ticker;
 	std::optional<std::string> status;
+};
+
+/// Parameters for listing series
+struct GetSeriesParams {
+	std::optional<std::int32_t> limit;
+	std::optional<std::string> cursor;
+	std::optional<std::string> category;
+};
+
+/// Parameters for listing order groups
+struct GetOrderGroupsParams {
+	std::optional<std::int32_t> limit;
+	std::optional<std::string> cursor;
+	std::optional<std::string> status;
+};
+
+/// Parameters for creating an order group
+struct CreateOrderGroupParams {
+	std::vector<std::string> order_ids;
+	std::string type; // "oco", "otoco", etc.
+};
+
+/// Parameters for listing RFQs
+struct GetRfqsParams {
+	std::optional<std::int32_t> limit;
+	std::optional<std::string> cursor;
+	std::optional<std::string> market_ticker;
+	std::optional<std::string> status;
+};
+
+/// Parameters for creating an RFQ
+struct CreateRfqParams {
+	std::string market_ticker;
+	Side side{Side::Yes};
+	Action action{Action::Buy};
+	std::int32_t count{0};
+	std::optional<std::int64_t> expires_at;
+};
+
+/// Parameters for listing quotes
+struct GetQuotesParams {
+	std::optional<std::int32_t> limit;
+	std::optional<std::string> cursor;
+	std::optional<std::string> rfq_id;
+	std::optional<std::string> status;
+};
+
+/// Parameters for creating a quote
+struct CreateQuoteParams {
+	std::string rfq_id;
+	std::int32_t price{0};
+	std::int32_t count{0};
+	std::optional<std::int64_t> expires_at;
+};
+
+/// Parameters for creating an API key
+struct CreateApiKeyParams {
+	std::string name;
+	std::vector<std::string> scopes;
+	std::optional<std::int64_t> expires_at;
+};
+
+/// Parameters for listing milestones
+struct GetMilestonesParams {
+	std::optional<std::int32_t> limit;
+	std::optional<std::string> cursor;
+	std::optional<std::string> event_ticker;
+};
+
+/// Parameters for listing multivariate collections
+struct GetMultivariateCollectionsParams {
+	std::optional<std::int32_t> limit;
+	std::optional<std::string> cursor;
+};
+
+/// Parameters for listing structured targets
+struct GetStructuredTargetsParams {
+	std::optional<std::int32_t> limit;
+	std::optional<std::string> cursor;
+};
+
+/// Parameters for searching events/markets
+struct SearchParams {
+	std::string query;
+	std::optional<std::int32_t> limit;
+	std::optional<std::string> cursor;
 };
 
 /// Parameters for listing orders
@@ -234,6 +474,12 @@ public:
 	/// Get exchange status
 	[[nodiscard]] Result<ExchangeStatus> get_exchange_status();
 
+	/// Get exchange schedule
+	[[nodiscard]] Result<Schedule> get_exchange_schedule();
+
+	/// Get exchange announcements
+	[[nodiscard]] Result<std::vector<Announcement>> get_exchange_announcements();
+
 	// ===== Markets API =====
 
 	/// Get a single market by ticker
@@ -264,10 +510,17 @@ public:
 	/// List events with optional filters
 	[[nodiscard]] Result<PaginatedResponse<Event>> get_events(const GetEventsParams& params = {});
 
+	/// Get event metadata
+	[[nodiscard]] Result<EventMetadata> get_event_metadata(const std::string& event_ticker);
+
 	// ===== Series API =====
 
 	/// Get a single series by ticker
 	[[nodiscard]] Result<Series> get_series(const std::string& series_ticker);
+
+	/// List all series
+	[[nodiscard]] Result<PaginatedResponse<Series>>
+	get_series_list(const GetSeriesParams& params = {});
 
 	// ===== Portfolio API (Authenticated) =====
 
@@ -313,6 +566,124 @@ public:
 	[[nodiscard]] Result<BatchResponse<std::string>>
 	batch_cancel_orders(const BatchCancelRequest& request);
 
+	// ===== Order Groups (Authenticated) =====
+
+	/// Create an order group
+	[[nodiscard]] Result<OrderGroup> create_order_group(const CreateOrderGroupParams& params);
+
+	/// List order groups
+	[[nodiscard]] Result<PaginatedResponse<OrderGroup>>
+	get_order_groups(const GetOrderGroupsParams& params = {});
+
+	/// Get a single order group by ID
+	[[nodiscard]] Result<OrderGroup> get_order_group(const std::string& group_id);
+
+	/// Delete an order group
+	[[nodiscard]] Result<void> delete_order_group(const std::string& group_id);
+
+	/// Reset an order group
+	[[nodiscard]] Result<OrderGroup> reset_order_group(const std::string& group_id);
+
+	// ===== Order Queue Position (Authenticated) =====
+
+	/// Get queue position for a single order
+	[[nodiscard]] Result<OrderQueuePosition>
+	get_order_queue_position(const std::string& order_id);
+
+	/// Get queue positions for multiple orders
+	[[nodiscard]] Result<std::vector<OrderQueuePosition>>
+	get_queue_positions(const std::vector<std::string>& order_ids);
+
+	// ===== RFQ/Quotes (Authenticated) =====
+
+	/// Create a request for quote
+	[[nodiscard]] Result<Rfq> create_rfq(const CreateRfqParams& params);
+
+	/// List RFQs
+	[[nodiscard]] Result<PaginatedResponse<Rfq>> get_rfqs(const GetRfqsParams& params = {});
+
+	/// Get a single RFQ by ID
+	[[nodiscard]] Result<Rfq> get_rfq(const std::string& rfq_id);
+
+	/// Create a quote for an RFQ
+	[[nodiscard]] Result<Quote> create_quote(const CreateQuoteParams& params);
+
+	/// List quotes
+	[[nodiscard]] Result<PaginatedResponse<Quote>> get_quotes(const GetQuotesParams& params = {});
+
+	/// Get a single quote by ID
+	[[nodiscard]] Result<Quote> get_quote(const std::string& quote_id);
+
+	/// Accept a quote
+	[[nodiscard]] Result<void> accept_quote(const std::string& quote_id);
+
+	// ===== API Keys Management (Authenticated) =====
+
+	/// List API keys
+	[[nodiscard]] Result<std::vector<ApiKey>> get_api_keys();
+
+	/// Create an API key
+	[[nodiscard]] Result<ApiKey> create_api_key(const CreateApiKeyParams& params);
+
+	/// Delete an API key
+	[[nodiscard]] Result<void> delete_api_key(const std::string& key_id);
+
+	// ===== Milestones =====
+
+	/// List milestones
+	[[nodiscard]] Result<PaginatedResponse<Milestone>>
+	get_milestones(const GetMilestonesParams& params = {});
+
+	/// Get a single milestone by ID
+	[[nodiscard]] Result<Milestone> get_milestone(const std::string& milestone_id);
+
+	// ===== Multivariate Collections =====
+
+	/// List multivariate collections
+	[[nodiscard]] Result<PaginatedResponse<MultivariateCollection>>
+	get_multivariate_collections(const GetMultivariateCollectionsParams& params = {});
+
+	/// Get a single multivariate collection by ID
+	[[nodiscard]] Result<MultivariateCollection>
+	get_multivariate_collection(const std::string& collection_id);
+
+	// ===== Structured Targets =====
+
+	/// List structured targets
+	[[nodiscard]] Result<PaginatedResponse<StructuredTarget>>
+	get_structured_targets(const GetStructuredTargetsParams& params = {});
+
+	/// Get a single structured target by ID
+	[[nodiscard]] Result<StructuredTarget>
+	get_structured_target(const std::string& target_id);
+
+	// ===== Communications =====
+
+	/// Get a communication by ID
+	[[nodiscard]] Result<Communication> get_communication(const std::string& comm_id);
+
+	// ===== Search API =====
+
+	/// Search events
+	[[nodiscard]] Result<PaginatedResponse<Event>> search_events(const SearchParams& params);
+
+	/// Search markets
+	[[nodiscard]] Result<PaginatedResponse<Market>> search_markets(const SearchParams& params);
+
+	// ===== Live Data API =====
+
+	/// Get live data for a single ticker
+	[[nodiscard]] Result<LiveData> get_live_data(const std::string& ticker);
+
+	/// Get live data for multiple tickers
+	[[nodiscard]] Result<std::vector<LiveData>>
+	get_live_datas(const std::vector<std::string>& tickers);
+
+	// ===== Incentive Programs =====
+
+	/// List incentive programs
+	[[nodiscard]] Result<std::vector<IncentiveProgram>> get_incentive_programs();
+
 	/// Access the underlying HTTP client
 	[[nodiscard]] HttpClient& http_client();
 	[[nodiscard]] const HttpClient& http_client() const;
@@ -335,6 +706,14 @@ private:
 	[[nodiscard]] std::string build_fills_query(const GetFillsParams& params);
 	[[nodiscard]] std::string build_positions_query(const GetPositionsParams& params);
 	[[nodiscard]] std::string build_trades_query(const GetTradesParams& params);
+	[[nodiscard]] std::string build_series_query(const GetSeriesParams& params);
+	[[nodiscard]] std::string build_order_groups_query(const GetOrderGroupsParams& params);
+	[[nodiscard]] std::string build_rfqs_query(const GetRfqsParams& params);
+	[[nodiscard]] std::string build_quotes_query(const GetQuotesParams& params);
+	[[nodiscard]] std::string build_milestones_query(const GetMilestonesParams& params);
+	[[nodiscard]] std::string build_multivariate_query(const GetMultivariateCollectionsParams& params);
+	[[nodiscard]] std::string build_structured_targets_query(const GetStructuredTargetsParams& params);
+	[[nodiscard]] std::string build_search_query(const SearchParams& params);
 
 	// JSON serialization helpers
 	[[nodiscard]] std::string serialize_create_order(const CreateOrderParams& params);
@@ -342,6 +721,12 @@ private:
 	[[nodiscard]] std::string serialize_decrease_order(const DecreaseOrderParams& params);
 	[[nodiscard]] std::string serialize_batch_create(const BatchOrderRequest& request);
 	[[nodiscard]] std::string serialize_batch_cancel(const BatchCancelRequest& request);
+	[[nodiscard]] std::string serialize_order_group(const CreateOrderGroupParams& params);
+	[[nodiscard]] std::string serialize_rfq(const CreateRfqParams& params);
+	[[nodiscard]] std::string serialize_quote(const CreateQuoteParams& params);
+	[[nodiscard]] std::string serialize_api_key(const CreateApiKeyParams& params);
+	[[nodiscard]] std::string serialize_order_ids(const std::vector<std::string>& order_ids);
+	[[nodiscard]] std::string serialize_tickers(const std::vector<std::string>& tickers);
 };
 
 // Helper functions for enum conversion
