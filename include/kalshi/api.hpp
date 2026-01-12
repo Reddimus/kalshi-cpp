@@ -249,6 +249,37 @@ struct IncentiveProgram {
 	std::int64_t end_time{0};
 };
 
+// ===== Additional Models for Full SDK Parity =====
+
+/// Total resting order value response
+struct TotalRestingOrderValue {
+	std::int64_t total_value{0}; // in cents
+};
+
+/// User data timestamp response
+struct UserDataTimestamp {
+	std::int64_t timestamp{0};
+};
+
+/// Parameters for generating an API key
+struct GenerateApiKeyParams {
+	std::string name;
+	std::vector<std::string> scopes;
+	std::optional<std::int64_t> expires_at;
+};
+
+/// Parameters for looking up a multivariate collection bundle
+struct LookupBundleParams {
+	std::vector<std::string> market_tickers;
+};
+
+/// Multivariate bundle lookup response
+struct LookupBundleResponse {
+	std::string collection_ticker;
+	std::int32_t bundle_price{0};
+	std::vector<std::string> market_tickers;
+};
+
 // Request parameter structures
 
 /// Parameters for listing markets
@@ -480,6 +511,9 @@ public:
 	/// Get exchange announcements
 	[[nodiscard]] Result<std::vector<Announcement>> get_exchange_announcements();
 
+	/// Get user data timestamp
+	[[nodiscard]] Result<UserDataTimestamp> get_user_data_timestamp();
+
 	// ===== Markets API =====
 
 	/// Get a single market by ticker
@@ -544,6 +578,9 @@ public:
 	[[nodiscard]] Result<PaginatedResponse<Settlement>>
 	get_settlements(const GetPositionsParams& params = {});
 
+	/// Get total resting order value
+	[[nodiscard]] Result<TotalRestingOrderValue> get_total_resting_order_value();
+
 	// ===== Order Management (Authenticated) =====
 
 	/// Create a new order
@@ -605,6 +642,9 @@ public:
 	/// Get a single RFQ by ID
 	[[nodiscard]] Result<Rfq> get_rfq(const std::string& rfq_id);
 
+	/// Delete an RFQ
+	[[nodiscard]] Result<void> delete_rfq(const std::string& rfq_id);
+
 	/// Create a quote for an RFQ
 	[[nodiscard]] Result<Quote> create_quote(const CreateQuoteParams& params);
 
@@ -617,6 +657,12 @@ public:
 	/// Accept a quote
 	[[nodiscard]] Result<void> accept_quote(const std::string& quote_id);
 
+	/// Confirm a quote
+	[[nodiscard]] Result<void> confirm_quote(const std::string& quote_id);
+
+	/// Delete a quote
+	[[nodiscard]] Result<void> delete_quote(const std::string& quote_id);
+
 	// ===== API Keys Management (Authenticated) =====
 
 	/// List API keys
@@ -627,6 +673,9 @@ public:
 
 	/// Delete an API key
 	[[nodiscard]] Result<void> delete_api_key(const std::string& key_id);
+
+	/// Generate an API key with specific scopes
+	[[nodiscard]] Result<ApiKey> generate_api_key(const GenerateApiKeyParams& params);
 
 	// ===== Milestones =====
 
@@ -646,6 +695,11 @@ public:
 	/// Get a single multivariate collection by ID
 	[[nodiscard]] Result<MultivariateCollection>
 	get_multivariate_collection(const std::string& collection_id);
+
+	/// Lookup bundle pricing for a multivariate collection
+	[[nodiscard]] Result<LookupBundleResponse>
+	lookup_multivariate_bundle(const std::string& collection_ticker,
+							   const LookupBundleParams& params);
 
 	// ===== Structured Targets =====
 

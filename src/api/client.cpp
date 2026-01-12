@@ -2227,4 +2227,203 @@ Result<std::vector<IncentiveProgram>> KalshiClient::get_incentive_programs() {
 	return programs;
 }
 
+// ===== Additional endpoints for full SDK parity =====
+
+Result<TotalRestingOrderValue> KalshiClient::get_total_resting_order_value() {
+	auto response = impl_->client.get("/portfolio/total-resting-order-value");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get total resting order value: " +
+					  std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	TotalRestingOrderValue result;
+	result.total_value = extract_int(response->body, "total_value");
+	return result;
+}
+
+Result<UserDataTimestamp> KalshiClient::get_user_data_timestamp() {
+	auto response = impl_->client.get("/exchange/user-data-timestamp");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get user data timestamp: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	UserDataTimestamp result;
+	result.timestamp = extract_int(response->body, "timestamp");
+	return result;
+}
+
+Result<void> KalshiClient::delete_rfq(const std::string& rfq_id) {
+	auto response = impl_->client.del("/rfqs/" + rfq_id);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200 && response->status_code != 204) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to delete RFQ: " + std::to_string(response->status_code),
+									 response->status_code});
+	}
+
+	return {};
+}
+
+Result<void> KalshiClient::confirm_quote(const std::string& quote_id) {
+	auto response = impl_->client.post("/quotes/" + quote_id + "/confirm", "{}");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200 && response->status_code != 204) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to confirm quote: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	return {};
+}
+
+Result<void> KalshiClient::delete_quote(const std::string& quote_id) {
+	auto response = impl_->client.del("/quotes/" + quote_id);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200 && response->status_code != 204) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to delete quote: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	return {};
+}
+
+Result<ApiKey> KalshiClient::generate_api_key(const GenerateApiKeyParams& params) {
+	std::ostringstream body;
+	body << "{\"name\":\"" << escape_json_string(params.name) << "\"";
+
+	if (!params.scopes.empty()) {
+		body << ",\"scopes\":[";
+		for (size_t i = 0; i < params.scopes.size(); ++i) {
+			if (i > 0)
+				body << ",";
+			body << "\"" << escape_json_string(params.scopes[i]) << "\"";
+		}
+		body << "]";
+	}
+
+	if (params.expires_at) {
+		body << ",\"expires_at\":" << *params.expires_at;
+	}
+	body << "}";
+
+	auto response = impl_->client.post("/api-keys/generate", body.str());
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200 && response->status_code != 201) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to generate API key: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	ApiKey key;
+	// Parse from nested "api_key" object if present, otherwise from root
+	std::string key_json = response->body;
+	if (response->body.find("\"api_key\"") != std::string::npos) {
+		// Extract the api_key object
+		auto start = response->body.find("\"api_key\"");
+		if (start != std::string::npos) {
+			start = response->body.find("{", start);
+			if (start != std::string::npos) {
+				int depth = 1;
+				size_t end = start + 1;
+				while (end < response->body.size() && depth > 0) {
+					if (response->body[end] == '{')
+						depth++;
+					else if (response->body[end] == '}')
+						depth--;
+					end++;
+				}
+				key_json = response->body.substr(start, end - start);
+			}
+		}
+	}
+
+	key.id = extract_string(key_json, "id");
+	key.name = extract_string(key_json, "name");
+	key.created_time = extract_int(key_json, "created_time");
+
+	// Parse scopes array
+	auto scopes_objects = extract_array_objects(key_json, "scopes");
+	for (const auto& s : scopes_objects) {
+		// scopes might be simple strings, not objects
+		key.scopes.push_back(s);
+	}
+
+	// Handle expires_at if present
+	auto expires = extract_int(key_json, "expires_at");
+	if (expires > 0) {
+		key.expires_at = expires;
+	}
+
+	return key;
+}
+
+Result<LookupBundleResponse>
+KalshiClient::lookup_multivariate_bundle(const std::string& collection_ticker,
+										 const LookupBundleParams& params) {
+	std::ostringstream body;
+	body << "{\"market_tickers\":[";
+	for (size_t i = 0; i < params.market_tickers.size(); ++i) {
+		if (i > 0)
+			body << ",";
+		body << "\"" << escape_json_string(params.market_tickers[i]) << "\"";
+	}
+	body << "]}";
+
+	auto response =
+		impl_->client.post("/multivariate-event-collections/" + collection_ticker + "/lookup",
+						   body.str());
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to lookup bundle: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	LookupBundleResponse result;
+	result.collection_ticker = extract_string(response->body, "collection_ticker");
+	result.bundle_price = static_cast<std::int32_t>(extract_int(response->body, "bundle_price"));
+
+	// Parse market_tickers array
+	auto objects = extract_array_objects(response->body, "market_tickers");
+	for (const auto& obj : objects) {
+		result.market_tickers.push_back(obj);
+	}
+
+	return result;
+}
+
 } // namespace kalshi
