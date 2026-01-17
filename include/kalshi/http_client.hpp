@@ -48,6 +48,10 @@ struct ClientConfig {
 };
 
 /// HTTP client for Kalshi API
+///
+/// @note Thread Safety: This class is NOT thread-safe. The underlying CURL
+/// handle is shared across all requests. If you need concurrent API access,
+/// create one HttpClient instance per thread or protect access with a mutex.
 class HttpClient {
 public:
 	/// Create a client with the given signer and configuration

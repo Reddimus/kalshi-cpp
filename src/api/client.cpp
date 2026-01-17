@@ -46,8 +46,25 @@ std::string extract_string(const std::string& json, const std::string& key) {
 		return "";
 
 	size_t start = pos + 1;
-	size_t end = json.find('"', start);
-	if (end == std::string::npos)
+	// Handle escaped quotes - find unescaped closing quote
+	size_t end = start;
+	while (end < json.size()) {
+		end = json.find('"', end);
+		if (end == std::string::npos)
+			return "";
+		// Check if this quote is escaped (count preceding backslashes)
+		size_t backslash_count = 0;
+		size_t check = end;
+		while (check > start && json[check - 1] == '\\') {
+			backslash_count++;
+			check--;
+		}
+		// If even number of backslashes, quote is not escaped
+		if (backslash_count % 2 == 0)
+			break;
+		end++;
+	}
+	if (end == std::string::npos || end > json.size())
 		return "";
 
 	return json.substr(start, end - start);
@@ -68,15 +85,21 @@ std::int64_t extract_int(const std::string& json, const std::string& key) {
 	while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t'))
 		pos++;
 
-	// Parse number
+	// Parse number with overflow protection
 	std::int64_t result = 0;
 	bool negative = false;
 	if (pos < json.size() && json[pos] == '-') {
 		negative = true;
 		pos++;
 	}
+	constexpr std::int64_t max_safe = INT64_MAX / 10;
 	while (pos < json.size() && json[pos] >= '0' && json[pos] <= '9') {
-		result = result * 10 + (json[pos] - '0');
+		int digit = json[pos] - '0';
+		// Check for overflow before multiplication
+		if (result > max_safe || (result == max_safe && digit > 7)) {
+			return negative ? INT64_MIN : INT64_MAX;
+		}
+		result = result * 10 + digit;
 		pos++;
 	}
 	return negative ? -result : result;
@@ -115,18 +138,33 @@ size_t find_object_start(const std::string& json, const std::string& key) {
 	return pos;
 }
 
-// Find matching closing brace
+// Find matching closing brace (tracks strings to avoid false matches)
 size_t find_object_end(const std::string& json, size_t start) {
 	if (start >= json.size() || json[start] != '{')
 		return std::string::npos;
 
 	int depth = 1;
 	size_t pos = start + 1;
+	bool in_string = false;
 	while (pos < json.size() && depth > 0) {
-		if (json[pos] == '{')
-			depth++;
-		else if (json[pos] == '}')
-			depth--;
+		char c = json[pos];
+		if (c == '"' && (pos == start + 1 || json[pos - 1] != '\\')) {
+			// Check for even number of backslashes (proper escape handling)
+			size_t backslash_count = 0;
+			size_t check = pos;
+			while (check > start && json[check - 1] == '\\') {
+				backslash_count++;
+				check--;
+			}
+			if (backslash_count % 2 == 0) {
+				in_string = !in_string;
+			}
+		} else if (!in_string) {
+			if (c == '{')
+				depth++;
+			else if (c == '}')
+				depth--;
+		}
 		pos++;
 	}
 	return depth == 0 ? pos : std::string::npos;
@@ -175,7 +213,11 @@ std::vector<std::string> extract_array_objects(const std::string& json, const st
 		return result;
 
 	size_t array_end = find_array_end(json, array_start);
-	if (array_end == std::string::npos)
+	if (array_end == std::string::npos || array_end <= array_start + 1)
+		return result;
+
+	// Guard against buffer underflow: need at least 2 chars for content
+	if (array_end - array_start < 2)
 		return result;
 
 	std::string array_content = json.substr(array_start + 1, array_end - array_start - 2);
@@ -196,6 +238,17 @@ std::vector<std::string> extract_array_objects(const std::string& json, const st
 		pos = obj_end;
 	}
 
+	return result;
+}
+
+// Safe integer parsing that returns 0 on error instead of throwing
+std::int32_t safe_stoi(const std::string& str) {
+	if (str.empty())
+		return 0;
+	std::int32_t result = 0;
+	auto [ptr, ec] = std::from_chars(str.data(), str.data() + str.size(), result);
+	if (ec != std::errc())
+		return 0;
 	return result;
 }
 
@@ -442,8 +495,8 @@ Result<OrderBook> KalshiClient::parse_orderbook(const std::string& json) {
 			std::string qty_str = yes_content.substr(comma + 1, inner_end - comma - 1);
 
 			OrderBookEntry entry;
-			entry.price_cents = std::stoi(price_str);
-			entry.quantity = std::stoi(qty_str);
+			entry.price_cents = safe_stoi(price_str);
+			entry.quantity = safe_stoi(qty_str);
 			book.yes_bids.push_back(entry);
 
 			pos = inner_end + 1;
@@ -471,8 +524,8 @@ Result<OrderBook> KalshiClient::parse_orderbook(const std::string& json) {
 			std::string qty_str = no_content.substr(comma + 1, inner_end - comma - 1);
 
 			OrderBookEntry entry;
-			entry.price_cents = std::stoi(price_str);
-			entry.quantity = std::stoi(qty_str);
+			entry.price_cents = safe_stoi(price_str);
+			entry.quantity = safe_stoi(qty_str);
 			book.no_bids.push_back(entry);
 
 			pos = inner_end + 1;
