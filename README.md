@@ -4,20 +4,21 @@ A modern C++23 client library for the [Kalshi](https://kalshi.com) prediction ma
 
 ## Upstream SDK / spec discovery
 
-These commands are useful for auditing published SDK artifacts and specs; see `docs/research.md` for findings.
+These commands are useful for auditing published SDK artifacts and specs; see `docs/research.md` for findings and parity matrix.
 
 ```bash
-# TypeScript SDK (npm)
+# TypeScript SDK (npm) - Community, WebSocket-only
 npm view kalshi name version repository homepage dist.tarball
 npm pack kalshi@0.0.5
 # then: tar -xzf kalshi-0.0.5.tgz
 
-# Python SDK (PyPI)
-python -m pip index versions kalshi-python
-python -m pip download --no-deps kalshi-python==2.1.4
+# Python SDK sync (PyPI) - Official
+pip download --no-deps kalshi-python
+# or specific version: pip download --no-deps kalshi-python==2.1.4
 
-# OpenAPI (if/when available)
-curl -L <openapi_url> -o openapi.json
+# Python SDK async (PyPI) - Official  
+pip download --no-deps kalshi-python-async
+# or specific version: pip download --no-deps kalshi-python-async==3.2.0
 ```
 
 ## Features
@@ -216,6 +217,12 @@ int main() {
 
 ## API Coverage
 
+### Exchange API
+
+- `get_exchange_status()` - Get exchange status
+- `get_exchange_schedule()` - Get trading schedule
+- `get_exchange_announcements()` - Get announcements
+
 ### Markets API
 
 - `get_market(ticker)` - Get single market
@@ -228,7 +235,9 @@ int main() {
 
 - `get_event(ticker)` - Get single event
 - `get_events(params)` - List events
+- `get_event_metadata(ticker)` - Get event metadata
 - `get_series(ticker)` - Get series
+- `get_series_list(params)` - List all series
 
 ### Portfolio API
 
@@ -248,6 +257,50 @@ int main() {
 - `batch_create_orders(request)` - Batch create
 - `batch_cancel_orders(request)` - Batch cancel
 
+### Order Groups
+
+- `create_order_group(params)` - Create order group
+- `get_order_groups(params)` - List order groups
+- `get_order_group(id)` - Get single group
+- `delete_order_group(id)` - Delete group
+- `reset_order_group(id)` - Reset group
+
+### Order Queue Position
+
+- `get_order_queue_position(id)` - Get queue position
+- `get_queue_positions(ids)` - Batch queue positions
+
+### RFQ/Quotes
+
+- `create_rfq(params)` - Create RFQ
+- `get_rfqs(params)` - List RFQs
+- `get_rfq(id)` - Get single RFQ
+- `create_quote(params)` - Create quote
+- `get_quotes(params)` - List quotes
+- `get_quote(id)` - Get single quote
+- `accept_quote(id)` - Accept quote
+
+### Administrative
+
+- `get_api_keys()` - List API keys
+- `create_api_key(params)` - Create API key
+- `delete_api_key(id)` - Delete API key
+- `get_milestones(params)` - List milestones
+- `get_milestone(id)` - Get milestone
+- `get_multivariate_collections(params)` - List collections
+- `get_multivariate_collection(id)` - Get collection
+- `get_structured_targets(params)` - List targets
+- `get_structured_target(id)` - Get target
+- `get_communication(id)` - Get communication
+
+### Search & Live Data
+
+- `search_events(params)` - Search events
+- `search_markets(params)` - Search markets
+- `get_live_data(ticker)` - Get live data
+- `get_live_datas(tickers)` - Batch live data
+- `get_incentive_programs()` - List incentive programs
+
 ### WebSocket Channels
 
 - `subscribe_orderbook(tickers)` - Order book deltas
@@ -257,7 +310,7 @@ int main() {
 
 ## Documentation
 
-- [Research Notes](docs/research.md) - Analysis of official SDKs and API behavior
+- [Research Notes](docs/research.md) - Analysis of official SDKs, API behavior, and parity matrix
 - [API Reference](docs/) - (Coming soon)
 
 ## License
@@ -266,6 +319,7 @@ See [LICENSE](LICENSE) for details.
 
 ## References
 
-- [Kalshi API Documentation](https://kalshi.com/docs/api)
-- [TypeScript SDK](https://www.npmjs.com/package/kalshi) (npm) - v0.0.5
-- [Python SDK](https://pypi.org/project/kalshi-python/) (PyPI) - v2.1.4
+- [Kalshi API Documentation](https://docs.kalshi.com)
+- [Python SDK (sync)](https://pypi.org/project/kalshi-python/) (PyPI) - v2.1.4 (official)
+- [Python SDK (async)](https://pypi.org/project/kalshi-python-async/) (PyPI) - v3.2.0+ (official)
+- [TypeScript SDK](https://www.npmjs.com/package/kalshi) (npm) - v0.0.5 (community, WebSocket-only)
