@@ -6,6 +6,9 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+include(GNUInstallDirs)
+include(CMakePackageConfigHelpers)
+
 # Options
 option(KALSHI_BUILD_TESTS "Build tests" ON)
 option(KALSHI_BUILD_EXAMPLES "Build examples" ON)
@@ -39,7 +42,7 @@ endif()
 find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
 find_package(PkgConfig REQUIRED)
-pkg_check_modules(WEBSOCKETS REQUIRED libwebsockets)
+pkg_check_modules(WEBSOCKETS REQUIRED IMPORTED_TARGET libwebsockets)
 
 # Include directories
 include_directories(${CMAKE_SOURCE_DIR}/include)
@@ -57,4 +60,38 @@ if(KALSHI_BUILD_EXAMPLES)
 endif()
 
 # Install targets
-install(DIRECTORY include/kalshi DESTINATION include)
+set(KALSHI_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/kalshi")
+
+install(TARGETS kalshi_core kalshi_auth kalshi_http kalshi_models kalshi_ws kalshi_api kalshi
+    EXPORT kalshiTargets
+    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+)
+install(DIRECTORY include/kalshi DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+
+configure_package_config_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/kalshiConfig.cmake.in
+    ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfig.cmake
+    INSTALL_DESTINATION ${KALSHI_INSTALL_CMAKEDIR}
+)
+write_basic_package_version_file(
+    ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfigVersion.cmake
+    VERSION ${PROJECT_VERSION}
+    COMPATIBILITY SameMajorVersion
+)
+export(EXPORT kalshiTargets
+    FILE ${CMAKE_CURRENT_BINARY_DIR}/kalshiTargets.cmake
+    NAMESPACE kalshi::
+)
+install(EXPORT kalshiTargets
+    FILE kalshiTargets.cmake
+    NAMESPACE kalshi::
+    DESTINATION ${KALSHI_INSTALL_CMAKEDIR}
+)
+install(FILES
+    ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfig.cmake
+    ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfigVersion.cmake
+    DESTINATION ${KALSHI_INSTALL_CMAKEDIR}
+)

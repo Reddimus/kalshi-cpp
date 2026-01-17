@@ -114,6 +114,21 @@ make bench
 make lint
 ```
 
+### Install & use as a package
+
+```bash
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build
+cmake --install build --prefix /path/to/kalshi
+```
+
+In your consuming project:
+
+```cmake
+find_package(kalshi CONFIG REQUIRED)
+target_link_libraries(myapp PRIVATE kalshi::kalshi)
+```
+
 ### Usage
 
 #### REST API
