@@ -46,8 +46,25 @@ std::string extract_string(const std::string& json, const std::string& key) {
 		return "";
 
 	size_t start = pos + 1;
-	size_t end = json.find('"', start);
-	if (end == std::string::npos)
+	// Handle escaped quotes - find unescaped closing quote
+	size_t end = start;
+	while (end < json.size()) {
+		end = json.find('"', end);
+		if (end == std::string::npos)
+			return "";
+		// Check if this quote is escaped (count preceding backslashes)
+		size_t backslash_count = 0;
+		size_t check = end;
+		while (check > start && json[check - 1] == '\\') {
+			backslash_count++;
+			check--;
+		}
+		// If even number of backslashes, quote is not escaped
+		if (backslash_count % 2 == 0)
+			break;
+		end++;
+	}
+	if (end == std::string::npos || end > json.size())
 		return "";
 
 	return json.substr(start, end - start);
@@ -68,15 +85,21 @@ std::int64_t extract_int(const std::string& json, const std::string& key) {
 	while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t'))
 		pos++;
 
-	// Parse number
+	// Parse number with overflow protection
 	std::int64_t result = 0;
 	bool negative = false;
 	if (pos < json.size() && json[pos] == '-') {
 		negative = true;
 		pos++;
 	}
+	constexpr std::int64_t max_safe = INT64_MAX / 10;
 	while (pos < json.size() && json[pos] >= '0' && json[pos] <= '9') {
-		result = result * 10 + (json[pos] - '0');
+		int digit = json[pos] - '0';
+		// Check for overflow before multiplication
+		if (result > max_safe || (result == max_safe && digit > 7)) {
+			return negative ? INT64_MIN : INT64_MAX;
+		}
+		result = result * 10 + digit;
 		pos++;
 	}
 	return negative ? -result : result;
@@ -115,18 +138,33 @@ size_t find_object_start(const std::string& json, const std::string& key) {
 	return pos;
 }
 
-// Find matching closing brace
+// Find matching closing brace (tracks strings to avoid false matches)
 size_t find_object_end(const std::string& json, size_t start) {
 	if (start >= json.size() || json[start] != '{')
 		return std::string::npos;
 
 	int depth = 1;
 	size_t pos = start + 1;
+	bool in_string = false;
 	while (pos < json.size() && depth > 0) {
-		if (json[pos] == '{')
-			depth++;
-		else if (json[pos] == '}')
-			depth--;
+		char c = json[pos];
+		if (c == '"' && (pos == start + 1 || json[pos - 1] != '\\')) {
+			// Check for even number of backslashes (proper escape handling)
+			size_t backslash_count = 0;
+			size_t check = pos;
+			while (check > start && json[check - 1] == '\\') {
+				backslash_count++;
+				check--;
+			}
+			if (backslash_count % 2 == 0) {
+				in_string = !in_string;
+			}
+		} else if (!in_string) {
+			if (c == '{')
+				depth++;
+			else if (c == '}')
+				depth--;
+		}
 		pos++;
 	}
 	return depth == 0 ? pos : std::string::npos;
@@ -175,7 +213,11 @@ std::vector<std::string> extract_array_objects(const std::string& json, const st
 		return result;
 
 	size_t array_end = find_array_end(json, array_start);
-	if (array_end == std::string::npos)
+	if (array_end == std::string::npos || array_end <= array_start + 1)
+		return result;
+
+	// Guard against buffer underflow: need at least 2 chars for content
+	if (array_end - array_start < 2)
 		return result;
 
 	std::string array_content = json.substr(array_start + 1, array_end - array_start - 2);
@@ -196,6 +238,17 @@ std::vector<std::string> extract_array_objects(const std::string& json, const st
 		pos = obj_end;
 	}
 
+	return result;
+}
+
+// Safe integer parsing that returns 0 on error instead of throwing
+std::int32_t safe_stoi(const std::string& str) {
+	if (str.empty())
+		return 0;
+	std::int32_t result = 0;
+	auto [ptr, ec] = std::from_chars(str.data(), str.data() + str.size(), result);
+	if (ec != std::errc())
+		return 0;
 	return result;
 }
 
@@ -442,8 +495,8 @@ Result<OrderBook> KalshiClient::parse_orderbook(const std::string& json) {
 			std::string qty_str = yes_content.substr(comma + 1, inner_end - comma - 1);
 
 			OrderBookEntry entry;
-			entry.price_cents = std::stoi(price_str);
-			entry.quantity = std::stoi(qty_str);
+			entry.price_cents = safe_stoi(price_str);
+			entry.quantity = safe_stoi(qty_str);
 			book.yes_bids.push_back(entry);
 
 			pos = inner_end + 1;
@@ -471,8 +524,8 @@ Result<OrderBook> KalshiClient::parse_orderbook(const std::string& json) {
 			std::string qty_str = no_content.substr(comma + 1, inner_end - comma - 1);
 
 			OrderBookEntry entry;
-			entry.price_cents = std::stoi(price_str);
-			entry.quantity = std::stoi(qty_str);
+			entry.price_cents = safe_stoi(price_str);
+			entry.quantity = safe_stoi(qty_str);
 			book.no_bids.push_back(entry);
 
 			pos = inner_end + 1;
@@ -1195,6 +1248,1234 @@ KalshiClient::batch_cancel_orders(const BatchCancelRequest& request) {
 
 	BatchResponse<std::string> result;
 	result.results = request.order_ids; // Assume all cancelled if 200
+	return result;
+}
+
+// ===== Phase 1: Exchange API (Schedule, Announcements) =====
+
+Result<Schedule> KalshiClient::get_exchange_schedule() {
+	auto response = impl_->client.get("/exchange/schedule");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get exchange schedule: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	Schedule schedule;
+
+	// Parse standard_hours array
+	auto hours_objects = extract_array_objects(response->body, "standard_hours");
+	for (const auto& obj : hours_objects) {
+		WeeklySchedule ws;
+		ws.day = extract_string(obj, "day");
+		ws.open = extract_string(obj, "open");
+		ws.close = extract_string(obj, "close");
+		schedule.standard_hours.push_back(ws);
+	}
+
+	// Parse maintenance_windows array
+	auto maint_objects = extract_array_objects(response->body, "maintenance_windows");
+	for (const auto& obj : maint_objects) {
+		MaintenanceWindow mw;
+		mw.start = extract_int(obj, "start");
+		mw.end = extract_int(obj, "end");
+		mw.description = extract_string(obj, "description");
+		schedule.maintenance_windows.push_back(mw);
+	}
+
+	return schedule;
+}
+
+Result<std::vector<Announcement>> KalshiClient::get_exchange_announcements() {
+	auto response = impl_->client.get("/exchange/announcements");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get announcements: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	std::vector<Announcement> announcements;
+	auto objects = extract_array_objects(response->body, "announcements");
+	for (const auto& obj : objects) {
+		Announcement ann;
+		ann.id = extract_string(obj, "id");
+		ann.title = extract_string(obj, "title");
+		ann.body = extract_string(obj, "body");
+		ann.created_time = extract_int(obj, "created_time");
+		ann.type = extract_string(obj, "type");
+		announcements.push_back(ann);
+	}
+
+	return announcements;
+}
+
+// ===== Phase 2: Events/Series API =====
+
+Result<EventMetadata> KalshiClient::get_event_metadata(const std::string& event_ticker) {
+	auto response = impl_->client.get("/events/" + event_ticker + "/metadata");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get event metadata: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	EventMetadata metadata;
+	metadata.event_ticker = extract_string(response->body, "event_ticker");
+	metadata.description = extract_string(response->body, "description");
+	metadata.rules = extract_string(response->body, "rules");
+	metadata.resolution_source = extract_string(response->body, "resolution_source");
+	return metadata;
+}
+
+std::string KalshiClient::build_series_query(const GetSeriesParams& params) {
+	std::string query = "/series";
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	if (params.category)
+		append_query_param(query, "category", *params.category);
+	return query;
+}
+
+Result<PaginatedResponse<Series>> KalshiClient::get_series_list(const GetSeriesParams& params) {
+	std::string query = build_series_query(params);
+	auto response = impl_->client.get(query);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get series list: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	PaginatedResponse<Series> result;
+	result.next_cursor = Cursor{extract_cursor(response->body)};
+
+	auto objects = extract_array_objects(response->body, "series");
+	for (const auto& obj : objects) {
+		Series s;
+		s.ticker = extract_string(obj, "ticker");
+		s.title = extract_string(obj, "title");
+		s.category = extract_string(obj, "category");
+		s.frequency = extract_string(obj, "frequency");
+		result.items.push_back(s);
+	}
+
+	return result;
+}
+
+// ===== Phase 3: Order Groups =====
+
+std::string KalshiClient::serialize_order_group(const CreateOrderGroupParams& params) {
+	std::ostringstream ss;
+	ss << "{\"type\":\"" << escape_json_string(params.type) << "\",\"order_ids\":[";
+	for (size_t i = 0; i < params.order_ids.size(); ++i) {
+		if (i > 0)
+			ss << ",";
+		ss << "\"" << escape_json_string(params.order_ids[i]) << "\"";
+	}
+	ss << "]}";
+	return ss.str();
+}
+
+std::string KalshiClient::build_order_groups_query(const GetOrderGroupsParams& params) {
+	std::string query = "/portfolio/order-groups";
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	if (params.status)
+		append_query_param(query, "status", *params.status);
+	return query;
+}
+
+Result<OrderGroup> KalshiClient::create_order_group(const CreateOrderGroupParams& params) {
+	std::string body = serialize_order_group(params);
+	auto response = impl_->client.post("/portfolio/order-groups", body);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200 && response->status_code != 201) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to create order group: " + response->body,
+									 response->status_code});
+	}
+
+	OrderGroup group;
+	group.id = extract_string(response->body, "id");
+	group.status = extract_string(response->body, "status");
+	group.type = extract_string(response->body, "type");
+	group.created_time = extract_int(response->body, "created_time");
+	return group;
+}
+
+Result<PaginatedResponse<OrderGroup>>
+KalshiClient::get_order_groups(const GetOrderGroupsParams& params) {
+	std::string query = build_order_groups_query(params);
+	auto response = impl_->client.get(query);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get order groups: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	PaginatedResponse<OrderGroup> result;
+	result.next_cursor = Cursor{extract_cursor(response->body)};
+
+	auto objects = extract_array_objects(response->body, "order_groups");
+	for (const auto& obj : objects) {
+		OrderGroup g;
+		g.id = extract_string(obj, "id");
+		g.status = extract_string(obj, "status");
+		g.type = extract_string(obj, "type");
+		g.created_time = extract_int(obj, "created_time");
+		result.items.push_back(g);
+	}
+
+	return result;
+}
+
+Result<OrderGroup> KalshiClient::get_order_group(const std::string& group_id) {
+	auto response = impl_->client.get("/portfolio/order-groups/" + group_id);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get order group: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	OrderGroup group;
+	group.id = extract_string(response->body, "id");
+	group.status = extract_string(response->body, "status");
+	group.type = extract_string(response->body, "type");
+	group.created_time = extract_int(response->body, "created_time");
+	return group;
+}
+
+Result<void> KalshiClient::delete_order_group(const std::string& group_id) {
+	auto response = impl_->client.del("/portfolio/order-groups/" + group_id);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200 && response->status_code != 204) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to delete order group: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	return {};
+}
+
+Result<OrderGroup> KalshiClient::reset_order_group(const std::string& group_id) {
+	auto response = impl_->client.post("/portfolio/order-groups/" + group_id + "/reset", "{}");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to reset order group: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	OrderGroup group;
+	group.id = extract_string(response->body, "id");
+	group.status = extract_string(response->body, "status");
+	group.type = extract_string(response->body, "type");
+	group.created_time = extract_int(response->body, "created_time");
+	return group;
+}
+
+// ===== Phase 4: Order Queue Position =====
+
+Result<OrderQueuePosition> KalshiClient::get_order_queue_position(const std::string& order_id) {
+	auto response = impl_->client.get("/portfolio/orders/" + order_id + "/queue-position");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get queue position: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	OrderQueuePosition pos;
+	pos.order_id = order_id;
+	pos.position = static_cast<std::int32_t>(extract_int(response->body, "position"));
+	pos.total_at_price = static_cast<std::int32_t>(extract_int(response->body, "total_at_price"));
+	return pos;
+}
+
+std::string KalshiClient::serialize_order_ids(const std::vector<std::string>& order_ids) {
+	std::ostringstream ss;
+	ss << "{\"order_ids\":[";
+	for (size_t i = 0; i < order_ids.size(); ++i) {
+		if (i > 0)
+			ss << ",";
+		ss << "\"" << escape_json_string(order_ids[i]) << "\"";
+	}
+	ss << "]}";
+	return ss.str();
+}
+
+Result<std::vector<OrderQueuePosition>>
+KalshiClient::get_queue_positions(const std::vector<std::string>& order_ids) {
+	std::string body = serialize_order_ids(order_ids);
+	auto response = impl_->client.post("/portfolio/orders/queue-positions", body);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get queue positions: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	std::vector<OrderQueuePosition> positions;
+	auto objects = extract_array_objects(response->body, "positions");
+	for (const auto& obj : objects) {
+		OrderQueuePosition pos;
+		pos.order_id = extract_string(obj, "order_id");
+		pos.position = static_cast<std::int32_t>(extract_int(obj, "position"));
+		pos.total_at_price = static_cast<std::int32_t>(extract_int(obj, "total_at_price"));
+		positions.push_back(pos);
+	}
+
+	return positions;
+}
+
+// ===== Phase 5: RFQ/Quotes =====
+
+std::string KalshiClient::serialize_rfq(const CreateRfqParams& params) {
+	std::ostringstream ss;
+	ss << "{\"market_ticker\":\"" << escape_json_string(params.market_ticker) << "\"";
+	ss << ",\"side\":\"" << to_json_string(params.side) << "\"";
+	ss << ",\"action\":\"" << to_json_string(params.action) << "\"";
+	ss << ",\"count\":" << params.count;
+	if (params.expires_at)
+		ss << ",\"expires_at\":" << *params.expires_at;
+	ss << "}";
+	return ss.str();
+}
+
+std::string KalshiClient::build_rfqs_query(const GetRfqsParams& params) {
+	std::string query = "/rfqs";
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	if (params.market_ticker)
+		append_query_param(query, "market_ticker", *params.market_ticker);
+	if (params.status)
+		append_query_param(query, "status", *params.status);
+	return query;
+}
+
+Result<Rfq> KalshiClient::create_rfq(const CreateRfqParams& params) {
+	std::string body = serialize_rfq(params);
+	auto response = impl_->client.post("/rfqs", body);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200 && response->status_code != 201) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to create RFQ: " + response->body,
+									 response->status_code});
+	}
+
+	Rfq rfq;
+	rfq.id = extract_string(response->body, "id");
+	rfq.market_ticker = extract_string(response->body, "market_ticker");
+	rfq.side = parse_side(extract_string(response->body, "side"));
+	rfq.action = parse_action(extract_string(response->body, "action"));
+	rfq.count = static_cast<std::int32_t>(extract_int(response->body, "count"));
+	rfq.status = extract_string(response->body, "status");
+	rfq.expires_at = extract_int(response->body, "expires_at");
+	rfq.created_time = extract_int(response->body, "created_time");
+	return rfq;
+}
+
+Result<PaginatedResponse<Rfq>> KalshiClient::get_rfqs(const GetRfqsParams& params) {
+	std::string query = build_rfqs_query(params);
+	auto response = impl_->client.get(query);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to get RFQs: " + std::to_string(response->status_code),
+									 response->status_code});
+	}
+
+	PaginatedResponse<Rfq> result;
+	result.next_cursor = Cursor{extract_cursor(response->body)};
+
+	auto objects = extract_array_objects(response->body, "rfqs");
+	for (const auto& obj : objects) {
+		Rfq rfq;
+		rfq.id = extract_string(obj, "id");
+		rfq.market_ticker = extract_string(obj, "market_ticker");
+		rfq.side = parse_side(extract_string(obj, "side"));
+		rfq.action = parse_action(extract_string(obj, "action"));
+		rfq.count = static_cast<std::int32_t>(extract_int(obj, "count"));
+		rfq.status = extract_string(obj, "status");
+		rfq.expires_at = extract_int(obj, "expires_at");
+		rfq.created_time = extract_int(obj, "created_time");
+		result.items.push_back(rfq);
+	}
+
+	return result;
+}
+
+Result<Rfq> KalshiClient::get_rfq(const std::string& rfq_id) {
+	auto response = impl_->client.get("/rfqs/" + rfq_id);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to get RFQ: " + std::to_string(response->status_code),
+									 response->status_code});
+	}
+
+	Rfq rfq;
+	rfq.id = extract_string(response->body, "id");
+	rfq.market_ticker = extract_string(response->body, "market_ticker");
+	rfq.side = parse_side(extract_string(response->body, "side"));
+	rfq.action = parse_action(extract_string(response->body, "action"));
+	rfq.count = static_cast<std::int32_t>(extract_int(response->body, "count"));
+	rfq.status = extract_string(response->body, "status");
+	rfq.expires_at = extract_int(response->body, "expires_at");
+	rfq.created_time = extract_int(response->body, "created_time");
+	return rfq;
+}
+
+std::string KalshiClient::serialize_quote(const CreateQuoteParams& params) {
+	std::ostringstream ss;
+	ss << "{\"rfq_id\":\"" << escape_json_string(params.rfq_id) << "\"";
+	ss << ",\"price\":" << params.price;
+	ss << ",\"count\":" << params.count;
+	if (params.expires_at)
+		ss << ",\"expires_at\":" << *params.expires_at;
+	ss << "}";
+	return ss.str();
+}
+
+std::string KalshiClient::build_quotes_query(const GetQuotesParams& params) {
+	std::string query = "/quotes";
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	if (params.rfq_id)
+		append_query_param(query, "rfq_id", *params.rfq_id);
+	if (params.status)
+		append_query_param(query, "status", *params.status);
+	return query;
+}
+
+Result<Quote> KalshiClient::create_quote(const CreateQuoteParams& params) {
+	std::string body = serialize_quote(params);
+	auto response = impl_->client.post("/quotes", body);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200 && response->status_code != 201) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to create quote: " + response->body,
+									 response->status_code});
+	}
+
+	Quote quote;
+	quote.id = extract_string(response->body, "id");
+	quote.rfq_id = extract_string(response->body, "rfq_id");
+	quote.price = static_cast<std::int32_t>(extract_int(response->body, "price"));
+	quote.count = static_cast<std::int32_t>(extract_int(response->body, "count"));
+	quote.status = extract_string(response->body, "status");
+	quote.created_time = extract_int(response->body, "created_time");
+	quote.expires_at = extract_int(response->body, "expires_at");
+	return quote;
+}
+
+Result<PaginatedResponse<Quote>> KalshiClient::get_quotes(const GetQuotesParams& params) {
+	std::string query = build_quotes_query(params);
+	auto response = impl_->client.get(query);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get quotes: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	PaginatedResponse<Quote> result;
+	result.next_cursor = Cursor{extract_cursor(response->body)};
+
+	auto objects = extract_array_objects(response->body, "quotes");
+	for (const auto& obj : objects) {
+		Quote q;
+		q.id = extract_string(obj, "id");
+		q.rfq_id = extract_string(obj, "rfq_id");
+		q.price = static_cast<std::int32_t>(extract_int(obj, "price"));
+		q.count = static_cast<std::int32_t>(extract_int(obj, "count"));
+		q.status = extract_string(obj, "status");
+		q.created_time = extract_int(obj, "created_time");
+		q.expires_at = extract_int(obj, "expires_at");
+		result.items.push_back(q);
+	}
+
+	return result;
+}
+
+Result<Quote> KalshiClient::get_quote(const std::string& quote_id) {
+	auto response = impl_->client.get("/quotes/" + quote_id);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get quote: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	Quote quote;
+	quote.id = extract_string(response->body, "id");
+	quote.rfq_id = extract_string(response->body, "rfq_id");
+	quote.price = static_cast<std::int32_t>(extract_int(response->body, "price"));
+	quote.count = static_cast<std::int32_t>(extract_int(response->body, "count"));
+	quote.status = extract_string(response->body, "status");
+	quote.created_time = extract_int(response->body, "created_time");
+	quote.expires_at = extract_int(response->body, "expires_at");
+	return quote;
+}
+
+Result<void> KalshiClient::accept_quote(const std::string& quote_id) {
+	auto response = impl_->client.post("/quotes/" + quote_id + "/accept", "{}");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200 && response->status_code != 204) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to accept quote: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	return {};
+}
+
+// ===== Phase 6: Administrative Endpoints =====
+
+Result<std::vector<ApiKey>> KalshiClient::get_api_keys() {
+	auto response = impl_->client.get("/api-keys");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get API keys: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	std::vector<ApiKey> keys;
+	auto objects = extract_array_objects(response->body, "api_keys");
+	for (const auto& obj : objects) {
+		ApiKey key;
+		key.id = extract_string(obj, "id");
+		key.name = extract_string(obj, "name");
+		key.created_time = extract_int(obj, "created_time");
+		keys.push_back(key);
+	}
+
+	return keys;
+}
+
+std::string KalshiClient::serialize_api_key(const CreateApiKeyParams& params) {
+	std::ostringstream ss;
+	ss << "{\"name\":\"" << escape_json_string(params.name) << "\"";
+	ss << ",\"scopes\":[";
+	for (size_t i = 0; i < params.scopes.size(); ++i) {
+		if (i > 0)
+			ss << ",";
+		ss << "\"" << escape_json_string(params.scopes[i]) << "\"";
+	}
+	ss << "]";
+	if (params.expires_at)
+		ss << ",\"expires_at\":" << *params.expires_at;
+	ss << "}";
+	return ss.str();
+}
+
+Result<ApiKey> KalshiClient::create_api_key(const CreateApiKeyParams& params) {
+	std::string body = serialize_api_key(params);
+	auto response = impl_->client.post("/api-keys", body);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200 && response->status_code != 201) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to create API key: " + response->body,
+									 response->status_code});
+	}
+
+	ApiKey key;
+	key.id = extract_string(response->body, "id");
+	key.name = extract_string(response->body, "name");
+	key.created_time = extract_int(response->body, "created_time");
+	return key;
+}
+
+Result<void> KalshiClient::delete_api_key(const std::string& key_id) {
+	auto response = impl_->client.del("/api-keys/" + key_id);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200 && response->status_code != 204) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to delete API key: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	return {};
+}
+
+std::string KalshiClient::build_milestones_query(const GetMilestonesParams& params) {
+	std::string query = "/milestones";
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	if (params.event_ticker)
+		append_query_param(query, "event_ticker", *params.event_ticker);
+	return query;
+}
+
+Result<PaginatedResponse<Milestone>>
+KalshiClient::get_milestones(const GetMilestonesParams& params) {
+	std::string query = build_milestones_query(params);
+	auto response = impl_->client.get(query);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get milestones: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	PaginatedResponse<Milestone> result;
+	result.next_cursor = Cursor{extract_cursor(response->body)};
+
+	auto objects = extract_array_objects(response->body, "milestones");
+	for (const auto& obj : objects) {
+		Milestone m;
+		m.id = extract_string(obj, "id");
+		m.event_ticker = extract_string(obj, "event_ticker");
+		m.title = extract_string(obj, "title");
+		m.description = extract_string(obj, "description");
+		m.deadline = extract_int(obj, "deadline");
+		m.status = extract_string(obj, "status");
+		result.items.push_back(m);
+	}
+
+	return result;
+}
+
+Result<Milestone> KalshiClient::get_milestone(const std::string& milestone_id) {
+	auto response = impl_->client.get("/milestones/" + milestone_id);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get milestone: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	Milestone m;
+	m.id = extract_string(response->body, "id");
+	m.event_ticker = extract_string(response->body, "event_ticker");
+	m.title = extract_string(response->body, "title");
+	m.description = extract_string(response->body, "description");
+	m.deadline = extract_int(response->body, "deadline");
+	m.status = extract_string(response->body, "status");
+	return m;
+}
+
+std::string
+KalshiClient::build_multivariate_query(const GetMultivariateCollectionsParams& params) {
+	std::string query = "/multivariate-collections";
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	return query;
+}
+
+Result<PaginatedResponse<MultivariateCollection>>
+KalshiClient::get_multivariate_collections(const GetMultivariateCollectionsParams& params) {
+	std::string query = build_multivariate_query(params);
+	auto response = impl_->client.get(query);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(Error{
+			ErrorCode::ServerError,
+			"Failed to get multivariate collections: " + std::to_string(response->status_code),
+			response->status_code});
+	}
+
+	PaginatedResponse<MultivariateCollection> result;
+	result.next_cursor = Cursor{extract_cursor(response->body)};
+
+	auto objects = extract_array_objects(response->body, "collections");
+	for (const auto& obj : objects) {
+		MultivariateCollection c;
+		c.id = extract_string(obj, "id");
+		c.title = extract_string(obj, "title");
+		c.description = extract_string(obj, "description");
+		result.items.push_back(c);
+	}
+
+	return result;
+}
+
+Result<MultivariateCollection>
+KalshiClient::get_multivariate_collection(const std::string& collection_id) {
+	auto response = impl_->client.get("/multivariate-collections/" + collection_id);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(Error{
+			ErrorCode::ServerError,
+			"Failed to get multivariate collection: " + std::to_string(response->status_code),
+			response->status_code});
+	}
+
+	MultivariateCollection c;
+	c.id = extract_string(response->body, "id");
+	c.title = extract_string(response->body, "title");
+	c.description = extract_string(response->body, "description");
+	return c;
+}
+
+std::string KalshiClient::build_structured_targets_query(const GetStructuredTargetsParams& params) {
+	std::string query = "/structured-targets";
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	return query;
+}
+
+Result<PaginatedResponse<StructuredTarget>>
+KalshiClient::get_structured_targets(const GetStructuredTargetsParams& params) {
+	std::string query = build_structured_targets_query(params);
+	auto response = impl_->client.get(query);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get structured targets: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	PaginatedResponse<StructuredTarget> result;
+	result.next_cursor = Cursor{extract_cursor(response->body)};
+
+	auto objects = extract_array_objects(response->body, "targets");
+	for (const auto& obj : objects) {
+		StructuredTarget t;
+		t.id = extract_string(obj, "id");
+		t.title = extract_string(obj, "title");
+		t.description = extract_string(obj, "description");
+		t.target_type = extract_string(obj, "target_type");
+		result.items.push_back(t);
+	}
+
+	return result;
+}
+
+Result<StructuredTarget> KalshiClient::get_structured_target(const std::string& target_id) {
+	auto response = impl_->client.get("/structured-targets/" + target_id);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get structured target: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	StructuredTarget t;
+	t.id = extract_string(response->body, "id");
+	t.title = extract_string(response->body, "title");
+	t.description = extract_string(response->body, "description");
+	t.target_type = extract_string(response->body, "target_type");
+	return t;
+}
+
+Result<Communication> KalshiClient::get_communication(const std::string& comm_id) {
+	auto response = impl_->client.get("/communications/" + comm_id);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get communication: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	Communication c;
+	c.id = extract_string(response->body, "id");
+	c.title = extract_string(response->body, "title");
+	c.body = extract_string(response->body, "body");
+	c.type = extract_string(response->body, "type");
+	c.created_time = extract_int(response->body, "created_time");
+	return c;
+}
+
+// ===== Phase 7: Search, Live Data, Incentive Programs =====
+
+std::string KalshiClient::build_search_query(const SearchParams& params) {
+	std::string query;
+	append_query_param(query, "query", params.query);
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	return query;
+}
+
+Result<PaginatedResponse<Event>> KalshiClient::search_events(const SearchParams& params) {
+	std::string query = "/search/events" + build_search_query(params);
+	auto response = impl_->client.get(query);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to search events: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	PaginatedResponse<Event> result;
+	result.next_cursor = Cursor{extract_cursor(response->body)};
+
+	auto objects = extract_array_objects(response->body, "events");
+	for (const auto& obj : objects) {
+		Event e;
+		e.event_ticker = extract_string(obj, "event_ticker");
+		e.series_ticker = extract_string(obj, "series_ticker");
+		e.title = extract_string(obj, "title");
+		e.category = extract_string(obj, "category");
+		e.sub_title = extract_string(obj, "sub_title");
+		e.mutually_exclusive = extract_int(obj, "mutually_exclusive");
+		result.items.push_back(e);
+	}
+
+	return result;
+}
+
+Result<PaginatedResponse<Market>> KalshiClient::search_markets(const SearchParams& params) {
+	std::string query = "/search/markets" + build_search_query(params);
+	auto response = impl_->client.get(query);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to search markets: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	PaginatedResponse<Market> result;
+	result.next_cursor = Cursor{extract_cursor(response->body)};
+
+	auto objects = extract_array_objects(response->body, "markets");
+	for (const auto& obj : objects) {
+		auto market = parse_market(obj);
+		if (market) {
+			result.items.push_back(*market);
+		}
+	}
+
+	return result;
+}
+
+Result<LiveData> KalshiClient::get_live_data(const std::string& ticker) {
+	auto response = impl_->client.get("/live-data/" + ticker);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get live data: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	LiveData data;
+	data.ticker = ticker;
+	data.yes_bid = static_cast<std::int32_t>(extract_int(response->body, "yes_bid"));
+	data.yes_ask = static_cast<std::int32_t>(extract_int(response->body, "yes_ask"));
+	data.no_bid = static_cast<std::int32_t>(extract_int(response->body, "no_bid"));
+	data.no_ask = static_cast<std::int32_t>(extract_int(response->body, "no_ask"));
+	data.last_price = static_cast<std::int32_t>(extract_int(response->body, "last_price"));
+	data.volume = extract_int(response->body, "volume");
+	return data;
+}
+
+std::string KalshiClient::serialize_tickers(const std::vector<std::string>& tickers) {
+	std::ostringstream ss;
+	ss << "{\"tickers\":[";
+	for (size_t i = 0; i < tickers.size(); ++i) {
+		if (i > 0)
+			ss << ",";
+		ss << "\"" << escape_json_string(tickers[i]) << "\"";
+	}
+	ss << "]}";
+	return ss.str();
+}
+
+Result<std::vector<LiveData>>
+KalshiClient::get_live_datas(const std::vector<std::string>& tickers) {
+	// Build query with tickers as comma-separated list
+	std::string query = "/live-data";
+	if (!tickers.empty()) {
+		std::ostringstream ss;
+		for (size_t i = 0; i < tickers.size(); ++i) {
+			if (i > 0)
+				ss << ",";
+			ss << tickers[i];
+		}
+		append_query_param(query, "tickers", ss.str());
+	}
+
+	auto response = impl_->client.get(query);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get live data: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	std::vector<LiveData> results;
+	auto objects = extract_array_objects(response->body, "data");
+	for (const auto& obj : objects) {
+		LiveData data;
+		data.ticker = extract_string(obj, "ticker");
+		data.yes_bid = static_cast<std::int32_t>(extract_int(obj, "yes_bid"));
+		data.yes_ask = static_cast<std::int32_t>(extract_int(obj, "yes_ask"));
+		data.no_bid = static_cast<std::int32_t>(extract_int(obj, "no_bid"));
+		data.no_ask = static_cast<std::int32_t>(extract_int(obj, "no_ask"));
+		data.last_price = static_cast<std::int32_t>(extract_int(obj, "last_price"));
+		data.volume = extract_int(obj, "volume");
+		results.push_back(data);
+	}
+
+	return results;
+}
+
+Result<std::vector<IncentiveProgram>> KalshiClient::get_incentive_programs() {
+	auto response = impl_->client.get("/incentive-programs");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get incentive programs: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	std::vector<IncentiveProgram> programs;
+	auto objects = extract_array_objects(response->body, "programs");
+	for (const auto& obj : objects) {
+		IncentiveProgram p;
+		p.id = extract_string(obj, "id");
+		p.title = extract_string(obj, "title");
+		p.description = extract_string(obj, "description");
+		p.start_time = extract_int(obj, "start_time");
+		p.end_time = extract_int(obj, "end_time");
+		programs.push_back(p);
+	}
+
+	return programs;
+}
+
+// ===== Additional endpoints for full SDK parity =====
+
+Result<TotalRestingOrderValue> KalshiClient::get_total_resting_order_value() {
+	auto response = impl_->client.get("/portfolio/total-resting-order-value");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get total resting order value: " +
+					  std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	TotalRestingOrderValue result;
+	result.total_value = extract_int(response->body, "total_value");
+	return result;
+}
+
+Result<UserDataTimestamp> KalshiClient::get_user_data_timestamp() {
+	auto response = impl_->client.get("/exchange/user-data-timestamp");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get user data timestamp: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	UserDataTimestamp result;
+	result.timestamp = extract_int(response->body, "timestamp");
+	return result;
+}
+
+Result<void> KalshiClient::delete_rfq(const std::string& rfq_id) {
+	auto response = impl_->client.del("/rfqs/" + rfq_id);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200 && response->status_code != 204) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to delete RFQ: " + std::to_string(response->status_code),
+									 response->status_code});
+	}
+
+	return {};
+}
+
+Result<void> KalshiClient::confirm_quote(const std::string& quote_id) {
+	auto response = impl_->client.post("/quotes/" + quote_id + "/confirm", "{}");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200 && response->status_code != 204) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to confirm quote: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	return {};
+}
+
+Result<void> KalshiClient::delete_quote(const std::string& quote_id) {
+	auto response = impl_->client.del("/quotes/" + quote_id);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200 && response->status_code != 204) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to delete quote: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	return {};
+}
+
+Result<ApiKey> KalshiClient::generate_api_key(const GenerateApiKeyParams& params) {
+	std::ostringstream body;
+	body << "{\"name\":\"" << escape_json_string(params.name) << "\"";
+
+	if (!params.scopes.empty()) {
+		body << ",\"scopes\":[";
+		for (size_t i = 0; i < params.scopes.size(); ++i) {
+			if (i > 0)
+				body << ",";
+			body << "\"" << escape_json_string(params.scopes[i]) << "\"";
+		}
+		body << "]";
+	}
+
+	if (params.expires_at) {
+		body << ",\"expires_at\":" << *params.expires_at;
+	}
+	body << "}";
+
+	auto response = impl_->client.post("/api-keys/generate", body.str());
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200 && response->status_code != 201) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to generate API key: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	ApiKey key;
+	// Parse from nested "api_key" object if present, otherwise from root
+	std::string key_json = response->body;
+	if (response->body.find("\"api_key\"") != std::string::npos) {
+		// Extract the api_key object
+		auto start = response->body.find("\"api_key\"");
+		if (start != std::string::npos) {
+			start = response->body.find("{", start);
+			if (start != std::string::npos) {
+				int depth = 1;
+				size_t end = start + 1;
+				while (end < response->body.size() && depth > 0) {
+					if (response->body[end] == '{')
+						depth++;
+					else if (response->body[end] == '}')
+						depth--;
+					end++;
+				}
+				key_json = response->body.substr(start, end - start);
+			}
+		}
+	}
+
+	key.id = extract_string(key_json, "id");
+	key.name = extract_string(key_json, "name");
+	key.created_time = extract_int(key_json, "created_time");
+
+	// Parse scopes array
+	auto scopes_objects = extract_array_objects(key_json, "scopes");
+	for (const auto& s : scopes_objects) {
+		// scopes might be simple strings, not objects
+		key.scopes.push_back(s);
+	}
+
+	// Handle expires_at if present
+	auto expires = extract_int(key_json, "expires_at");
+	if (expires > 0) {
+		key.expires_at = expires;
+	}
+
+	return key;
+}
+
+Result<LookupBundleResponse>
+KalshiClient::lookup_multivariate_bundle(const std::string& collection_ticker,
+										 const LookupBundleParams& params) {
+	std::ostringstream body;
+	body << "{\"market_tickers\":[";
+	for (size_t i = 0; i < params.market_tickers.size(); ++i) {
+		if (i > 0)
+			body << ",";
+		body << "\"" << escape_json_string(params.market_tickers[i]) << "\"";
+	}
+	body << "]}";
+
+	auto response =
+		impl_->client.post("/multivariate-event-collections/" + collection_ticker + "/lookup",
+						   body.str());
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to lookup bundle: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	LookupBundleResponse result;
+	result.collection_ticker = extract_string(response->body, "collection_ticker");
+	result.bundle_price = static_cast<std::int32_t>(extract_int(response->body, "bundle_price"));
+
+	// Parse market_tickers array
+	auto objects = extract_array_objects(response->body, "market_tickers");
+	for (const auto& obj : objects) {
+		result.market_tickers.push_back(obj);
+	}
+
 	return result;
 }
 

@@ -30,21 +30,29 @@ struct OrderBook {
 };
 
 /// Market information
+/// Memory layout optimized: 8-byte fields first, then 4-byte, then 1-byte, strings last
 struct Market {
-	std::string ticker;
-	std::string title;
-	std::string subtitle;
-	MarketStatus status{MarketStatus::Open};
+	// 8-byte aligned fields
 	std::int64_t open_time{0};
 	std::int64_t close_time{0};
 	std::optional<std::int64_t> expiration_time;
-	std::optional<std::string> result; // "yes", "no", or nullopt if not settled
+
+	// 4-byte fields grouped together
 	std::int32_t yes_bid{0};
 	std::int32_t yes_ask{0};
 	std::int32_t no_bid{0};
 	std::int32_t no_ask{0};
 	std::int32_t volume{0};
 	std::int32_t open_interest{0};
+
+	// 1-byte enum
+	MarketStatus status{MarketStatus::Open};
+
+	// Strings last (have internal pointers, variable size)
+	std::string ticker;
+	std::string title;
+	std::string subtitle;
+	std::optional<std::string> result; // "yes", "no", or nullopt if not settled
 };
 
 /// User position in a market
