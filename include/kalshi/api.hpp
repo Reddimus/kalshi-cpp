@@ -51,27 +51,41 @@ struct Balance {
 };
 
 /// Fill (trade execution for user)
+/// Memory layout optimized: 8-byte fields first, then 4-byte, then 1-byte, strings last
 struct Fill {
-	std::string trade_id;
-	std::string order_id;
-	std::string market_ticker;
-	Side side{Side::Yes};
-	Action action{Action::Buy};
+	// 8-byte aligned field
+	std::int64_t created_time{0};
+
+	// 4-byte fields grouped together
 	std::int32_t count{0};
 	std::int32_t yes_price{0};
 	std::int32_t no_price{0};
-	std::int64_t created_time{0};
+
+	// 1-byte fields packed together
+	Side side{Side::Yes};
+	Action action{Action::Buy};
 	bool is_taker{false};
+
+	// Strings last (have internal pointers, variable size)
+	std::string trade_id;
+	std::string order_id;
+	std::string market_ticker;
 };
 
 /// Settlement record
+/// Memory layout optimized
 struct Settlement {
-	std::string market_ticker;
-	std::string result;
-	std::int32_t yes_count{0};
-	std::int32_t no_count{0};
+	// 8-byte aligned fields
 	std::int64_t revenue{0};
 	std::int64_t settled_time{0};
+
+	// 4-byte fields
+	std::int32_t yes_count{0};
+	std::int32_t no_count{0};
+
+	// Strings last
+	std::string market_ticker;
+	std::string result;
 };
 
 /// Candlestick data for market history
