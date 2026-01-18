@@ -243,7 +243,7 @@ int main() {
 - `get_market(ticker)` - Get single market
 - `get_markets(params)` - List markets with filters
 - `get_market_orderbook(ticker)` - Get order book
-- `get_market_candlesticks(params)` - Get price history
+- `get_market_candlesticks(params)` - Get historical OHLC data (requires series_ticker + ticker)
 - `get_trades(params)` - Get public trades
 
 ### Events & Series API

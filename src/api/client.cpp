@@ -537,8 +537,11 @@ Result<OrderBook> KalshiClient::parse_orderbook(const std::string& json) {
 
 Result<std::vector<Candlestick>>
 KalshiClient::get_market_candlesticks(const GetCandlesticksParams& params) {
-	std::string path = "/markets/" + params.ticker + "/candlesticks";
-	append_query_param(path, "period", params.period);
+	// Endpoint: GET /series/{event_ticker}/markets/{ticker}/candlesticks
+	// Note: Despite the path saying "series", it actually uses the event_ticker
+	std::string path =
+		"/series/" + params.event_ticker + "/markets/" + params.ticker + "/candlesticks";
+	append_query_param(path, "period_interval", params.period_interval);
 	if (params.start_ts)
 		append_query_param(path, "start_ts", *params.start_ts);
 	if (params.end_ts)
@@ -552,21 +555,51 @@ KalshiClient::get_market_candlesticks(const GetCandlesticksParams& params) {
 	if (response->status_code != 200) {
 		return std::unexpected(
 			Error{ErrorCode::ServerError,
-				  "Failed to get candlesticks: " + std::to_string(response->status_code),
+				  "Failed to get candlesticks: HTTP " + std::to_string(response->status_code) +
+					  " - " + response->body.substr(0, 200),
 				  response->status_code});
 	}
 
 	std::vector<Candlestick> candlesticks;
-	auto candle_objects = extract_array_objects(response->body, "candlesticks");
+	// Response has "market_candlesticks" array with nested price object
+	auto candle_objects = extract_array_objects(response->body, "market_candlesticks");
+
+	// Debug: if no candles parsed but we got a response, something is wrong with parsing
+	if (candle_objects.empty() && !response->body.empty()) {
+		// Try to detect if the array key is different
+		if (response->body.find("candlesticks") != std::string::npos &&
+			response->body.find("market_candlesticks") == std::string::npos) {
+			// Try alternate key
+			candle_objects = extract_array_objects(response->body, "candlesticks");
+		}
+	}
 
 	for (const auto& obj : candle_objects) {
 		Candlestick c;
-		c.timestamp = extract_int(obj, "ts");
-		c.open_price = static_cast<std::int32_t>(extract_int(obj, "open"));
-		c.close_price = static_cast<std::int32_t>(extract_int(obj, "close"));
-		c.high_price = static_cast<std::int32_t>(extract_int(obj, "high"));
-		c.low_price = static_cast<std::int32_t>(extract_int(obj, "low"));
+		c.timestamp = extract_int(obj, "end_period_ts");
 		c.volume = static_cast<std::int32_t>(extract_int(obj, "volume"));
+
+		// Extract nested "price" object for OHLC data
+		size_t price_pos = obj.find("\"price\"");
+		if (price_pos != std::string::npos) {
+			size_t brace_start = obj.find('{', price_pos);
+			if (brace_start != std::string::npos) {
+				int depth = 1;
+				size_t brace_end = brace_start + 1;
+				while (brace_end < obj.size() && depth > 0) {
+					if (obj[brace_end] == '{')
+						depth++;
+					else if (obj[brace_end] == '}')
+						depth--;
+					brace_end++;
+				}
+				std::string price_obj = obj.substr(brace_start, brace_end - brace_start);
+				c.open_price = static_cast<std::int32_t>(extract_int(price_obj, "open"));
+				c.close_price = static_cast<std::int32_t>(extract_int(price_obj, "close"));
+				c.high_price = static_cast<std::int32_t>(extract_int(price_obj, "high"));
+				c.low_price = static_cast<std::int32_t>(extract_int(price_obj, "low"));
+			}
+		}
 		candlesticks.push_back(c);
 	}
 
@@ -1777,10 +1810,9 @@ Result<Quote> KalshiClient::get_quote(const std::string& quote_id) {
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(
-			Error{ErrorCode::ServerError,
-				  "Failed to get quote: " + std::to_string(response->status_code),
-				  response->status_code});
+		return std::unexpected(Error{
+			ErrorCode::ServerError, "Failed to get quote: " + std::to_string(response->status_code),
+			response->status_code});
 	}
 
 	Quote quote;
@@ -1957,8 +1989,7 @@ Result<Milestone> KalshiClient::get_milestone(const std::string& milestone_id) {
 	return m;
 }
 
-std::string
-KalshiClient::build_multivariate_query(const GetMultivariateCollectionsParams& params) {
+std::string KalshiClient::build_multivariate_query(const GetMultivariateCollectionsParams& params) {
 	std::string query = "/multivariate-collections";
 	if (params.limit)
 		append_query_param(query, "limit", *params.limit);
@@ -1976,10 +2007,10 @@ KalshiClient::get_multivariate_collections(const GetMultivariateCollectionsParam
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{
-			ErrorCode::ServerError,
-			"Failed to get multivariate collections: " + std::to_string(response->status_code),
-			response->status_code});
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to get multivariate collections: " +
+										 std::to_string(response->status_code),
+									 response->status_code});
 	}
 
 	PaginatedResponse<MultivariateCollection> result;
@@ -2005,10 +2036,10 @@ KalshiClient::get_multivariate_collection(const std::string& collection_id) {
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(Error{
-			ErrorCode::ServerError,
-			"Failed to get multivariate collection: " + std::to_string(response->status_code),
-			response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get multivariate collection: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 
 	MultivariateCollection c;
@@ -2289,11 +2320,10 @@ Result<TotalRestingOrderValue> KalshiClient::get_total_resting_order_value() {
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(
-			Error{ErrorCode::ServerError,
-				  "Failed to get total resting order value: " +
-					  std::to_string(response->status_code),
-				  response->status_code});
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to get total resting order value: " +
+										 std::to_string(response->status_code),
+									 response->status_code});
 	}
 
 	TotalRestingOrderValue result;
@@ -2326,9 +2356,10 @@ Result<void> KalshiClient::delete_rfq(const std::string& rfq_id) {
 	}
 
 	if (response->status_code != 200 && response->status_code != 204) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to delete RFQ: " + std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to delete RFQ: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 
 	return {};
@@ -2452,9 +2483,8 @@ KalshiClient::lookup_multivariate_bundle(const std::string& collection_ticker,
 	}
 	body << "]}";
 
-	auto response =
-		impl_->client.post("/multivariate-event-collections/" + collection_ticker + "/lookup",
-						   body.str());
+	auto response = impl_->client.post(
+		"/multivariate-event-collections/" + collection_ticker + "/lookup", body.str());
 	if (!response) {
 		return std::unexpected(response.error());
 	}
