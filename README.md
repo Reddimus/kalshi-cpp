@@ -101,7 +101,7 @@ graph LR
 git clone https://github.com/your-org/kalshi-cpp.git
 cd kalshi-cpp
 
-# Build
+# Build (Release with -O3 and LTO by default)
 make build
 
 # Run tests
@@ -112,6 +112,23 @@ make bench
 
 # Check formatting
 make lint
+```
+
+### Build Options
+
+The SDK supports several CMake options for optimization:
+
+| Option | Default | Description |
+| ------ | ------- | ----------- |
+| `KALSHI_ENABLE_LTO` | ON | Enable Link Time Optimization for Release builds |
+| `KALSHI_NATIVE_ARCH` | OFF | Use `-march=native` for CPU-specific tuning (not portable) |
+
+Release builds automatically use `-O3 -DNDEBUG` and `-mtune=generic`.
+
+```bash
+# Build with native CPU optimizations (fastest, not portable)
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DKALSHI_NATIVE_ARCH=ON
+cmake --build build
 ```
 
 ### Install & use as a package

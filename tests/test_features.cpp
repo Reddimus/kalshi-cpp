@@ -86,7 +86,7 @@ TEST(rate_limiter_initial_tokens) {
 	config.max_tokens = 10;
 
 	kalshi::RateLimiter limiter(config);
-	ASSERT_EQ(limiter.available_tokens(), 5);
+	ASSERT_EQ(limiter.available_tokens(), static_cast<std::uint16_t>(5));
 }
 
 TEST(rate_limiter_try_acquire) {
@@ -108,10 +108,10 @@ TEST(rate_limiter_reset) {
 	kalshi::RateLimiter limiter(config);
 	(void)limiter.try_acquire();
 	(void)limiter.try_acquire();
-	ASSERT_EQ(limiter.available_tokens(), 1);
+	ASSERT_EQ(limiter.available_tokens(), static_cast<std::uint16_t>(1));
 
 	limiter.reset();
-	ASSERT_EQ(limiter.available_tokens(), 3);
+	ASSERT_EQ(limiter.available_tokens(), static_cast<std::uint16_t>(3));
 }
 
 // Retry policy tests
