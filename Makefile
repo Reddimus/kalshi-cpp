@@ -6,7 +6,7 @@ CMAKE := cmake
 NPROC := $(shell nproc 2>/dev/null || echo 4)
 BENCH_ITERATIONS := 254
 
-.PHONY: all build test lint clean configure help bench bench-compare format
+.PHONY: all build test lint clean configure help bench bench-compare format run-get_markets run-basic_usage run-get_daily_high_temp
 
 # Default target
 all: build
@@ -56,6 +56,33 @@ bench: build
 # Compare benchmarks between HEAD and working tree (or two refs)
 bench-compare:
 	@./tools/bench.sh --compare $(BENCH_ITERATIONS)
+
+# Load .env and run example (creates temp PEM if KALSHI_API_PRIVATE_KEY is set)
+define run_example
+	@if [ -f .env ]; then \
+		set -a && . ./.env && set +a && \
+		if [ -n "$$KALSHI_API_PRIVATE_KEY" ] && [ -z "$$KALSHI_API_KEY_FILE" ]; then \
+			TMPFILE=$$(mktemp) && \
+			echo "$$KALSHI_API_PRIVATE_KEY" | base64 -d | openssl rsa -inform DER -outform PEM -out $$TMPFILE 2>/dev/null && \
+			KALSHI_API_KEY_FILE=$$TMPFILE $(1) ; \
+			rm -f $$TMPFILE; \
+		else \
+			$(1); \
+		fi; \
+	else \
+		$(1); \
+	fi
+endef
+
+# Run examples
+run-get_markets: build
+	$(call run_example,./$(BUILD_DIR)/examples/example_markets)
+
+run-basic_usage: build
+	$(call run_example,./$(BUILD_DIR)/examples/example_basic)
+
+run-get_daily_high_temp: build
+	$(call run_example,./$(BUILD_DIR)/examples/example_daily_high_temp)
 
 # Help
 help:
