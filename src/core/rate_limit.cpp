@@ -15,8 +15,11 @@ void RateLimiter::refill() noexcept {
 		std::chrono::duration_cast<std::chrono::milliseconds>(now - last_refill_);
 
 	if (elapsed >= config_.refill_interval) {
-		std::int32_t tokens_to_add = static_cast<std::int32_t>(elapsed / config_.refill_interval);
-		tokens_ = std::min(tokens_ + tokens_to_add, config_.max_tokens);
+		// Use wider type for arithmetic to avoid overflow
+		std::int64_t intervals = elapsed / config_.refill_interval;
+		std::int64_t new_tokens = static_cast<std::int64_t>(tokens_) + intervals;
+		tokens_ = static_cast<std::uint16_t>(
+			std::min(new_tokens, static_cast<std::int64_t>(config_.max_tokens)));
 		last_refill_ = now;
 	}
 }
@@ -61,7 +64,7 @@ bool RateLimiter::acquire_for(std::chrono::milliseconds max_wait) {
 	return false;
 }
 
-std::int32_t RateLimiter::available_tokens() const noexcept {
+std::uint16_t RateLimiter::available_tokens() const noexcept {
 	std::lock_guard lock(mutex_);
 	return tokens_;
 }

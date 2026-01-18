@@ -18,9 +18,9 @@ class RateLimiter {
 public:
 	/// Configuration for rate limiting
 	struct Config {
-		std::int32_t max_tokens = 10;					   // Maximum tokens in bucket
+		std::uint16_t max_tokens = 10;					   ///< Maximum tokens (0-65535)
 		std::chrono::milliseconds refill_interval{1000};   // Time to add one token
-		std::int32_t initial_tokens = 10;				   // Starting tokens
+		std::uint16_t initial_tokens = 10;				   ///< Starting tokens (0-65535)
 		std::optional<std::chrono::milliseconds> max_wait; // Max time to wait
 	};
 
@@ -37,7 +37,7 @@ public:
 	[[nodiscard]] bool acquire_for(std::chrono::milliseconds max_wait);
 
 	/// Get current number of available tokens
-	[[nodiscard]] std::int32_t available_tokens() const noexcept;
+	[[nodiscard]] std::uint16_t available_tokens() const noexcept;
 
 	/// Reset the rate limiter to initial state
 	void reset() noexcept;
@@ -50,7 +50,7 @@ private:
 
 	Config config_;
 	mutable std::mutex mutex_;
-	std::int32_t tokens_;
+	std::uint16_t tokens_;
 	std::chrono::steady_clock::time_point last_refill_;
 };
 

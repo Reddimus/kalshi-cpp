@@ -80,7 +80,7 @@ void print_candle_preview(const std::vector<kalshi::Candlestick>& candles,
 	std::cout << "      │ ─────────────────────────────────────────────────────────────────\n";
 
 	for (size_t i = start_idx; i < end_idx; ++i) {
-		const auto& c = candles[i];
+		const kalshi::Candlestick& c = candles[i];
 		std::cout << "      │ " << std::setw(3) << (i + 1) << "  " << format_timestamp(c.timestamp)
 				  << "   " << std::setw(4) << c.open_price << "  " << std::setw(4) << c.high_price
 				  << "  " << std::setw(4) << c.low_price << "  " << std::setw(4) << c.close_price
@@ -137,7 +137,7 @@ int main() {
 	int total_candles = 0;
 
 	// Current time for historical data queries
-	auto now = std::chrono::system_clock::now();
+	std::chrono::system_clock::time_point now = std::chrono::system_clock::now();
 	std::int64_t now_ts =
 		std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count();
 	std::int64_t seven_days_ago = now_ts - (7 * 24 * 60 * 60);
@@ -222,20 +222,20 @@ int main() {
 				candle_params.start_ts = seven_days_ago;
 				candle_params.end_ts = now_ts;
 
-				auto candles_result = client.get_market_candlesticks(candle_params);
+				kalshi::Result<std::vector<kalshi::Candlestick>> candles_result =
+					client.get_market_candlesticks(candle_params);
 				if (candles_result) {
 					if (candles_result->empty()) {
 						std::cout << "      [" << event.event_ticker << "/" << market.ticker
 								  << "] API returned empty array (no trading data)\n";
 					} else {
 						total_candles += static_cast<int>(candles_result->size());
-						print_candle_preview(
-							*candles_result, event.event_ticker, market.ticker, 9);
+						print_candle_preview(*candles_result, event.event_ticker, market.ticker, 9);
 					}
 				} else {
 					std::cout << "      [" << event.event_ticker << "/" << market.ticker << "] "
-							  << "API ERROR: " << candles_result.error().message << " (http: "
-							  << candles_result.error().http_status << ")\n";
+							  << "API ERROR: " << candles_result.error().message
+							  << " (http: " << candles_result.error().http_status << ")\n";
 				}
 				std::cout << "\n";
 			}

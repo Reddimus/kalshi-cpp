@@ -45,15 +45,19 @@ if (response && response->status_code == 200) {
 ### WebSocket Streaming (`kalshi/websocket.hpp`)
 
 ```cpp
-kalshi::WebSocketClient ws(signer);
+// WsConfig uses std::uint16_t for max_reconnect_attempts (max 65535)
+kalshi::WsConfig config;
+config.max_reconnect_attempts = 10;  // 0-65535
+
+kalshi::WebSocketClient ws(signer, config);
 ws.connect();
 
 // Subscribe to orderbook updates
-auto sub = ws.subscribe_orderbook({"TICKER-1", "TICKER-2"});
+kalshi::Result<kalshi::SubscriptionId> sub = ws.subscribe_orderbook({"TICKER-1", "TICKER-2"});
 
 // Handle messages
 ws.on_message([](const kalshi::WsMessage& msg) {
-    std::visit([](auto&& m) { /* handle message */ }, msg);
+    std::visit([](const auto& m) { /* handle message */ }, msg);
 });
 ```
 
@@ -74,6 +78,7 @@ while (iter.has_more()) {
 ### Rate Limiting (`kalshi/rate_limit.hpp`)
 
 ```cpp
+// Token counts use std::uint16_t for memory efficiency (max 65535 tokens)
 kalshi::RateLimiter::Config config{.max_tokens = 10, .initial_tokens = 10};
 kalshi::RateLimiter limiter(config);
 
