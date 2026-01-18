@@ -238,8 +238,34 @@ Based on the Python SDK kalshi-python@2.1.4 analysis:
 - `GET /markets` - List markets (paginated)
 - `GET /markets/{ticker}` - Get market details
 - `GET /markets/{ticker}/orderbook` - Get order book
-- `GET /markets/{ticker}/candlesticks` - Get candlestick data
+- `GET /series/{event_ticker}/markets/{ticker}/candlesticks` - Get candlestick (OHLC) data
 - `GET /trades` - Get public trades (paginated)
+
+#### Candlesticks Endpoint Details
+
+**Path**: `GET /series/{event_ticker}/markets/{ticker}/candlesticks`
+
+> **Important**: Despite the path saying "series", use the **event_ticker** (e.g., `KXHIGHLAX-26JAN18`), NOT the series_ticker!
+
+**Query Parameters**:
+
+- `start_ts` (required) - Start timestamp in Unix seconds
+- `end_ts` (required) - End timestamp in Unix seconds  
+- `period_interval` (required) - Candlestick period in MINUTES: 1 (1min), 60 (1hr), 1440 (1day)
+
+**Response**: Array of candlesticks with:
+
+- `end_period_ts` - End timestamp for the period
+- `volume` - Trading volume
+- `price` - Object with `open`, `high`, `low`, `close` (in cents)
+- `yes_bid`/`yes_ask` - OHLC for bid/ask sides
+
+**Notes**:
+
+- Historical data is available for markets with trading activity
+- Settled markets may return historical data within retention period
+- No documented retention limit; query from market listing date to now
+- Rate limit: ~10 requests/sec; use time-range pagination for large backfills
 
 ### Events API
 
@@ -386,7 +412,7 @@ This matrix compares feature coverage across official SDKs and this C++ implemen
 | `GET /markets` | ✅ | ✅ | ❌ | ✅ |
 | `GET /markets/{ticker}` | ✅ | ✅ | ❌ | ✅ |
 | `GET /markets/{ticker}/orderbook` | ✅ | ✅ | ❌ | ✅ |
-| `GET /markets/{ticker}/candlesticks` | ✅ | ✅ | ❌ | ✅ |
+| `GET /series/{event}/markets/{ticker}/candlesticks` | ✅ | ✅ | ❌ | ✅ |
 | `GET /trades` | ✅ | ✅ | ❌ | ✅ |
 
 ### REST API - Events & Series
