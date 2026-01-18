@@ -3,7 +3,7 @@
 
 ROOT_DIR := $(shell dirname $(realpath $(lastword $(MAKEFILE_LIST))))/../
 
-.PHONY: build test lint clean run-get_markets run-basic_usage
+.PHONY: build test lint clean run-get_markets run-basic_usage run-get_daily_high_temp
 
 build:
 	@$(MAKE) -C $(ROOT_DIR) build
@@ -39,3 +39,6 @@ run-get_markets: build
 
 run-basic_usage: build
 	$(call run_example,$(ROOT_DIR)/build/examples/example_basic)
+
+run-get_daily_high_temp: build
+	$(call run_example,$(ROOT_DIR)/build/examples/example_daily_high_temp)
