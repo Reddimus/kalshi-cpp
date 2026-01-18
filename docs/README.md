@@ -102,6 +102,30 @@ auto result = kalshi::with_retry([&]() { return client.get("/markets"); }, polic
 - `OrderRequest` - New order parameters
 - `Trade` - Trade execution
 - `Position` - User position
+- `Candlestick` - Historical OHLC price data
+
+### Historical Market Data
+
+The SDK supports fetching historical candlestick data via:
+
+```cpp
+kalshi::GetCandlesticksParams params;
+params.event_ticker = "KXHIGHLAX-26JAN18";    // Event ticker (NOT series ticker!)
+params.ticker = "KXHIGHLAX-26JAN18-T50";      // Market ticker
+params.period_interval = 60;                   // 1 hour candles (1, 60, 1440 MINUTES)
+params.start_ts = start_timestamp;             // Unix seconds
+params.end_ts = end_timestamp;                 // Unix seconds
+
+auto candles = client.get_market_candlesticks(params);
+```
+
+**Notes**:
+
+- Endpoint: `GET /series/{event_ticker}/markets/{ticker}/candlesticks`
+- Despite the path saying "series", use the **event_ticker** not series_ticker
+- Period intervals in **MINUTES**: 1 (1min), 60 (1hr), 1440 (1day)
+- Returns OHLC data with volume for each period
+- Rate limit: ~10 requests/sec; paginate large historical requests
 
 ## External Resources
 

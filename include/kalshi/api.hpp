@@ -437,11 +437,15 @@ struct GetTradesParams {
 };
 
 /// Parameters for market candlesticks
+/// Note: Requires both event_ticker and market ticker because the endpoint is
+/// GET /series/{event_ticker}/markets/{ticker}/candlesticks
+/// Despite the path saying "series", the first parameter is the EVENT ticker.
 struct GetCandlesticksParams {
-	std::string ticker;
-	std::string period; // "1m", "5m", "1h", "1d"
-	std::optional<std::int64_t> start_ts;
-	std::optional<std::int64_t> end_ts;
+	std::string event_ticker;			  ///< Event ticker (e.g., "KXHIGHLAX-26JAN18")
+	std::string ticker;					  ///< Market ticker (e.g., "KXHIGHLAX-26JAN18-T50")
+	std::int32_t period_interval{1};	  ///< Period in MINUTES: 1 (1m), 60 (1h), 1440 (1d)
+	std::optional<std::int64_t> start_ts; ///< Start timestamp (unix seconds)
+	std::optional<std::int64_t> end_ts;	  ///< End timestamp (unix seconds)
 };
 
 /// Parameters for creating an order
@@ -638,8 +642,7 @@ public:
 	// ===== Order Queue Position (Authenticated) =====
 
 	/// Get queue position for a single order
-	[[nodiscard]] Result<OrderQueuePosition>
-	get_order_queue_position(const std::string& order_id);
+	[[nodiscard]] Result<OrderQueuePosition> get_order_queue_position(const std::string& order_id);
 
 	/// Get queue positions for multiple orders
 	[[nodiscard]] Result<std::vector<OrderQueuePosition>>
@@ -722,8 +725,7 @@ public:
 	get_structured_targets(const GetStructuredTargetsParams& params = {});
 
 	/// Get a single structured target by ID
-	[[nodiscard]] Result<StructuredTarget>
-	get_structured_target(const std::string& target_id);
+	[[nodiscard]] Result<StructuredTarget> get_structured_target(const std::string& target_id);
 
 	// ===== Communications =====
 
@@ -779,8 +781,10 @@ private:
 	[[nodiscard]] std::string build_rfqs_query(const GetRfqsParams& params);
 	[[nodiscard]] std::string build_quotes_query(const GetQuotesParams& params);
 	[[nodiscard]] std::string build_milestones_query(const GetMilestonesParams& params);
-	[[nodiscard]] std::string build_multivariate_query(const GetMultivariateCollectionsParams& params);
-	[[nodiscard]] std::string build_structured_targets_query(const GetStructuredTargetsParams& params);
+	[[nodiscard]] std::string
+	build_multivariate_query(const GetMultivariateCollectionsParams& params);
+	[[nodiscard]] std::string
+	build_structured_targets_query(const GetStructuredTargetsParams& params);
 	[[nodiscard]] std::string build_search_query(const SearchParams& params);
 
 	// JSON serialization helpers
