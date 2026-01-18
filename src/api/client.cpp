@@ -553,11 +553,11 @@ KalshiClient::get_market_candlesticks(const GetCandlesticksParams& params) {
 	}
 
 	if (response->status_code != 200) {
-		return std::unexpected(
-			Error{ErrorCode::ServerError,
-				  "Failed to get candlesticks: HTTP " + std::to_string(response->status_code) +
-					  " - " + response->body.substr(0, 200),
-				  response->status_code});
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to get candlesticks: HTTP " +
+										 std::to_string(response->status_code) + " - " +
+										 response->body.substr(0, 200),
+									 response->status_code});
 	}
 
 	std::vector<Candlestick> candlesticks;

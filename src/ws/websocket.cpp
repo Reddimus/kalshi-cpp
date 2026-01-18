@@ -94,7 +94,7 @@ struct WsImplData {
 
 	std::mutex callback_mutex;
 	std::atomic<std::int32_t> next_command_id{1};
-	std::atomic<std::int32_t> reconnect_attempts{0};
+	std::atomic<std::uint16_t> reconnect_attempts{0}; ///< Current reconnect attempts (0-65535)
 
 	// libwebsockets context and connection
 	lws_context* context{nullptr};
