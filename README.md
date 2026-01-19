@@ -335,14 +335,27 @@ int main() {
 
 ### WebSocket Channels
 
-- `subscribe_orderbook(tickers)` - Order book deltas
-- `subscribe_trades(tickers)` - Trade events
-- `subscribe_fills(tickers)` - Fill notifications
+- `subscribe_orderbook(tickers)` - Order book snapshots and deltas (full depth parsing)
+- `subscribe_trades(tickers)` - Trade events with price and size
+- `subscribe_fills(tickers)` - Fill notifications (user's orders)
 - `subscribe_lifecycle()` - Market lifecycle events
+
+### WebSocket Message Types
+
+The SDK parses all WebSocket message types:
+
+- **OrderbookSnapshot** - Full orderbook with yes/no arrays parsed
+- **OrderbookDelta** - Price-level changes (supports negative deltas)
+- **WsTrade** - Public trade with yes_price, count, taker_side
+- **WsFill** - User fill with order details
+- **MarketLifecycle** - Market open/close/settlement events
+
+See [examples/README.md](examples/README.md) for live streaming usage.
 
 ## Documentation
 
 - [Research Notes](docs/research.md) - Analysis of official SDKs, API behavior, and parity matrix
+- [Examples](examples/README.md) - Usage examples including WebSocket streaming
 - [API Reference](docs/) - (Coming soon)
 
 ## License
