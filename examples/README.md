@@ -8,7 +8,7 @@ Example programs demonstrating Kalshi C++ SDK usage.
 | ------------------------ | ---------------------------------------------- |
 | `basic_usage.cpp`        | Basic API setup and request                    |
 | `get_markets.cpp`        | Fetch markets from the API                     |
-| `get_daily_high_temp.cpp`| Temperature markets with optional live WebSocket streaming |
+| `get_daily_temp.cpp`     | Daily temperature markets (high/low) with optional live WebSocket streaming |
 | `live_market_view.hpp`   | Helper library for tracking live market state  |
 
 ## Building Examples
@@ -34,26 +34,26 @@ Then run:
 # Using make targets
 make run-basic_usage
 make run-get_markets
-make run-get_daily_high_temp
+make run-get_daily_temp
 
 # Or directly
 ./build/examples/example_basic
 ./build/examples/example_markets
-./build/examples/example_daily_high_temp
+./build/examples/example_daily_temp
 ```
 
 ### WebSocket Streaming Mode
 
-The `get_daily_high_temp` example supports live WebSocket streaming of market prices.
+The `get_daily_temp` example supports live WebSocket streaming of market prices.
 
 **Enable streaming:**
 
 ```bash
 # Via command line flag
-./build/examples/example_daily_high_temp --stream
+./build/examples/example_daily_temp --stream
 
 # Via environment variable
-KALSHI_STREAM=1 make run-get_daily_high_temp
+KALSHI_STREAM=1 make run-get_daily_temp
 ```
 
 **Rate limiting:**

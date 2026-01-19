@@ -1,11 +1,13 @@
-/// @file get_daily_high_temp.cpp
-/// @brief Example: Get highest temperature prediction markets for cities today
+/// @file get_daily_temp.cpp
+/// @brief Example: Get daily temperature prediction markets (high and low) for cities
 ///
 /// This example demonstrates:
-/// 1. Fetching series/events for daily high temperature markets
+/// 1. Fetching series/events for daily temperature markets (both high and low)
 /// 2. Getting market details with current bid/ask prices
 /// 3. Querying historical candlestick (OHLC) data for price history
 /// 4. (Optional) Live WebSocket streaming of prices (--stream flag or KALSHI_STREAM=1)
+///
+/// Data source: https://kalshi.com/category/climate/daily-temperature
 ///
 /// Candlestick API Notes:
 /// - Endpoint: GET /series/{series_ticker}/markets/{ticker}/candlesticks
@@ -180,16 +182,33 @@ int main(int argc, char* argv[]) {
 	kalshi::KalshiClient client(std::move(http_client));
 
 	std::cout << "╔═══════════════════════════════════════════════════════════════════════╗\n";
-	std::cout << "║       KALSHI DAILY HIGH TEMPERATURE MARKETS - HISTORICAL DATA        ║\n";
+	std::cout << "║         KALSHI DAILY TEMPERATURE MARKETS - HISTORICAL DATA           ║\n";
 	std::cout << "╚═══════════════════════════════════════════════════════════════════════╝\n\n";
 
-	// Known daily high temperature series tickers on Kalshi
+	// Temperature series from https://kalshi.com/category/climate/daily-temperature
+	// Includes both HIGH and LOW temperature markets
 	std::vector<std::pair<std::string, std::string>> temp_series = {
-		{"KXHIGHLAX", "Los Angeles"},	 {"KXHIGHNY", "NYC"},
-		{"KXHIGHAUS", "Austin"},		 {"KXHIGHDEN", "Denver"},
-		{"KXHIGHOU", "Houston"},		 {"KXHIGHTLV", "Las Vegas"},
-		{"KXHIGHTSFO", "San Francisco"}, {"KXHIGHTDC", "Washington DC"},
-		{"KXHIGHPHIL", "Philadelphia"},	 {"HIGHMIA", "Miami"},
+		// High temperature series
+		{"KXHIGHNY", "NYC High"},
+		{"KXHIGHMIA", "Miami High"},
+		{"KXHIGHLAX", "Los Angeles High"},
+		{"KXHIGHAUS", "Austin High"},
+		{"KXHIGHPHIL", "Philadelphia High"},
+		{"KXHIGHCHI", "Chicago High"},
+		{"KXHIGHDEN", "Denver High"},
+		{"KXHIGHTDC", "Washington DC High"},
+		{"KXHIGHTSEA", "Seattle High"},
+		{"KXHIGHTLV", "Las Vegas High"},
+		{"KXHIGHTSFO", "San Francisco High"},
+		{"KXHIGHTNOLA", "New Orleans High"},
+		// Low temperature series
+		{"KXLOWTAUS", "Austin Low"},
+		{"KXLOWTCHI", "Chicago Low"},
+		{"KXLOWTLAX", "Los Angeles Low"},
+		{"KXLOWTMIA", "Miami Low"},
+		{"KXLOWTNYC", "NYC Low"},
+		{"KXLOWTPHIL", "Philadelphia Low"},
+		{"KXLOWTDEN", "Denver Low"},
 	};
 
 	std::cout << "Scanning " << temp_series.size() << " temperature series for active markets...\n";
