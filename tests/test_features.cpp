@@ -179,3 +179,51 @@ TEST(websocket_channel_to_string) {
 	ASSERT_EQ(kalshi::to_string(kalshi::Channel::MarketLifecycle),
 			  std::string_view("market_lifecycle"));
 }
+
+TEST(websocket_orderbook_snapshot_default) {
+	kalshi::OrderbookSnapshot snap;
+	ASSERT_EQ(snap.sid, 0);
+	ASSERT_EQ(snap.seq, 0);
+	ASSERT_TRUE(snap.market_ticker.empty());
+	ASSERT_TRUE(snap.yes.empty());
+	ASSERT_TRUE(snap.no.empty());
+}
+
+TEST(websocket_orderbook_delta_default) {
+	kalshi::OrderbookDelta delta;
+	ASSERT_EQ(delta.sid, 0);
+	ASSERT_EQ(delta.seq, 0);
+	ASSERT_TRUE(delta.market_ticker.empty());
+	ASSERT_EQ(delta.price, 0);
+	ASSERT_EQ(delta.delta, 0);
+}
+
+TEST(websocket_trade_default) {
+	kalshi::WsTrade trade;
+	ASSERT_EQ(trade.sid, 0);
+	ASSERT_TRUE(trade.trade_id.empty());
+	ASSERT_TRUE(trade.market_ticker.empty());
+	ASSERT_EQ(trade.yes_price, 0);
+	ASSERT_EQ(trade.count, 0);
+}
+
+TEST(websocket_subscription_id) {
+	kalshi::SubscriptionId sub;
+	sub.sid = 42;
+	sub.channel = kalshi::Channel::OrderbookDelta;
+	ASSERT_EQ(sub.sid, 42);
+	ASSERT_EQ(sub.channel, kalshi::Channel::OrderbookDelta);
+}
+
+TEST(websocket_ws_error_default) {
+	kalshi::WsError err;
+	ASSERT_EQ(err.code, 0);
+	ASSERT_TRUE(err.message.empty());
+}
+
+TEST(websocket_ws_config_defaults) {
+	kalshi::WsConfig config;
+	ASSERT_EQ(config.url, std::string("wss://api.elections.kalshi.com/trade-api/ws/v2"));
+	ASSERT_TRUE(config.auto_reconnect);
+	ASSERT_EQ(config.max_reconnect_attempts, 10);
+}
