@@ -6,7 +6,7 @@ CMAKE := cmake
 NPROC := $(shell nproc 2>/dev/null || echo 4)
 BENCH_ITERATIONS := 254
 
-.PHONY: all build test lint clean configure help bench bench-compare format run-get_markets run-basic_usage run-get_daily_high_temp
+.PHONY: all build test lint clean configure help bench bench-compare format run-get_markets run-basic_usage run-get_daily_temp
 
 # Default target
 all: build
@@ -81,8 +81,8 @@ run-get_markets: build
 run-basic_usage: build
 	$(call run_example,./$(BUILD_DIR)/examples/example_basic)
 
-run-get_daily_high_temp: build
-	$(call run_example,./$(BUILD_DIR)/examples/example_daily_high_temp)
+run-get_daily_temp: build
+	$(call run_example,./$(BUILD_DIR)/examples/example_daily_temp)
 
 # Help
 help:
