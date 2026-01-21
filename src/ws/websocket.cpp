@@ -109,6 +109,13 @@ struct WsImplData {
 	// Receive buffer
 	std::string recv_buffer;
 
+	// Track server-assigned subscription IDs: client_id -> server_sid
+	std::mutex subs_mutex;
+	std::map<std::int32_t, std::int32_t> subscription_sids;
+
+	// Auth headers for handshake
+	AuthHeaders auth_headers;
+
 	WsImplData(const Signer& s, WsConfig c) : signer(&s), config(std::move(c)) {}
 
 	~WsImplData() {
@@ -125,6 +132,17 @@ struct WsImplData {
 		if (wsi) {
 			lws_callback_on_writable(wsi);
 		}
+	}
+
+	void register_subscription(std::int32_t client_id, std::int32_t server_sid) {
+		std::lock_guard lock(subs_mutex);
+		subscription_sids[client_id] = server_sid;
+	}
+
+	std::optional<std::int32_t> get_server_sid(std::int32_t client_id) {
+		std::lock_guard lock(subs_mutex);
+		auto it = subscription_sids.find(client_id);
+		return it != subscription_sids.end() ? std::optional{it->second} : std::nullopt;
 	}
 
 	void invoke_message_callback(const WsMessage& msg) {
@@ -221,6 +239,31 @@ static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason, void* 
 			break;
 		}
 
+		case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
+			// Add authentication headers to the WebSocket upgrade request
+			unsigned char** p = reinterpret_cast<unsigned char**>(in);
+			unsigned char* end = (*p) + len;
+
+			// Helper to add a header
+			auto add_header = [&](const char* name, const std::string& value) -> bool {
+				std::string header = std::string(name) + ": " + value;
+				if (lws_add_http_header_by_name(
+						wsi, reinterpret_cast<const unsigned char*>(name),
+						reinterpret_cast<const unsigned char*>(value.c_str()),
+						static_cast<int>(value.length()), p, end) != 0) {
+					return false;
+				}
+				return true;
+			};
+
+			if (!add_header("KALSHI-ACCESS-KEY", impl->auth_headers.access_key) ||
+				!add_header("KALSHI-ACCESS-SIGNATURE", impl->auth_headers.signature) ||
+				!add_header("KALSHI-ACCESS-TIMESTAMP", impl->auth_headers.timestamp)) {
+				return -1; // Header buffer overflow
+			}
+			break;
+		}
+
 		default:
 			break;
 	}
@@ -248,7 +291,7 @@ void WsImplData::handle_message(const std::string& json) {
 
 	std::string msg_type = json.substr(quote1 + 1, quote2 - quote1 - 1);
 
-	// Extract common fields
+	// Extract common fields - handles negative numbers for deltas
 	auto extract_int = [&](const std::string& key) -> std::int32_t {
 		std::string search = "\"" + key + "\"";
 		size_t pos = json.find(search);
@@ -260,12 +303,75 @@ void WsImplData::handle_message(const std::string& json) {
 		pos++;
 		while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t'))
 			pos++;
+		bool negative = false;
+		if (pos < json.size() && json[pos] == '-') {
+			negative = true;
+			pos++;
+		}
 		std::int32_t val = 0;
 		while (pos < json.size() && json[pos] >= '0' && json[pos] <= '9') {
 			val = val * 10 + (json[pos] - '0');
 			pos++;
 		}
-		return val;
+		return negative ? -val : val;
+	};
+
+	// Extract orderbook entries from "yes" or "no" arrays: [[price, quantity], ...]
+	auto extract_orderbook_entries = [&](const std::string& key) -> std::vector<OrderBookEntry> {
+		std::vector<OrderBookEntry> entries;
+		std::string search = "\"" + key + "\"";
+		size_t pos = json.find(search);
+		if (pos == std::string::npos)
+			return entries;
+		pos = json.find('[', pos);
+		if (pos == std::string::npos)
+			return entries;
+		pos++; // Skip outer '['
+
+		while (pos < json.size()) {
+			// Skip whitespace
+			while (pos < json.size() &&
+				   (json[pos] == ' ' || json[pos] == '\t' || json[pos] == '\n'))
+				pos++;
+			if (pos >= json.size() || json[pos] == ']')
+				break;
+
+			// Find inner array [price, quantity]
+			if (json[pos] == '[') {
+				pos++;
+				// Parse price
+				while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t'))
+					pos++;
+				std::int32_t price = 0;
+				while (pos < json.size() && json[pos] >= '0' && json[pos] <= '9') {
+					price = price * 10 + (json[pos] - '0');
+					pos++;
+				}
+				// Skip to quantity
+				while (pos < json.size() && json[pos] != ',' && json[pos] != ']')
+					pos++;
+				if (pos < json.size() && json[pos] == ',')
+					pos++;
+				while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t'))
+					pos++;
+				std::int32_t quantity = 0;
+				while (pos < json.size() && json[pos] >= '0' && json[pos] <= '9') {
+					quantity = quantity * 10 + (json[pos] - '0');
+					pos++;
+				}
+				// Skip to end of inner array
+				while (pos < json.size() && json[pos] != ']')
+					pos++;
+				if (pos < json.size())
+					pos++; // Skip ']'
+
+				entries.push_back(OrderBookEntry{price, quantity});
+			}
+			// Skip comma between entries
+			while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' || json[pos] == ','))
+				pos++;
+		}
+		return entries;
 	};
 
 	auto extract_string = [&](const std::string& key) -> std::string {
@@ -295,12 +401,20 @@ void WsImplData::handle_message(const std::string& json) {
 			err.message = extract_string("message");
 		}
 		invoke_error_callback(err);
+	} else if (msg_type == "subscribed") {
+		// Track server subscription ID: {"type":"subscribed","id":1,"msg":{"sid":12345,...}}
+		std::int32_t client_id = extract_int("id");
+		std::int32_t server_sid = extract_int("sid");
+		if (client_id > 0 && server_sid > 0) {
+			register_subscription(client_id, server_sid);
+		}
 	} else if (msg_type == "orderbook_snapshot") {
 		OrderbookSnapshot snap;
 		snap.sid = extract_int("sid");
 		snap.seq = extract_int("seq");
 		snap.market_ticker = extract_string("market_ticker");
-		// Note: Full implementation would parse yes/no arrays
+		snap.yes = extract_orderbook_entries("yes");
+		snap.no = extract_orderbook_entries("no");
 		invoke_message_callback(snap);
 	} else if (msg_type == "orderbook_delta") {
 		OrderbookDelta delta;
@@ -418,6 +532,7 @@ Result<void> WebSocketClient::connect() {
 	if (!auth_result) {
 		return std::unexpected(auth_result.error());
 	}
+	data->auth_headers = *auth_result;
 
 	// Create context
 	struct lws_context_creation_info ctx_info {};

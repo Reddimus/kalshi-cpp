@@ -38,8 +38,8 @@ enum class Channel : std::uint8_t { OrderbookDelta, Trade, Fill, MarketLifecycle
 
 /// Orderbook snapshot message
 struct OrderbookSnapshot {
-	std::int32_t sid;
-	std::int32_t seq;
+	std::int32_t sid{0};
+	std::int32_t seq{0};
 	std::string market_ticker;
 	std::vector<OrderBookEntry> yes;
 	std::vector<OrderBookEntry> no;
@@ -47,51 +47,51 @@ struct OrderbookSnapshot {
 
 /// Orderbook delta message
 struct OrderbookDelta {
-	std::int32_t sid;
-	std::int32_t seq;
+	std::int32_t sid{0};
+	std::int32_t seq{0};
 	std::string market_ticker;
-	std::int32_t price;
-	std::int32_t delta;
-	Side side;
+	std::int32_t price{0};
+	std::int32_t delta{0};
+	Side side{Side::Yes};
 };
 
 /// Trade message from WebSocket
 struct WsTrade {
-	std::int32_t sid;
+	std::int32_t sid{0};
 	std::string trade_id;
 	std::string market_ticker;
-	std::int32_t yes_price;
-	std::int32_t no_price;
-	std::int32_t count;
-	Side taker_side;
-	std::int64_t timestamp;
+	std::int32_t yes_price{0};
+	std::int32_t no_price{0};
+	std::int32_t count{0};
+	Side taker_side{Side::Yes};
+	std::int64_t timestamp{0};
 };
 
 /// Fill message (user's order was filled)
 struct WsFill {
-	std::int32_t sid;
+	std::int32_t sid{0};
 	std::string trade_id;
 	std::string order_id;
 	std::string market_ticker;
-	bool is_taker;
-	Side side;
-	std::int32_t yes_price;
-	std::int32_t no_price;
-	std::int32_t count;
-	Action action;
-	std::int64_t timestamp;
+	bool is_taker{false};
+	Side side{Side::Yes};
+	std::int32_t yes_price{0};
+	std::int32_t no_price{0};
+	std::int32_t count{0};
+	Action action{Action::Buy};
+	std::int64_t timestamp{0};
 };
 
 /// Market lifecycle message
 struct MarketLifecycle {
-	std::int32_t sid;
+	std::int32_t sid{0};
 	std::string market_ticker;
-	std::int64_t open_ts;
-	std::int64_t close_ts;
+	std::int64_t open_ts{0};
+	std::int64_t close_ts{0};
 	std::optional<std::int64_t> determination_ts;
 	std::optional<std::int64_t> settled_ts;
 	std::optional<std::string> result;
-	bool is_deactivated;
+	bool is_deactivated{false};
 };
 
 /// Union of all possible WebSocket data messages
@@ -99,13 +99,13 @@ using WsMessage = std::variant<OrderbookSnapshot, OrderbookDelta, WsTrade, WsFil
 
 /// Subscription ID returned when subscribing
 struct SubscriptionId {
-	std::int32_t sid;
-	Channel channel;
+	std::int32_t sid{0};
+	Channel channel{Channel::OrderbookDelta};
 };
 
 /// WebSocket error
 struct WsError {
-	std::int32_t code;
+	std::int32_t code{0};
 	std::string message;
 };
 
