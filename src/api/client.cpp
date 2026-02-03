@@ -123,6 +123,64 @@ bool extract_bool(const std::string& json, const std::string& key) {
 	return (pos < json.size() && json[pos] == 't');
 }
 
+// Parse ISO 8601 datetime string (e.g., "2023-11-07T05:31:56Z") to Unix timestamp
+// Returns 0 if parsing fails
+std::int64_t extract_datetime(const std::string& json, const std::string& key) {
+	std::string datetime_str = extract_string(json, key);
+	if (datetime_str.empty())
+		return 0;
+
+	// Expected format: YYYY-MM-DDTHH:MM:SSZ or YYYY-MM-DDTHH:MM:SS.sssZ
+	// Minimum length: 20 (2023-11-07T05:31:56Z)
+	if (datetime_str.size() < 20)
+		return 0;
+
+	// Parse individual components
+	auto parse_int = [&datetime_str](size_t start, size_t len) -> int {
+		int result = 0;
+		for (size_t i = start; i < start + len && i < datetime_str.size(); ++i) {
+			char c = datetime_str[i];
+			if (c >= '0' && c <= '9') {
+				result = result * 10 + (c - '0');
+			}
+		}
+		return result;
+	};
+
+	int year = parse_int(0, 4);
+	int month = parse_int(5, 2);
+	int day = parse_int(8, 2);
+	int hour = parse_int(11, 2);
+	int min = parse_int(14, 2);
+	int sec = parse_int(17, 2);
+
+	// Days in each month (non-leap year)
+	static const int days_in_month[] = {0, 31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31};
+
+	// Check for leap year
+	auto is_leap = [](int y) { return (y % 4 == 0 && y % 100 != 0) || (y % 400 == 0); };
+
+	// Count days from Unix epoch (1970-01-01)
+	int64_t days = 0;
+
+	// Count days from years
+	for (int y = 1970; y < year; ++y) {
+		days += is_leap(y) ? 366 : 365;
+	}
+
+	// Count days from months
+	for (int m = 1; m < month; ++m) {
+		days += days_in_month[m];
+		if (m == 2 && is_leap(year))
+			days += 1;
+	}
+
+	// Add days (day 1 = 0 days offset)
+	days += day - 1;
+
+	return days * 86400 + hour * 3600 + min * 60 + sec;
+}
+
 std::string extract_cursor(const std::string& json) {
 	return extract_string(json, "cursor");
 }
@@ -354,10 +412,11 @@ Result<Market> KalshiClient::parse_market(const std::string& json) {
 	std::string status_str = extract_string(market_json, "status");
 	market.status = parse_market_status(status_str);
 
-	market.open_time = extract_int(market_json, "open_time");
-	market.close_time = extract_int(market_json, "close_time");
+	// Time fields are ISO 8601 datetime strings in the Kalshi API response
+	market.open_time = extract_datetime(market_json, "open_time");
+	market.close_time = extract_datetime(market_json, "close_time");
 
-	std::int64_t exp_time = extract_int(market_json, "expiration_time");
+	std::int64_t exp_time = extract_datetime(market_json, "expiration_time");
 	if (exp_time > 0) {
 		market.expiration_time = exp_time;
 	}
