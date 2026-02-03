@@ -196,3 +196,13 @@ TEST(series_default_construction) {
 	ASSERT_TRUE(series.ticker.empty());
 	ASSERT_TRUE(series.title.empty());
 }
+
+TEST(market_default_timestamps) {
+	// Verify Market struct has correct default values
+	kalshi::Market market;
+	ASSERT_EQ(market.open_time, 0);
+	ASSERT_EQ(market.close_time, 0);
+	ASSERT_FALSE(market.expiration_time.has_value());
+	// Note: ISO 8601 datetime parsing is tested via integration tests
+	// The extract_datetime function parses strings like "2021-08-11T00:00:00Z" to Unix timestamps
+}
