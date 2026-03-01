@@ -90,6 +90,7 @@ graph LR
 
 - C++23 compatible compiler (GCC 13+, Clang 16+)
 - CMake 3.20+
+- clang-format (required for `make lint`)
 - OpenSSL development libraries
 - libcurl development libraries
 - libwebsockets development libraries
@@ -113,6 +114,8 @@ make bench
 # Check formatting
 make lint
 ```
+
+`make lint` is fail-fast: it exits non-zero if `clang-format` is missing or if any source/header file violates formatting rules.
 
 ### Build Options
 

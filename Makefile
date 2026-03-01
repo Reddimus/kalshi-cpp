@@ -28,20 +28,23 @@ test: build
 lint:
 	@if command -v clang-format >/dev/null 2>&1; then \
 		echo "Checking code formatting..."; \
-		find src include tests examples -name '*.cpp' -o -name '*.hpp' | xargs clang-format --dry-run --Werror 2>/dev/null || \
-		echo "Format check complete (some files may need formatting)"; \
+		find src include tests examples \( -name '*.cpp' -o -name '*.hpp' \) -print0 | \
+			xargs -0 clang-format --dry-run --Werror && \
+		echo "Format check passed."; \
 	else \
-		echo "clang-format not found - skipping lint"; \
+		echo "clang-format not found. Install clang-format to run lint."; \
+		exit 1; \
 	fi
 
 # Format code in place
 format:
 	@if command -v clang-format >/dev/null 2>&1; then \
 		echo "Formatting code..."; \
-		find src include tests examples -name '*.cpp' -o -name '*.hpp' | xargs clang-format -i; \
+		find src include tests examples \( -name '*.cpp' -o -name '*.hpp' \) -print0 | xargs -0 clang-format -i; \
 		echo "Done"; \
 	else \
-		echo "clang-format not found"; \
+		echo "clang-format not found. Install clang-format to format code."; \
+		exit 1; \
 	fi
 
 # Clean build artifacts

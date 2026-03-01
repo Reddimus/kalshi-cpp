@@ -50,14 +50,10 @@ public:
 		: base_delay_(base_delay), max_delay_(max_delay), current_delay_(base_delay) {}
 
 	// Wait before making a request, with exponential backoff on 429 errors
-	void wait() {
-		std::this_thread::sleep_for(current_delay_);
-	}
+	void wait() { std::this_thread::sleep_for(current_delay_); }
 
 	// Call on successful request to reset backoff
-	void on_success() {
-		current_delay_ = base_delay_;
-	}
+	void on_success() { current_delay_ = base_delay_; }
 
 	// Call on 429 rate limit error to increase backoff
 	void on_rate_limit() {
@@ -66,9 +62,7 @@ public:
 	}
 
 	// Check if error is a rate limit (429)
-	static bool is_rate_limit_error(const kalshi::Error& err) {
-		return err.http_status == 429;
-	}
+	static bool is_rate_limit_error(const kalshi::Error& err) { return err.http_status == 429; }
 
 private:
 	std::chrono::milliseconds base_delay_;
