@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(kalshi-cpp VERSION 0.0.3 LANGUAGES CXX)
+project(kalshi-cpp VERSION 0.0.5 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -45,7 +45,7 @@ find_package(PkgConfig REQUIRED)
 pkg_check_modules(WEBSOCKETS REQUIRED IMPORTED_TARGET libwebsockets)
 
 # Include directories
-include_directories(${CMAKE_SOURCE_DIR}/include)
+include_directories(${PROJECT_SOURCE_DIR}/include)
 
 # Add subdirectories
 add_subdirectory(src)

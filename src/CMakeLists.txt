@@ -6,7 +6,7 @@ add_library(kalshi_core STATIC
 )
 target_compile_features(kalshi_core PUBLIC cxx_std_23)
 target_include_directories(kalshi_core PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
@@ -16,7 +16,7 @@ add_library(kalshi_auth STATIC
 )
 target_link_libraries(kalshi_auth PUBLIC kalshi_core OpenSSL::SSL OpenSSL::Crypto)
 target_include_directories(kalshi_auth PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
@@ -26,7 +26,7 @@ add_library(kalshi_http STATIC
 )
 target_link_libraries(kalshi_http PUBLIC kalshi_core kalshi_auth CURL::libcurl)
 target_include_directories(kalshi_http PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
@@ -37,7 +37,7 @@ add_library(kalshi_models STATIC
 )
 target_link_libraries(kalshi_models PUBLIC kalshi_core)
 target_include_directories(kalshi_models PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
@@ -47,7 +47,7 @@ add_library(kalshi_ws STATIC
 )
 target_link_libraries(kalshi_ws PUBLIC kalshi_core kalshi_auth kalshi_models PkgConfig::WEBSOCKETS)
 target_include_directories(kalshi_ws PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
@@ -57,7 +57,7 @@ add_library(kalshi_api STATIC
 )
 target_link_libraries(kalshi_api PUBLIC kalshi_core kalshi_http kalshi_models)
 target_include_directories(kalshi_api PUBLIC
-    $<BUILD_INTERFACE:${CMAKE_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 
