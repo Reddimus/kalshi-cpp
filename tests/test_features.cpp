@@ -4,47 +4,12 @@
 #include "kalshi/websocket.hpp"
 
 #include <chrono>
-#include <iostream>
+#include <gtest/gtest.h>
 #include <string>
-#include <thread>
-#include <vector>
 
-// Test declarations from test_main.cpp
-struct TestResult {
-	std::string name;
-	bool passed;
-	std::string message;
-};
-extern std::vector<TestResult> g_results;
+// --- Pagination tests ---
 
-#define TEST(name)                                             \
-	void test_##name();                                        \
-	struct TestRegister_##name {                               \
-		TestRegister_##name() {                                \
-			try {                                              \
-				test_##name();                                 \
-				g_results.push_back({#name, true, ""});        \
-			} catch (const std::exception& e) {                \
-				g_results.push_back({#name, false, e.what()}); \
-			}                                                  \
-		}                                                      \
-	} g_register_##name;                                       \
-	void test_##name()
-
-#define ASSERT_TRUE(expr) \
-	if (!(expr))          \
-	throw std::runtime_error("Assertion failed: " #expr)
-
-#define ASSERT_FALSE(expr) \
-	if (expr)              \
-	throw std::runtime_error("Assertion failed: NOT " #expr)
-
-#define ASSERT_EQ(a, b) \
-	if ((a) != (b))     \
-	throw std::runtime_error("Assertion failed: " #a " == " #b)
-
-// Pagination tests
-TEST(pagination_cursor_empty) {
+TEST(Pagination, CursorEmpty) {
 	kalshi::Cursor cursor;
 	ASSERT_TRUE(cursor.empty());
 
@@ -52,7 +17,7 @@ TEST(pagination_cursor_empty) {
 	ASSERT_FALSE(cursor.empty());
 }
 
-TEST(pagination_params_build_query) {
+TEST(Pagination, ParamsBuildQuery) {
 	kalshi::PaginationParams params;
 	params.limit = 50;
 
@@ -60,7 +25,7 @@ TEST(pagination_params_build_query) {
 	ASSERT_EQ(query, std::string("/markets?limit=50"));
 }
 
-TEST(pagination_params_with_cursor) {
+TEST(Pagination, ParamsWithCursor) {
 	kalshi::PaginationParams params;
 	params.limit = 25;
 	params.cursor = kalshi::Cursor{"cursor_token"};
@@ -69,7 +34,7 @@ TEST(pagination_params_with_cursor) {
 	ASSERT_EQ(query, std::string("/orders?limit=25&cursor=cursor_token"));
 }
 
-TEST(paginated_response_has_more) {
+TEST(Pagination, ResponseHasMore) {
 	kalshi::PaginatedResponse<int> response;
 	response.items = {1, 2, 3};
 	response.next_cursor = std::nullopt;
@@ -79,8 +44,9 @@ TEST(paginated_response_has_more) {
 	ASSERT_TRUE(response.has_more());
 }
 
-// Rate limiter tests
-TEST(rate_limiter_initial_tokens) {
+// --- Rate limiter tests ---
+
+TEST(RateLimiter, InitialTokens) {
 	kalshi::RateLimiter::Config config;
 	config.initial_tokens = 5;
 	config.max_tokens = 10;
@@ -89,7 +55,7 @@ TEST(rate_limiter_initial_tokens) {
 	ASSERT_EQ(limiter.available_tokens(), static_cast<std::uint16_t>(5));
 }
 
-TEST(rate_limiter_try_acquire) {
+TEST(RateLimiter, TryAcquire) {
 	kalshi::RateLimiter::Config config;
 	config.initial_tokens = 2;
 	config.max_tokens = 2;
@@ -100,7 +66,7 @@ TEST(rate_limiter_try_acquire) {
 	ASSERT_FALSE(limiter.try_acquire());
 }
 
-TEST(rate_limiter_reset) {
+TEST(RateLimiter, Reset) {
 	kalshi::RateLimiter::Config config;
 	config.initial_tokens = 3;
 	config.max_tokens = 3;
@@ -114,18 +80,19 @@ TEST(rate_limiter_reset) {
 	ASSERT_EQ(limiter.available_tokens(), static_cast<std::uint16_t>(3));
 }
 
-// Retry policy tests
-TEST(retry_calculate_delay_first_attempt) {
+// --- Retry policy tests ---
+
+TEST(Retry, CalculateDelayFirstAttempt) {
 	kalshi::RetryPolicy policy;
 	policy.initial_delay = std::chrono::milliseconds(100);
 	policy.backoff_multiplier = 2.0;
-	policy.jitter_factor = 0.0; // No jitter for predictable testing
+	policy.jitter_factor = 0.0;
 
 	std::chrono::milliseconds delay = kalshi::calculate_retry_delay(1, policy);
 	ASSERT_EQ(delay.count(), 100);
 }
 
-TEST(retry_calculate_delay_exponential) {
+TEST(Retry, CalculateDelayExponential) {
 	kalshi::RetryPolicy policy;
 	policy.initial_delay = std::chrono::milliseconds(100);
 	policy.backoff_multiplier = 2.0;
@@ -141,7 +108,7 @@ TEST(retry_calculate_delay_exponential) {
 	ASSERT_EQ(delay3.count(), 400);
 }
 
-TEST(retry_should_retry_rate_limit) {
+TEST(Retry, ShouldRetryRateLimit) {
 	kalshi::RetryPolicy policy;
 	policy.retry_on_rate_limit = true;
 
@@ -151,7 +118,7 @@ TEST(retry_should_retry_rate_limit) {
 	ASSERT_TRUE(kalshi::should_retry(response, policy));
 }
 
-TEST(retry_should_retry_server_error) {
+TEST(Retry, ShouldRetryServerError) {
 	kalshi::RetryPolicy policy;
 	policy.retry_on_server_error = true;
 
@@ -161,7 +128,7 @@ TEST(retry_should_retry_server_error) {
 	ASSERT_TRUE(kalshi::should_retry(response, policy));
 }
 
-TEST(retry_should_not_retry_client_error) {
+TEST(Retry, ShouldNotRetryClientError) {
 	kalshi::RetryPolicy policy;
 
 	kalshi::HttpResponse response;
@@ -170,8 +137,9 @@ TEST(retry_should_not_retry_client_error) {
 	ASSERT_FALSE(kalshi::should_retry(response, policy));
 }
 
-// WebSocket tests
-TEST(websocket_channel_to_string) {
+// --- WebSocket tests ---
+
+TEST(WebSocket, ChannelToString) {
 	ASSERT_EQ(kalshi::to_string(kalshi::Channel::OrderbookDelta),
 			  std::string_view("orderbook_delta"));
 	ASSERT_EQ(kalshi::to_string(kalshi::Channel::Trade), std::string_view("trade"));
@@ -180,7 +148,7 @@ TEST(websocket_channel_to_string) {
 			  std::string_view("market_lifecycle"));
 }
 
-TEST(websocket_orderbook_snapshot_default) {
+TEST(WebSocket, OrderbookSnapshotDefault) {
 	kalshi::OrderbookSnapshot snap;
 	ASSERT_EQ(snap.sid, 0);
 	ASSERT_EQ(snap.seq, 0);
@@ -189,7 +157,7 @@ TEST(websocket_orderbook_snapshot_default) {
 	ASSERT_TRUE(snap.no.empty());
 }
 
-TEST(websocket_orderbook_delta_default) {
+TEST(WebSocket, OrderbookDeltaDefault) {
 	kalshi::OrderbookDelta delta;
 	ASSERT_EQ(delta.sid, 0);
 	ASSERT_EQ(delta.seq, 0);
@@ -198,7 +166,7 @@ TEST(websocket_orderbook_delta_default) {
 	ASSERT_EQ(delta.delta, 0);
 }
 
-TEST(websocket_trade_default) {
+TEST(WebSocket, TradeDefault) {
 	kalshi::WsTrade trade;
 	ASSERT_EQ(trade.sid, 0);
 	ASSERT_TRUE(trade.trade_id.empty());
@@ -207,7 +175,7 @@ TEST(websocket_trade_default) {
 	ASSERT_EQ(trade.count, 0);
 }
 
-TEST(websocket_subscription_id) {
+TEST(WebSocket, SubscriptionId) {
 	kalshi::SubscriptionId sub;
 	sub.sid = 42;
 	sub.channel = kalshi::Channel::OrderbookDelta;
@@ -215,13 +183,13 @@ TEST(websocket_subscription_id) {
 	ASSERT_EQ(sub.channel, kalshi::Channel::OrderbookDelta);
 }
 
-TEST(websocket_ws_error_default) {
+TEST(WebSocket, WsErrorDefault) {
 	kalshi::WsError err;
 	ASSERT_EQ(err.code, 0);
 	ASSERT_TRUE(err.message.empty());
 }
 
-TEST(websocket_ws_config_defaults) {
+TEST(WebSocket, WsConfigDefaults) {
 	kalshi::WsConfig config;
 	ASSERT_EQ(config.url, std::string("wss://api.elections.kalshi.com/trade-api/ws/v2"));
 	ASSERT_TRUE(config.auto_reconnect);

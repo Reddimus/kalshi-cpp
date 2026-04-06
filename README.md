@@ -105,8 +105,11 @@ cd kalshi-cpp
 # Build (Release with -O3 and LTO by default)
 make build
 
-# Run tests
+# Run tests (GoogleTest, 55 tests)
 make test
+
+# Generate code coverage report (requires lcov)
+make coverage
 
 # Run benchmark (254 iterations by default)
 make bench
@@ -125,6 +128,8 @@ The SDK supports several CMake options for optimization:
 | ------ | ------- | ----------- |
 | `KALSHI_ENABLE_LTO` | ON | Enable Link Time Optimization for Release builds |
 | `KALSHI_NATIVE_ARCH` | OFF | Use `-march=native` for CPU-specific tuning (not portable) |
+| `KALSHI_ENABLE_SANITIZERS` | OFF | Enable AddressSanitizer + UndefinedBehaviorSanitizer |
+| `KALSHI_ENABLE_COVERAGE` | OFF | Enable code coverage instrumentation (gcov) |
 
 Release builds automatically use `-O3 -DNDEBUG` and `-mtune=generic`.
 
@@ -132,6 +137,10 @@ Release builds automatically use `-O3 -DNDEBUG` and `-mtune=generic`.
 # Build with native CPU optimizations (fastest, not portable)
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DKALSHI_NATIVE_ARCH=ON
 cmake --build build
+
+# Build with sanitizers for debugging
+cmake -S . -B build-san -DCMAKE_BUILD_TYPE=Debug -DKALSHI_ENABLE_SANITIZERS=ON
+cmake --build build-san && ctest --test-dir build-san
 ```
 
 ### Install & use as a package

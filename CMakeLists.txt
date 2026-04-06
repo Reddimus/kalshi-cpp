@@ -38,6 +38,22 @@ else()
     set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -mtune=generic")
 endif()
 
+# Sanitizer support
+option(KALSHI_ENABLE_SANITIZERS "Enable AddressSanitizer and UBSanitizer" OFF)
+if(KALSHI_ENABLE_SANITIZERS)
+    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=address,undefined)
+    message(STATUS "Sanitizers enabled (ASan + UBSan)")
+endif()
+
+# Code coverage support
+option(KALSHI_ENABLE_COVERAGE "Enable code coverage instrumentation (gcov)" OFF)
+if(KALSHI_ENABLE_COVERAGE)
+    add_compile_options(--coverage -fprofile-arcs -ftest-coverage)
+    add_link_options(--coverage)
+    message(STATUS "Code coverage enabled")
+endif()
+
 # Find dependencies
 find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
@@ -51,6 +67,15 @@ include_directories(${PROJECT_SOURCE_DIR}/include)
 add_subdirectory(src)
 
 if(KALSHI_BUILD_TESTS)
+    include(FetchContent)
+    FetchContent_Declare(
+        googletest
+        GIT_REPOSITORY https://github.com/google/googletest.git
+        GIT_TAG v1.15.2
+        GIT_SHALLOW TRUE
+    )
+    set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(googletest)
     enable_testing()
     add_subdirectory(tests)
 endif()

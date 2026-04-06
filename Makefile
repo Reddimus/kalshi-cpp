@@ -6,7 +6,7 @@ CMAKE := cmake
 NPROC := $(shell nproc 2>/dev/null || echo 4)
 BENCH_ITERATIONS := 254
 
-.PHONY: all build test lint clean configure help bench bench-compare format run-get_markets run-basic_usage run-get_daily_temp
+.PHONY: all build test lint clean configure help bench bench-compare format coverage run-get_markets run-basic_usage run-get_daily_temp
 
 # Default target
 all: build
@@ -47,9 +47,20 @@ format:
 		exit 1; \
 	fi
 
+# Code coverage (requires lcov)
+coverage:
+	@mkdir -p build-coverage
+	@cd build-coverage && $(CMAKE) .. -DCMAKE_BUILD_TYPE=Debug -DKALSHI_ENABLE_COVERAGE=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+	@$(CMAKE) --build build-coverage -j$(NPROC)
+	@cd build-coverage && ctest --output-on-failure
+	@lcov --capture --directory build-coverage --output-file build-coverage/coverage.info --ignore-errors mismatch
+	@lcov --remove build-coverage/coverage.info '/usr/*' '*/build-coverage/_deps/*' --output-file build-coverage/coverage_filtered.info --ignore-errors unused
+	@genhtml build-coverage/coverage_filtered.info --output-directory build-coverage/coverage-report
+	@echo "Coverage report: build-coverage/coverage-report/index.html"
+
 # Clean build artifacts
 clean:
-	@rm -rf $(BUILD_DIR)
+	@rm -rf $(BUILD_DIR) build-coverage
 	@echo "Cleaned build directory"
 
 # Run benchmark
@@ -98,6 +109,7 @@ help:
 	@echo "  make bench-compare - Compare HEAD vs working tree"
 	@echo "  make lint          - Check code formatting"
 	@echo "  make format        - Format code in place"
+	@echo "  make coverage      - Generate code coverage report (requires lcov)"
 	@echo "  make clean         - Remove build artifacts"
 	@echo "  make help          - Show this help"
 	@echo ""
