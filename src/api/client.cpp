@@ -2,7 +2,7 @@
 
 #include <charconv>
 #include <cstring>
-#include <sstream>
+#include <nlohmann/json.hpp>
 
 namespace kalshi {
 
@@ -1141,35 +1141,34 @@ KalshiClient::get_settlements(const GetPositionsParams& params) {
 // ===== Order Management =====
 
 std::string KalshiClient::serialize_create_order(const CreateOrderParams& params) {
-	std::ostringstream ss;
-	ss << "{";
-	ss << "\"ticker\":\"" << escape_json_string(params.ticker) << "\"";
-	ss << ",\"side\":\"" << to_json_string(params.side) << "\"";
-	ss << ",\"action\":\"" << to_json_string(params.action) << "\"";
-	ss << ",\"type\":\"" << params.type << "\"";
-	ss << ",\"count\":" << params.count;
+	// NOTE: ordered_json — API requires stable key order
+	nlohmann::ordered_json body;
+	body["ticker"] = params.ticker;
+	body["side"] = std::string(to_json_string(params.side));
+	body["action"] = std::string(to_json_string(params.action));
+	body["type"] = params.type;
+	body["count"] = params.count;
 
 	if (params.yes_price) {
-		ss << ",\"yes_price\":" << *params.yes_price;
+		body["yes_price"] = *params.yes_price;
 	}
 	if (params.no_price) {
-		ss << ",\"no_price\":" << *params.no_price;
+		body["no_price"] = *params.no_price;
 	}
 	if (params.client_order_id) {
-		ss << ",\"client_order_id\":\"" << escape_json_string(*params.client_order_id) << "\"";
+		body["client_order_id"] = *params.client_order_id;
 	}
 	if (params.expiration_ts) {
-		ss << ",\"expiration_ts\":" << *params.expiration_ts;
+		body["expiration_ts"] = *params.expiration_ts;
 	}
 	if (params.sell_position_floor) {
-		ss << ",\"sell_position_floor\":" << *params.sell_position_floor;
+		body["sell_position_floor"] = *params.sell_position_floor;
 	}
 	if (params.buy_max_cost) {
-		ss << ",\"buy_max_cost\":" << *params.buy_max_cost;
+		body["buy_max_cost"] = *params.buy_max_cost;
 	}
 
-	ss << "}";
-	return ss.str();
+	return body.dump();
 }
 
 Result<Order> KalshiClient::create_order(const CreateOrderParams& params) {
@@ -1205,28 +1204,18 @@ Result<void> KalshiClient::cancel_order(const std::string& order_id) {
 }
 
 std::string KalshiClient::serialize_amend_order(const AmendOrderParams& params) {
-	std::ostringstream ss;
-	ss << "{";
-
-	bool first = true;
+	// NOTE: ordered_json — API requires stable key order
+	nlohmann::ordered_json body = nlohmann::ordered_json::object();
 	if (params.count) {
-		ss << "\"count\":" << *params.count;
-		first = false;
+		body["count"] = *params.count;
 	}
 	if (params.yes_price) {
-		if (!first)
-			ss << ",";
-		ss << "\"yes_price\":" << *params.yes_price;
-		first = false;
+		body["yes_price"] = *params.yes_price;
 	}
 	if (params.no_price) {
-		if (!first)
-			ss << ",";
-		ss << "\"no_price\":" << *params.no_price;
+		body["no_price"] = *params.no_price;
 	}
-
-	ss << "}";
-	return ss.str();
+	return body.dump();
 }
 
 Result<Order> KalshiClient::amend_order(const AmendOrderParams& params) {
@@ -1247,9 +1236,8 @@ Result<Order> KalshiClient::amend_order(const AmendOrderParams& params) {
 }
 
 std::string KalshiClient::serialize_decrease_order(const DecreaseOrderParams& params) {
-	std::ostringstream ss;
-	ss << "{\"reduce_by\":" << params.reduce_by << "}";
-	return ss.str();
+	nlohmann::json body = {{"reduce_by", params.reduce_by}};
+	return body.dump();
 }
 
 Result<Order> KalshiClient::decrease_order(const DecreaseOrderParams& params) {
@@ -1270,17 +1258,14 @@ Result<Order> KalshiClient::decrease_order(const DecreaseOrderParams& params) {
 }
 
 std::string KalshiClient::serialize_batch_create(const BatchOrderRequest& request) {
-	std::ostringstream ss;
-	ss << "{\"orders\":[";
-
-	for (size_t i = 0; i < request.orders.size(); ++i) {
-		if (i > 0)
-			ss << ",";
-		ss << serialize_create_order(request.orders[i]);
+	// NOTE: ordered_json — API requires stable key order in embedded order objects
+	nlohmann::ordered_json body;
+	nlohmann::ordered_json orders = nlohmann::ordered_json::array();
+	for (const auto& order : request.orders) {
+		orders.push_back(nlohmann::ordered_json::parse(serialize_create_order(order)));
 	}
-
-	ss << "]}";
-	return ss.str();
+	body["orders"] = std::move(orders);
+	return body.dump();
 }
 
 Result<BatchResponse<Order>> KalshiClient::batch_create_orders(const BatchOrderRequest& request) {
@@ -1307,17 +1292,8 @@ Result<BatchResponse<Order>> KalshiClient::batch_create_orders(const BatchOrderR
 }
 
 std::string KalshiClient::serialize_batch_cancel(const BatchCancelRequest& request) {
-	std::ostringstream ss;
-	ss << "{\"order_ids\":[";
-
-	for (size_t i = 0; i < request.order_ids.size(); ++i) {
-		if (i > 0)
-			ss << ",";
-		ss << "\"" << escape_json_string(request.order_ids[i]) << "\"";
-	}
-
-	ss << "]}";
-	return ss.str();
+	nlohmann::json body = {{"order_ids", request.order_ids}};
+	return body.dump();
 }
 
 Result<BatchResponse<std::string>>
@@ -1478,15 +1454,11 @@ Result<PaginatedResponse<Series>> KalshiClient::get_series_list(const GetSeriesP
 // ===== Phase 3: Order Groups =====
 
 std::string KalshiClient::serialize_order_group(const CreateOrderGroupParams& params) {
-	std::ostringstream ss;
-	ss << "{\"type\":\"" << escape_json_string(params.type) << "\",\"order_ids\":[";
-	for (size_t i = 0; i < params.order_ids.size(); ++i) {
-		if (i > 0)
-			ss << ",";
-		ss << "\"" << escape_json_string(params.order_ids[i]) << "\"";
-	}
-	ss << "]}";
-	return ss.str();
+	// NOTE: ordered_json — API requires stable key order
+	nlohmann::ordered_json body;
+	body["type"] = params.type;
+	body["order_ids"] = params.order_ids;
+	return body.dump();
 }
 
 std::string KalshiClient::build_order_groups_query(const GetOrderGroupsParams& params) {
@@ -1633,15 +1605,8 @@ Result<OrderQueuePosition> KalshiClient::get_order_queue_position(const std::str
 }
 
 std::string KalshiClient::serialize_order_ids(const std::vector<std::string>& order_ids) {
-	std::ostringstream ss;
-	ss << "{\"order_ids\":[";
-	for (size_t i = 0; i < order_ids.size(); ++i) {
-		if (i > 0)
-			ss << ",";
-		ss << "\"" << escape_json_string(order_ids[i]) << "\"";
-	}
-	ss << "]}";
-	return ss.str();
+	nlohmann::json body = {{"order_ids", order_ids}};
+	return body.dump();
 }
 
 Result<std::vector<OrderQueuePosition>>
@@ -1675,15 +1640,16 @@ KalshiClient::get_queue_positions(const std::vector<std::string>& order_ids) {
 // ===== Phase 5: RFQ/Quotes =====
 
 std::string KalshiClient::serialize_rfq(const CreateRfqParams& params) {
-	std::ostringstream ss;
-	ss << "{\"market_ticker\":\"" << escape_json_string(params.market_ticker) << "\"";
-	ss << ",\"side\":\"" << to_json_string(params.side) << "\"";
-	ss << ",\"action\":\"" << to_json_string(params.action) << "\"";
-	ss << ",\"count\":" << params.count;
-	if (params.expires_at)
-		ss << ",\"expires_at\":" << *params.expires_at;
-	ss << "}";
-	return ss.str();
+	// NOTE: ordered_json — API requires stable key order
+	nlohmann::ordered_json body;
+	body["market_ticker"] = params.market_ticker;
+	body["side"] = std::string(to_json_string(params.side));
+	body["action"] = std::string(to_json_string(params.action));
+	body["count"] = params.count;
+	if (params.expires_at) {
+		body["expires_at"] = *params.expires_at;
+	}
+	return body.dump();
 }
 
 std::string KalshiClient::build_rfqs_query(const GetRfqsParams& params) {
@@ -1782,14 +1748,15 @@ Result<Rfq> KalshiClient::get_rfq(const std::string& rfq_id) {
 }
 
 std::string KalshiClient::serialize_quote(const CreateQuoteParams& params) {
-	std::ostringstream ss;
-	ss << "{\"rfq_id\":\"" << escape_json_string(params.rfq_id) << "\"";
-	ss << ",\"price\":" << params.price;
-	ss << ",\"count\":" << params.count;
-	if (params.expires_at)
-		ss << ",\"expires_at\":" << *params.expires_at;
-	ss << "}";
-	return ss.str();
+	// NOTE: ordered_json — API requires stable key order
+	nlohmann::ordered_json body;
+	body["rfq_id"] = params.rfq_id;
+	body["price"] = params.price;
+	body["count"] = params.count;
+	if (params.expires_at) {
+		body["expires_at"] = *params.expires_at;
+	}
+	return body.dump();
 }
 
 std::string KalshiClient::build_quotes_query(const GetQuotesParams& params) {
@@ -1930,19 +1897,14 @@ Result<std::vector<ApiKey>> KalshiClient::get_api_keys() {
 }
 
 std::string KalshiClient::serialize_api_key(const CreateApiKeyParams& params) {
-	std::ostringstream ss;
-	ss << "{\"name\":\"" << escape_json_string(params.name) << "\"";
-	ss << ",\"scopes\":[";
-	for (size_t i = 0; i < params.scopes.size(); ++i) {
-		if (i > 0)
-			ss << ",";
-		ss << "\"" << escape_json_string(params.scopes[i]) << "\"";
+	// NOTE: ordered_json — API requires stable key order
+	nlohmann::ordered_json body;
+	body["name"] = params.name;
+	body["scopes"] = params.scopes;
+	if (params.expires_at) {
+		body["expires_at"] = *params.expires_at;
 	}
-	ss << "]";
-	if (params.expires_at)
-		ss << ",\"expires_at\":" << *params.expires_at;
-	ss << "}";
-	return ss.str();
+	return body.dump();
 }
 
 Result<ApiKey> KalshiClient::create_api_key(const CreateApiKeyParams& params) {
@@ -2288,15 +2250,8 @@ Result<LiveData> KalshiClient::get_live_data(const std::string& ticker) {
 }
 
 std::string KalshiClient::serialize_tickers(const std::vector<std::string>& tickers) {
-	std::ostringstream ss;
-	ss << "{\"tickers\":[";
-	for (size_t i = 0; i < tickers.size(); ++i) {
-		if (i > 0)
-			ss << ",";
-		ss << "\"" << escape_json_string(tickers[i]) << "\"";
-	}
-	ss << "]}";
-	return ss.str();
+	nlohmann::json body = {{"tickers", tickers}};
+	return body.dump();
 }
 
 Result<std::vector<LiveData>>
@@ -2304,13 +2259,13 @@ KalshiClient::get_live_datas(const std::vector<std::string>& tickers) {
 	// Build query with tickers as comma-separated list
 	std::string query = "/live-data";
 	if (!tickers.empty()) {
-		std::ostringstream ss;
+		std::string joined;
 		for (size_t i = 0; i < tickers.size(); ++i) {
 			if (i > 0)
-				ss << ",";
-			ss << tickers[i];
+				joined += ",";
+			joined += tickers[i];
 		}
-		append_query_param(query, "tickers", ss.str());
+		append_query_param(query, "tickers", joined);
 	}
 
 	auto response = impl_->client.get(query);
@@ -2457,25 +2412,17 @@ Result<void> KalshiClient::delete_quote(const std::string& quote_id) {
 }
 
 Result<ApiKey> KalshiClient::generate_api_key(const GenerateApiKeyParams& params) {
-	std::ostringstream body;
-	body << "{\"name\":\"" << escape_json_string(params.name) << "\"";
-
+	// NOTE: ordered_json — API requires stable key order; scopes field is omitted when empty
+	nlohmann::ordered_json body;
+	body["name"] = params.name;
 	if (!params.scopes.empty()) {
-		body << ",\"scopes\":[";
-		for (size_t i = 0; i < params.scopes.size(); ++i) {
-			if (i > 0)
-				body << ",";
-			body << "\"" << escape_json_string(params.scopes[i]) << "\"";
-		}
-		body << "]";
+		body["scopes"] = params.scopes;
 	}
-
 	if (params.expires_at) {
-		body << ",\"expires_at\":" << *params.expires_at;
+		body["expires_at"] = *params.expires_at;
 	}
-	body << "}";
 
-	auto response = impl_->client.post("/api-keys/generate", body.str());
+	auto response = impl_->client.post("/api-keys/generate", body.dump());
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2533,17 +2480,10 @@ Result<ApiKey> KalshiClient::generate_api_key(const GenerateApiKeyParams& params
 Result<LookupBundleResponse>
 KalshiClient::lookup_multivariate_bundle(const std::string& collection_ticker,
 										 const LookupBundleParams& params) {
-	std::ostringstream body;
-	body << "{\"market_tickers\":[";
-	for (size_t i = 0; i < params.market_tickers.size(); ++i) {
-		if (i > 0)
-			body << ",";
-		body << "\"" << escape_json_string(params.market_tickers[i]) << "\"";
-	}
-	body << "]}";
+	nlohmann::json body = {{"market_tickers", params.market_tickers}};
 
 	auto response = impl_->client.post(
-		"/multivariate-event-collections/" + collection_ticker + "/lookup", body.str());
+		"/multivariate-event-collections/" + collection_ticker + "/lookup", body.dump());
 	if (!response) {
 		return std::unexpected(response.error());
 	}
