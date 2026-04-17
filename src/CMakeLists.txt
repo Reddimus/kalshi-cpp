@@ -50,6 +50,9 @@ target_include_directories(kalshi_ws PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
+target_include_directories(kalshi_ws PRIVATE
+    $<BUILD_INTERFACE:${json_SOURCE_DIR}/include>
+)
 
 # API client library (full REST endpoint coverage)
 add_library(kalshi_api STATIC
@@ -59,6 +62,9 @@ target_link_libraries(kalshi_api PUBLIC kalshi_core kalshi_http kalshi_models)
 target_include_directories(kalshi_api PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
+)
+target_include_directories(kalshi_api PRIVATE
+    $<BUILD_INTERFACE:${json_SOURCE_DIR}/include>
 )
 
 # Main SDK library (combines all)
