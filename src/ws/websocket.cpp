@@ -335,28 +335,38 @@ void WsImplData::handle_message(const std::string& json) {
 		snap.no = extract_orderbook_entries("no");
 		invoke_message_callback(snap);
 	} else if (msg_type == "orderbook_delta") {
+		// Kalshi v2 wire format (as of 2026-04):
+		//   msg.price_dollars  = "0.4200"    -> 42 cents
+		//   msg.delta_fp       = "-30.87"    -> -31 (rounded)
+		//   msg.ts             = "2026-04-20T08:19:13.898Z"  (ISO, not int)
 		OrderbookDelta delta;
 		delta.sid = extract_int("sid");
 		delta.seq = extract_int("seq");
 		delta.market_ticker = extract_string("market_ticker");
-		delta.price = extract_int("price");
-		delta.delta = extract_int("delta");
+		delta.price = detail::extract_dollar_cents(json, "price_dollars");
+		delta.delta = detail::extract_fp_int(json, "delta_fp");
 		std::string side_str = extract_string("side");
 		delta.side = (side_str == "yes") ? Side::Yes : Side::No;
 		invoke_message_callback(delta);
 	} else if (msg_type == "trade") {
+		// Kalshi v2 wire format (as of 2026-04):
+		//   msg.yes_price_dollars = "0.3200"  -> 32 cents
+		//   msg.no_price_dollars  = "0.6800"  -> 68 cents
+		//   msg.count_fp          = "40.00"   -> 40 contracts (rounded)
 		WsTrade trade;
 		trade.sid = extract_int("sid");
 		trade.trade_id = extract_string("trade_id");
 		trade.market_ticker = extract_string("market_ticker");
-		trade.yes_price = extract_int("yes_price");
-		trade.no_price = extract_int("no_price");
-		trade.count = extract_int("count");
+		trade.yes_price = detail::extract_dollar_cents(json, "yes_price_dollars");
+		trade.no_price = detail::extract_dollar_cents(json, "no_price_dollars");
+		trade.count = detail::extract_fp_int(json, "count_fp");
 		std::string side_str = extract_string("taker_side");
 		trade.taker_side = (side_str == "yes") ? Side::Yes : Side::No;
 		trade.timestamp = extract_int("ts");
 		invoke_message_callback(trade);
 	} else if (msg_type == "fill") {
+		// Fill messages (user-only) use the same _dollars / _fp suffix
+		// convention as trade frames in the v2 schema.
 		WsFill fill;
 		fill.sid = extract_int("sid");
 		fill.trade_id = extract_string("trade_id");
@@ -365,9 +375,9 @@ void WsImplData::handle_message(const std::string& json) {
 		fill.is_taker = (extract_string("is_taker") == "true");
 		std::string side_str = extract_string("side");
 		fill.side = (side_str == "yes") ? Side::Yes : Side::No;
-		fill.yes_price = extract_int("yes_price");
-		fill.no_price = extract_int("no_price");
-		fill.count = extract_int("count");
+		fill.yes_price = detail::extract_dollar_cents(json, "yes_price_dollars");
+		fill.no_price = detail::extract_dollar_cents(json, "no_price_dollars");
+		fill.count = detail::extract_fp_int(json, "count_fp");
 		std::string action_str = extract_string("action");
 		fill.action = (action_str == "buy") ? Action::Buy : Action::Sell;
 		fill.timestamp = extract_int("ts");
