@@ -85,6 +85,13 @@ std::int64_t extract_int(const std::string& json, const std::string& key) {
 	while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t'))
 		pos++;
 
+	// Tolerate optional opening quote so quoted-number fields
+	// (``"x":"47"``) parse the same as raw numbers — Kalshi's v2
+	// schema string-encodes most numerics on the wire.
+	bool quoted = pos < json.size() && json[pos] == '"';
+	if (quoted)
+		pos++;
+
 	// Parse number with overflow protection
 	std::int64_t result = 0;
 	bool negative = false;
@@ -103,6 +110,57 @@ std::int64_t extract_int(const std::string& json, const std::string& key) {
 		pos++;
 	}
 	return negative ? -result : result;
+}
+
+/// Parse a string-encoded decimal-dollar field (``"0.4200"``) into
+/// integer cents. Returns 0 if the key is absent or empty — callers
+/// that want both-shapes parsing use ``extract_cents_or_dollars``.
+std::int64_t extract_dollar_cents(const std::string& json, const std::string& key) {
+	const std::string s = extract_string(json, key);
+	if (s.empty())
+		return 0;
+	std::size_t i = 0;
+	bool negative = false;
+	if (i < s.size() && s[i] == '-') {
+		negative = true;
+		i++;
+	}
+	std::int64_t whole = 0;
+	while (i < s.size() && s[i] >= '0' && s[i] <= '9') {
+		whole = whole * 10 + (s[i] - '0');
+		i++;
+	}
+	std::int64_t cents_frac = 0;
+	if (i < s.size() && s[i] == '.') {
+		i++;
+		for (int d = 0; d < 2; d++) {
+			cents_frac *= 10;
+			if (i < s.size() && s[i] >= '0' && s[i] <= '9') {
+				cents_frac += (s[i] - '0');
+				i++;
+			}
+		}
+		if (i < s.size() && s[i] >= '5' && s[i] <= '9') {
+			cents_frac++;
+		}
+	}
+	const std::int64_t total = whole * 100 + cents_frac;
+	return negative ? -total : total;
+}
+
+/// Read an integer cents value, trying ``<key>_dollars`` (string
+/// decimal dollars) first and falling back to ``<key>`` (raw cents)
+/// if the ``_dollars`` field is absent. Kalshi's v2 REST schema
+/// switched to the ``_dollars`` suffix while the kalshi-cpp struct
+/// layout keeps cents — this helper lets both schemas deserialise
+/// through the same code path.
+std::int64_t extract_cents_or_dollars(const std::string& json, const std::string& key) {
+	const std::string dollars_key = key + "_dollars";
+	// Prefer the string-decimal-dollars shape if it's present.
+	if (json.find("\"" + dollars_key + "\"") != std::string::npos) {
+		return extract_dollar_cents(json, dollars_key);
+	}
+	return extract_int(json, key);
 }
 
 bool extract_bool(const std::string& json, const std::string& key) {
@@ -421,10 +479,17 @@ Result<Market> KalshiClient::parse_market(const std::string& json) {
 		market.expiration_time = exp_time;
 	}
 
-	market.yes_bid = static_cast<std::int32_t>(extract_int(market_json, "yes_bid"));
-	market.yes_ask = static_cast<std::int32_t>(extract_int(market_json, "yes_ask"));
-	market.no_bid = static_cast<std::int32_t>(extract_int(market_json, "no_bid"));
-	market.no_ask = static_cast<std::int32_t>(extract_int(market_json, "no_ask"));
+	// Kalshi's v2 REST schema uses ``yes_bid_dollars`` / ``yes_ask_dollars``
+	// etc. (string decimal dollars) in current responses but ``yes_bid`` /
+	// ``yes_ask`` (raw cent integers) in archived responses. The
+	// extract_cents_or_dollars helper accepts either shape, preferring
+	// the ``_dollars`` form when present. Without this, open-market
+	// rows land with 0s for every price field and the trader's
+	// scanner reports "0 executable markets".
+	market.yes_bid = static_cast<std::int32_t>(extract_cents_or_dollars(market_json, "yes_bid"));
+	market.yes_ask = static_cast<std::int32_t>(extract_cents_or_dollars(market_json, "yes_ask"));
+	market.no_bid = static_cast<std::int32_t>(extract_cents_or_dollars(market_json, "no_bid"));
+	market.no_ask = static_cast<std::int32_t>(extract_cents_or_dollars(market_json, "no_ask"));
 	market.volume = static_cast<std::int32_t>(extract_int(market_json, "volume"));
 	market.open_interest = static_cast<std::int32_t>(extract_int(market_json, "open_interest"));
 
@@ -2240,11 +2305,14 @@ Result<LiveData> KalshiClient::get_live_data(const std::string& ticker) {
 
 	LiveData data;
 	data.ticker = ticker;
-	data.yes_bid = static_cast<std::int32_t>(extract_int(response->body, "yes_bid"));
-	data.yes_ask = static_cast<std::int32_t>(extract_int(response->body, "yes_ask"));
-	data.no_bid = static_cast<std::int32_t>(extract_int(response->body, "no_bid"));
-	data.no_ask = static_cast<std::int32_t>(extract_int(response->body, "no_ask"));
-	data.last_price = static_cast<std::int32_t>(extract_int(response->body, "last_price"));
+	// Same v2 schema handling as parse_market — prefer the
+	// ``_dollars`` string shape when present, fall back to raw cents.
+	data.yes_bid = static_cast<std::int32_t>(extract_cents_or_dollars(response->body, "yes_bid"));
+	data.yes_ask = static_cast<std::int32_t>(extract_cents_or_dollars(response->body, "yes_ask"));
+	data.no_bid = static_cast<std::int32_t>(extract_cents_or_dollars(response->body, "no_bid"));
+	data.no_ask = static_cast<std::int32_t>(extract_cents_or_dollars(response->body, "no_ask"));
+	data.last_price =
+		static_cast<std::int32_t>(extract_cents_or_dollars(response->body, "last_price"));
 	data.volume = extract_int(response->body, "volume");
 	return data;
 }
