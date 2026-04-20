@@ -1,5 +1,7 @@
 #include "kalshi/websocket.hpp"
 
+#include "kalshi/detail/ws_json.hpp"
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -288,106 +290,25 @@ void WsImplData::handle_message(const std::string& json) {
 
 	std::string msg_type = json.substr(quote1 + 1, quote2 - quote1 - 1);
 
-	// Extract common fields - handles negative numbers for deltas
-	auto extract_int = [&](const std::string& key) -> std::int32_t {
-		std::string search = "\"" + key + "\"";
-		size_t pos = json.find(search);
-		if (pos == std::string::npos)
-			return 0;
-		pos = json.find(':', pos);
-		if (pos == std::string::npos)
-			return 0;
-		pos++;
-		while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t'))
-			pos++;
-		bool negative = false;
-		if (pos < json.size() && json[pos] == '-') {
-			negative = true;
-			pos++;
-		}
-		std::int32_t val = 0;
-		while (pos < json.size() && json[pos] >= '0' && json[pos] <= '9') {
-			val = val * 10 + (json[pos] - '0');
-			pos++;
-		}
-		return negative ? -val : val;
-	};
+	// Extract helpers live in detail/ws_json.hpp so the unit tests can
+	// exercise them directly — the original in-lambda versions were
+	// private to this translation unit.
+	auto extract_int = [&](const std::string& key) { return detail::extract_int(json, key); };
 
-	// Extract orderbook entries from "yes" or "no" arrays: [[price, quantity], ...]
+	// Extract orderbook entries from "yes" or "no" arrays:
+	// [[price, quantity], ...] — implementation in detail/ws_json.hpp,
+	// returning PriceQty pairs we translate into the public
+	// OrderBookEntry struct.
 	auto extract_orderbook_entries = [&](const std::string& key) -> std::vector<OrderBookEntry> {
+		const auto pairs = detail::extract_orderbook_entries(json, key);
 		std::vector<OrderBookEntry> entries;
-		std::string search = "\"" + key + "\"";
-		size_t pos = json.find(search);
-		if (pos == std::string::npos)
-			return entries;
-		pos = json.find('[', pos);
-		if (pos == std::string::npos)
-			return entries;
-		pos++; // Skip outer '['
-
-		while (pos < json.size()) {
-			// Skip whitespace
-			while (pos < json.size() &&
-				   (json[pos] == ' ' || json[pos] == '\t' || json[pos] == '\n'))
-				pos++;
-			if (pos >= json.size() || json[pos] == ']')
-				break;
-
-			// Find inner array [price, quantity]
-			if (json[pos] == '[') {
-				pos++;
-				// Parse price
-				while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t'))
-					pos++;
-				std::int32_t price = 0;
-				while (pos < json.size() && json[pos] >= '0' && json[pos] <= '9') {
-					price = price * 10 + (json[pos] - '0');
-					pos++;
-				}
-				// Skip to quantity
-				while (pos < json.size() && json[pos] != ',' && json[pos] != ']')
-					pos++;
-				if (pos < json.size() && json[pos] == ',')
-					pos++;
-				while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t'))
-					pos++;
-				std::int32_t quantity = 0;
-				while (pos < json.size() && json[pos] >= '0' && json[pos] <= '9') {
-					quantity = quantity * 10 + (json[pos] - '0');
-					pos++;
-				}
-				// Skip to end of inner array
-				while (pos < json.size() && json[pos] != ']')
-					pos++;
-				if (pos < json.size())
-					pos++; // Skip ']'
-
-				entries.push_back(OrderBookEntry{price, quantity});
-			}
-			// Skip comma between entries
-			while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' || json[pos] == ','))
-				pos++;
-		}
+		entries.reserve(pairs.size());
+		for (const auto& p : pairs)
+			entries.push_back(OrderBookEntry{p.price, p.quantity});
 		return entries;
 	};
 
-	auto extract_string = [&](const std::string& key) -> std::string {
-		std::string search = "\"" + key + "\"";
-		size_t pos = json.find(search);
-		if (pos == std::string::npos)
-			return "";
-		pos = json.find(':', pos);
-		if (pos == std::string::npos)
-			return "";
-		pos = json.find('"', pos);
-		if (pos == std::string::npos)
-			return "";
-		size_t start = pos + 1;
-		size_t end = json.find('"', start);
-		if (end == std::string::npos)
-			return "";
-		return json.substr(start, end - start);
-	};
+	auto extract_string = [&](const std::string& key) { return detail::extract_string(json, key); };
 
 	if (msg_type == "error") {
 		WsError err;
