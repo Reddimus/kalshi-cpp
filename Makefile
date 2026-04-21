@@ -2,6 +2,7 @@
 # Wraps CMake for convenient day-to-day workflow
 
 BUILD_DIR := build
+CPP_AUTO_AUDIT := python3 tools/cpp_auto_audit.py
 CMAKE := cmake
 NPROC := $(shell nproc 2>/dev/null || echo 4)
 BENCH_ITERATIONS := 254
@@ -35,6 +36,8 @@ lint:
 		echo "clang-format not found. Install clang-format to run lint."; \
 		exit 1; \
 	fi
+	$(CPP_AUTO_AUDIT)
+
 
 # Format code in place
 format:

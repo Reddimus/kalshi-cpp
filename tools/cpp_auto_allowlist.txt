@@ -1,0 +1,149 @@
+# Repo-owned exceptions for the explicit local-type policy.
+# Format: relative/path.cpp|line snippet
+examples/get_daily_temp.cpp|for (const auto& c : candles) {
+examples/get_daily_temp.cpp|for (const auto& ticker : discovered_tickers) {
+examples/get_daily_temp.cpp|auto conn_result = ws.connect();
+examples/get_daily_temp.cpp|auto ob_sub = ws.subscribe_orderbook(discovered_tickers);
+examples/get_daily_temp.cpp|auto trade_sub = ws.subscribe_trades(discovered_tickers);
+examples/get_daily_temp.cpp|auto last_print = std::chrono::steady_clock::now();
+examples/get_daily_temp.cpp|auto now_time = std::chrono::steady_clock::now();
+examples/live_market_view.hpp|for (const auto& entry : snap.yes) {
+examples/live_market_view.hpp|for (const auto& entry : snap.no) {
+examples/live_market_view.hpp|auto& book = state.yes_bids;
+examples/live_market_view.hpp|auto& book = state.yes_asks;
+src/api/client.cpp|auto response = impl_->client.get("/exchange/status");
+src/api/client.cpp|auto response = impl_->client.get("/markets/" + ticker);
+src/api/client.cpp|auto market_objects = extract_array_objects(json, "markets");
+src/api/client.cpp|for (const auto& obj : market_objects) {
+src/api/client.cpp|auto market = parse_market(obj);
+src/api/client.cpp|auto response = impl_->client.get(path);
+src/api/client.cpp|auto markets = parse_markets(response->body);
+src/api/client.cpp|auto response = impl_->client.get(path);
+src/api/client.cpp|auto response = impl_->client.get(path);
+src/api/client.cpp|auto candle_objects = extract_array_objects(response->body, "market_candlesticks");
+src/api/client.cpp|for (const auto& obj : candle_objects) {
+src/api/client.cpp|auto response = impl_->client.get(path);
+src/api/client.cpp|auto trade_objects = extract_array_objects(response->body, "trades");
+src/api/client.cpp|for (const auto& obj : trade_objects) {
+src/api/client.cpp|auto response = impl_->client.get("/events/" + event_ticker);
+src/api/client.cpp|auto response = impl_->client.get(path);
+src/api/client.cpp|auto event_objects = extract_array_objects(response->body, "events");
+src/api/client.cpp|for (const auto& obj : event_objects) {
+src/api/client.cpp|auto response = impl_->client.get("/series/" + series_ticker);
+src/api/client.cpp|auto response = impl_->client.get("/portfolio/balance");
+src/api/client.cpp|auto response = impl_->client.get(path);
+src/api/client.cpp|auto pos_objects = extract_array_objects(response->body, "positions");
+src/api/client.cpp|for (const auto& obj : pos_objects) {
+src/api/client.cpp|auto order_objects = extract_array_objects(json, "orders");
+src/api/client.cpp|for (const auto& obj : order_objects) {
+src/api/client.cpp|auto order = parse_order(obj);
+src/api/client.cpp|auto response = impl_->client.get(path);
+src/api/client.cpp|auto orders = parse_orders(response->body);
+src/api/client.cpp|auto response = impl_->client.get("/portfolio/orders/" + order_id);
+src/api/client.cpp|auto response = impl_->client.get(path);
+src/api/client.cpp|auto fill_objects = extract_array_objects(response->body, "fills");
+src/api/client.cpp|for (const auto& obj : fill_objects) {
+src/api/client.cpp|auto response = impl_->client.get(path);
+src/api/client.cpp|auto settlement_objects = extract_array_objects(response->body, "settlements");
+src/api/client.cpp|for (const auto& obj : settlement_objects) {
+src/api/client.cpp|auto response = impl_->client.post("/portfolio/orders", body);
+src/api/client.cpp|auto response = impl_->client.del("/portfolio/orders/" + order_id);
+src/api/client.cpp|auto response = impl_->client.post("/portfolio/orders/" + params.order_id + "/amend", body);
+src/api/client.cpp|auto response = impl_->client.post("/portfolio/orders/" + params.order_id + "/decrease", body);
+src/api/client.cpp|for (const auto& order : request.orders) {
+src/api/client.cpp|auto response = impl_->client.post("/portfolio/orders/batched", body);
+src/api/client.cpp|auto orders = parse_orders(response->body);
+src/api/client.cpp|auto response = impl_->client.del("/portfolio/orders/batched");
+src/api/client.cpp|auto response = impl_->client.get("/exchange/schedule");
+src/api/client.cpp|auto hours_objects = extract_array_objects(response->body, "standard_hours");
+src/api/client.cpp|for (const auto& obj : hours_objects) {
+src/api/client.cpp|auto maint_objects = extract_array_objects(response->body, "maintenance_windows");
+src/api/client.cpp|for (const auto& obj : maint_objects) {
+src/api/client.cpp|auto response = impl_->client.get("/exchange/announcements");
+src/api/client.cpp|auto objects = extract_array_objects(response->body, "announcements");
+src/api/client.cpp|for (const auto& obj : objects) {
+src/api/client.cpp|auto response = impl_->client.get("/events/" + event_ticker + "/metadata");
+src/api/client.cpp|auto response = impl_->client.get(query);
+src/api/client.cpp|auto objects = extract_array_objects(response->body, "series");
+src/api/client.cpp|for (const auto& obj : objects) {
+src/api/client.cpp|auto response = impl_->client.post("/portfolio/order-groups", body);
+src/api/client.cpp|auto response = impl_->client.get(query);
+src/api/client.cpp|auto objects = extract_array_objects(response->body, "order_groups");
+src/api/client.cpp|for (const auto& obj : objects) {
+src/api/client.cpp|auto response = impl_->client.get("/portfolio/order-groups/" + group_id);
+src/api/client.cpp|auto response = impl_->client.del("/portfolio/order-groups/" + group_id);
+src/api/client.cpp|auto response = impl_->client.post("/portfolio/order-groups/" + group_id + "/reset", "{}");
+src/api/client.cpp|auto response = impl_->client.get("/portfolio/orders/" + order_id + "/queue-position");
+src/api/client.cpp|auto response = impl_->client.post("/portfolio/orders/queue-positions", body);
+src/api/client.cpp|auto objects = extract_array_objects(response->body, "positions");
+src/api/client.cpp|for (const auto& obj : objects) {
+src/api/client.cpp|auto response = impl_->client.post("/rfqs", body);
+src/api/client.cpp|auto response = impl_->client.get(query);
+src/api/client.cpp|auto objects = extract_array_objects(response->body, "rfqs");
+src/api/client.cpp|for (const auto& obj : objects) {
+src/api/client.cpp|auto response = impl_->client.get("/rfqs/" + rfq_id);
+src/api/client.cpp|auto response = impl_->client.post("/quotes", body);
+src/api/client.cpp|auto response = impl_->client.get(query);
+src/api/client.cpp|auto objects = extract_array_objects(response->body, "quotes");
+src/api/client.cpp|for (const auto& obj : objects) {
+src/api/client.cpp|auto response = impl_->client.get("/quotes/" + quote_id);
+src/api/client.cpp|auto response = impl_->client.post("/quotes/" + quote_id + "/accept", "{}");
+src/api/client.cpp|auto response = impl_->client.get("/api-keys");
+src/api/client.cpp|auto objects = extract_array_objects(response->body, "api_keys");
+src/api/client.cpp|for (const auto& obj : objects) {
+src/api/client.cpp|auto response = impl_->client.post("/api-keys", body);
+src/api/client.cpp|auto response = impl_->client.del("/api-keys/" + key_id);
+src/api/client.cpp|auto response = impl_->client.get(query);
+src/api/client.cpp|auto objects = extract_array_objects(response->body, "milestones");
+src/api/client.cpp|for (const auto& obj : objects) {
+src/api/client.cpp|auto response = impl_->client.get("/milestones/" + milestone_id);
+src/api/client.cpp|auto response = impl_->client.get(query);
+src/api/client.cpp|auto objects = extract_array_objects(response->body, "collections");
+src/api/client.cpp|for (const auto& obj : objects) {
+src/api/client.cpp|auto response = impl_->client.get("/multivariate-collections/" + collection_id);
+src/api/client.cpp|auto response = impl_->client.get(query);
+src/api/client.cpp|auto objects = extract_array_objects(response->body, "targets");
+src/api/client.cpp|for (const auto& obj : objects) {
+src/api/client.cpp|auto response = impl_->client.get("/structured-targets/" + target_id);
+src/api/client.cpp|auto response = impl_->client.get("/communications/" + comm_id);
+src/api/client.cpp|auto response = impl_->client.get(query);
+src/api/client.cpp|auto objects = extract_array_objects(response->body, "events");
+src/api/client.cpp|for (const auto& obj : objects) {
+src/api/client.cpp|auto response = impl_->client.get(query);
+src/api/client.cpp|auto objects = extract_array_objects(response->body, "markets");
+src/api/client.cpp|for (const auto& obj : objects) {
+src/api/client.cpp|auto market = parse_market(obj);
+src/api/client.cpp|auto response = impl_->client.get("/live-data/" + ticker);
+src/api/client.cpp|auto response = impl_->client.get(query);
+src/api/client.cpp|auto objects = extract_array_objects(response->body, "data");
+src/api/client.cpp|for (const auto& obj : objects) {
+src/api/client.cpp|auto response = impl_->client.get("/incentive-programs");
+src/api/client.cpp|auto objects = extract_array_objects(response->body, "programs");
+src/api/client.cpp|for (const auto& obj : objects) {
+src/api/client.cpp|auto response = impl_->client.get("/portfolio/total-resting-order-value");
+src/api/client.cpp|auto response = impl_->client.get("/exchange/user-data-timestamp");
+src/api/client.cpp|auto response = impl_->client.del("/rfqs/" + rfq_id);
+src/api/client.cpp|auto response = impl_->client.post("/quotes/" + quote_id + "/confirm", "{}");
+src/api/client.cpp|auto response = impl_->client.del("/quotes/" + quote_id);
+src/api/client.cpp|auto response = impl_->client.post("/api-keys/generate", body.dump());
+src/api/client.cpp|auto scopes_objects = extract_array_objects(key_json, "scopes");
+src/api/client.cpp|for (const auto& s : scopes_objects) {
+src/api/client.cpp|auto expires = extract_int(key_json, "expires_at");
+src/api/client.cpp|auto response = impl_->client.post(
+src/api/client.cpp|auto objects = extract_array_objects(response->body, "market_tickers");
+src/api/client.cpp|for (const auto& obj : objects) {
+src/http/client.cpp|auto* headers = static_cast<std::vector<std::pair<std::string, std::string>>*>(userdata);
+src/ws/websocket.cpp|const auto pairs = detail::extract_orderbook_entries(json, key);
+src/ws/websocket.cpp|for (const auto& p : pairs)
+src/ws/websocket.cpp|auto& data = impl_->data;
+src/ws/websocket.cpp|auto auth_result = data->signer->sign("GET", path);
+src/ws/websocket.cpp|auto start = std::chrono::steady_clock::now();
+src/ws/websocket.cpp|auto elapsed = std::chrono::steady_clock::now() - start;
+src/ws/websocket.cpp|auto& data = impl_->data;
+src/ws/websocket.cpp|auto& data = impl_->data;
+src/ws/websocket.cpp|auto& data = impl_->data;
+src/ws/websocket.cpp|auto& data = impl_->data;
+src/ws/websocket.cpp|auto& data = impl_->data;
+src/ws/websocket.cpp|auto& data = impl_->data;
+src/ws/websocket.cpp|auto& data = impl_->data;
+src/ws/websocket.cpp|auto& data = impl_->data;
