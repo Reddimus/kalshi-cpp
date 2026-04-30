@@ -4,6 +4,7 @@ add_executable(kalshi_tests
     test_models.cpp
     test_features.cpp
     test_api.cpp
+    test_version.cpp
     test_ws_parser.cpp
 )
 

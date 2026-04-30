@@ -7,6 +7,7 @@ add_library(kalshi_core STATIC
 target_compile_features(kalshi_core PUBLIC cxx_std_23)
 target_include_directories(kalshi_core PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${CMAKE_BINARY_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 

@@ -1,0 +1,28 @@
+#pragma once
+
+/// @file version.hpp
+/// @brief Version constants for the Kalshi C++ SDK.
+///
+/// This header is generated at CMake configure time from
+/// `version.hpp.in` via `configure_file()`. The substituted values
+/// come from CMakeLists.txt's `project(kalshi-cpp VERSION ...)`
+/// declaration — that's the single source of truth.
+///
+/// Do NOT edit the generated copy in the build directory. Edit
+/// CMakeLists.txt to change the version; this header re-generates.
+
+namespace kalshi {
+
+/// Full SDK version, "MAJOR.MINOR.PATCH".
+constexpr const char* VERSION = "@PROJECT_VERSION@";
+
+/// Major version component (incompatible API changes).
+constexpr int VERSION_MAJOR = @PROJECT_VERSION_MAJOR@;
+
+/// Minor version component (backwards-compatible additions).
+constexpr int VERSION_MINOR = @PROJECT_VERSION_MINOR@;
+
+/// Patch version component (backwards-compatible fixes).
+constexpr int VERSION_PATCH = @PROJECT_VERSION_PATCH@;
+
+} // namespace kalshi
