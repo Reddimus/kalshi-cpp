@@ -61,12 +61,14 @@ KALSHI_STREAM=1 make run-get_daily_temp
 The example uses exponential backoff to handle API rate limits (HTTP 429). On success, requests are made with a 150ms base delay. On rate limit errors, the delay doubles (up to 5 seconds) until requests succeed again.
 
 **What it does:**
+
 1. Discovers active temperature markets via REST API
 2. Connects to WebSocket and subscribes to `orderbook_delta` and `trade` channels
 3. Displays live best bid/ask and last trade for each market
 4. Press Ctrl+C to stop streaming and exit cleanly
 
 **Data shown:**
+
 - **Bid/Ask**: Best bid and ask prices (cents) with sizes
 - **Last Trade**: Price, size, and taker side of most recent trade
 
