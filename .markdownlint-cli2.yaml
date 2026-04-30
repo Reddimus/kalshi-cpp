@@ -5,6 +5,9 @@ config:
   MD040: false
   MD041: false
   MD060: false
+  # MD004 disables ul-style enforcement so a literal "+" at the start of
+  # an indented continuation line isn't misread as a "+"-style list item.
+  MD004: false
   MD024:
     siblings_only: true
 globs:
