@@ -34,8 +34,13 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install dependencies
+        # Lint runs only on Linux so we don't need clang-format from brew —
+        # brew tracks the latest LLVM, and clang-format formatting output
+        # changes between versions, so a brew bump can red-light CI for
+        # source that's correctly formatted under the project's pinned
+        # version. Format-of-record is the Linux apt-installed clang-format.
         run: |
-          brew install pkg-config curl openssl libwebsockets clang-format
+          brew install pkg-config curl openssl libwebsockets
           echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig:$(brew --prefix libwebsockets)/lib/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
           echo "CMAKE_PREFIX_PATH=$(brew --prefix openssl);$(brew --prefix curl);$(brew --prefix libwebsockets)" >> "$GITHUB_ENV"
 
@@ -44,9 +49,6 @@ jobs:
 
       - name: Test
         run: make test
-
-      - name: Lint
-        run: make lint
 
   markdown-lint:
     runs-on: ubuntu-latest
