@@ -1,0 +1,18 @@
+config:
+  default: true
+  MD013: false
+  MD033: false
+  MD040: false
+  MD041: false
+  MD060: false
+  MD024:
+    siblings_only: true
+globs:
+  - "**/*.md"
+  - "!**/node_modules/**"
+  - "!**/build*/**"
+  - "!**/.git/**"
+  - "!**/_deps/**"
+  - "!**/vendor/**"
+  - "!**/.venv/**"
+  - "!**/*.egg-info/**"
