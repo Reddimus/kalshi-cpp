@@ -1,0 +1,56 @@
+name: Release
+
+# Auto-publish a GitHub Release when a vX.Y.Z tag is pushed.
+# Body is the matching section of CHANGELOG.md (between the "## [X.Y.Z]"
+# heading and the next "## " heading), so tag → release stays in sync
+# without a separate manual step.
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+"
+      - "v[0-9]+.[0-9]+.[0-9]+-*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Extract release notes from CHANGELOG.md
+        id: extract
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          # Strip leading "v" for the heading lookup ("v0.0.9" → "0.0.9").
+          version="${tag#v}"
+          # Pull the section between "## [version]" and the next "## " line.
+          # awk so we don't pick up the [Unreleased] section above.
+          notes=$(awk -v v="$version" '
+            $0 ~ "^## \\["v"\\]" { capture=1; next }
+            capture && /^## / { exit }
+            capture { print }
+          ' CHANGELOG.md)
+          if [ -z "$notes" ]; then
+            notes="Release $tag. See CHANGELOG.md for details."
+          fi
+          # Multi-line GHA output via heredoc.
+          {
+            echo "notes<<EOF_NOTES"
+            echo "$notes"
+            echo "EOF_NOTES"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          tag="${GITHUB_REF#refs/tags/}"
+          gh release create "$tag" \
+            --title "$tag" \
+            --notes "${{ steps.extract.outputs.notes }}" \
+            --verify-tag
