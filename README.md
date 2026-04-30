@@ -1,5 +1,10 @@
 # Kalshi C++ SDK
 
+[![CI](https://github.com/Reddimus/kalshi-cpp/actions/workflows/ci.yml/badge.svg)](https://github.com/Reddimus/kalshi-cpp/actions/workflows/ci.yml)
+[![Release](https://img.shields.io/github/v/release/Reddimus/kalshi-cpp)](https://github.com/Reddimus/kalshi-cpp/releases)
+[![C++23](https://img.shields.io/badge/C%2B%2B-23-blue.svg)](https://en.cppreference.com/w/cpp/23)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
+
 A modern C++23 client library for the [Kalshi](https://kalshi.com) prediction market API.
 
 ## Upstream SDK / spec discovery
