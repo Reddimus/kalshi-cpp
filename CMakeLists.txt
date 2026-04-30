@@ -63,6 +63,17 @@ if(KALSHI_ENABLE_COVERAGE)
     message(STATUS "Code coverage enabled")
 endif()
 
+# Generate version header from CMake PROJECT_VERSION. This is the single
+# source of truth for the SDK version — kalshi/version.hpp is regenerated
+# at configure time, so the C++ constexpr cannot drift from the CMake
+# project version (and from there, from the FetchContent tag consumers
+# pin to). See include/kalshi/version.hpp.in.
+configure_file(
+    ${CMAKE_CURRENT_SOURCE_DIR}/include/kalshi/version.hpp.in
+    ${CMAKE_CURRENT_BINARY_DIR}/include/kalshi/version.hpp
+    @ONLY
+)
+
 # Find dependencies
 find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
@@ -113,7 +124,10 @@ install(TARGETS kalshi_core kalshi_auth kalshi_http kalshi_models kalshi_ws kals
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
     INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
 )
-install(DIRECTORY include/kalshi DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+install(DIRECTORY include/kalshi DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+    PATTERN "*.in" EXCLUDE)
+install(FILES ${CMAKE_CURRENT_BINARY_DIR}/include/kalshi/version.hpp
+    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/kalshi)
 
 configure_package_config_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/kalshiConfig.cmake.in

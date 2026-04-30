@@ -12,11 +12,5 @@
 #include "kalshi/rate_limit.hpp"
 #include "kalshi/retry.hpp"
 #include "kalshi/signer.hpp"
+#include "kalshi/version.hpp"
 #include "kalshi/websocket.hpp"
-
-namespace kalshi {
-
-/// SDK version
-constexpr const char* VERSION = "0.1.0";
-
-} // namespace kalshi
