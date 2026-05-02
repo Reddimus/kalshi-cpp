@@ -411,7 +411,6 @@ make format          # clang-format -i (call before pushing)
 CI runs the same lint+build+test on push and PR (Ubuntu 24.04 +
 macos-latest); see `.github/workflows/ci.yml`.
 
-
 ## License
 
 See [LICENSE](LICENSE) for details.
