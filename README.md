@@ -150,6 +150,27 @@ cmake --build build-san && ctest --test-dir build-san
 
 ### Install & use as a package
 
+Two consumption paths:
+
+#### A. CMake FetchContent (recommended — no system install)
+
+```cmake
+include(FetchContent)
+FetchContent_Declare(
+    kalshi
+    GIT_REPOSITORY https://github.com/Reddimus/kalshi-cpp.git
+    GIT_TAG v0.0.8  # pin a tagged release
+)
+# Suppress upstream tests + examples in your service builds
+set(KALSHI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
+set(KALSHI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
+FetchContent_MakeAvailable(kalshi)
+
+target_link_libraries(myapp PRIVATE kalshi::kalshi)
+```
+
+#### B. Install to a prefix + `find_package`
+
 ```bash
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build
