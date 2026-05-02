@@ -23,27 +23,23 @@ jobs:
           fetch-depth: 0
 
       - name: Extract release notes from CHANGELOG.md
-        id: extract
         run: |
           tag="${GITHUB_REF#refs/tags/}"
-          # Strip leading "v" for the heading lookup ("v0.0.9" → "0.0.9").
           version="${tag#v}"
-          # Pull the section between "## [version]" and the next "## " line.
-          # awk so we don't pick up the [Unreleased] section above.
-          notes=$(awk -v v="$version" '
+          # Pipe directly to a file. DO NOT capture into a shell var
+          # and echo it back — bash treats backticks as command
+          # substitution, which silently strips every inline `code`
+          # span from the release body. Reading via `gh release create
+          # --notes-file` preserves the bytes verbatim.
+          awk -v v="$version" '
             $0 ~ "^## \\["v"\\]" { capture=1; next }
             capture && /^## / { exit }
             capture { print }
-          ' CHANGELOG.md)
-          if [ -z "$notes" ]; then
-            notes="Release $tag. See CHANGELOG.md for details."
+          ' CHANGELOG.md > /tmp/release_notes.md
+          if [ ! -s /tmp/release_notes.md ]; then
+            printf 'Release %s. See CHANGELOG.md for details.\n' "$tag" \
+              > /tmp/release_notes.md
           fi
-          # Multi-line GHA output via heredoc.
-          {
-            echo "notes<<EOF_NOTES"
-            echo "$notes"
-            echo "EOF_NOTES"
-          } >> "$GITHUB_OUTPUT"
 
       - name: Create GitHub Release
         env:
@@ -52,5 +48,5 @@ jobs:
           tag="${GITHUB_REF#refs/tags/}"
           gh release create "$tag" \
             --title "$tag" \
-            --notes "${{ steps.extract.outputs.notes }}" \
+            --notes-file /tmp/release_notes.md \
             --verify-tag
