@@ -72,3 +72,37 @@ third_party/certifi-*
 
 # Prompts
 .github/prompts/*
+
+# === Production-hardening patterns (added 2026-05-02) ===
+# Credentials — never commit secrets to a public SDK
+*.pem
+*.key
+*.p12
+*.pfx
+credentials.json
+credentials*.json
+secrets/
+service-account*.json
+gha-secrets.txt
+
+# Build cache
+_deps/
+build-*/
+
+# Coverage + analysis artifacts
+*.gcov
+*.gcda
+*.gcno
+coverage/
+*.profraw
+*.profdata
+
+# Sanitizer / valgrind output
+asan.log
+ubsan.log
+*.callgrind
+*.cachegrind
+
+# OS noise
+.DS_Store
+Thumbs.db
