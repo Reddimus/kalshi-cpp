@@ -6,6 +6,20 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.0.9] — 2026-05-04
+
+### Fixed
+
+- `WebSocketClient::connect()` reaps the previous service thread + libwebsockets
+  context before starting a new connection. After a
+  `LWS_CALLBACK_CLIENT_CONNECTION_ERROR` the thread stays joinable
+  (the callback only sets `connected = false`), and the caller's typical
+  reconnect-on-error loop then move-assigned a new `std::thread` onto the
+  still-joinable handle, hitting `std::terminate` with
+  `terminate called without an active exception` and exiting 139 (SIGSEGV).
+  Production observed ~5 crashes/day on `kalshi-websocket`; supervisor
+  auto-restart masked it but each crash dropped ~10s of WS data.
+
 ### Build
 
 - Drive `kalshi::VERSION` from CMake `PROJECT_VERSION` via `configure_file()`

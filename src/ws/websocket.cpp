@@ -423,6 +423,25 @@ Result<void> WebSocketClient::connect() {
 		return {};
 	}
 
+	// Reap any leftover state from a partial previous connection. A
+	// LWS_CALLBACK_CLIENT_CONNECTION_ERROR sets ``connected = false`` but
+	// does NOT join the service thread or destroy the lws context — the
+	// caller's reconnect-on-error loop then calls connect() again. Without
+	// this reap, the std::thread move-assignment on the new
+	// ``data->service_thread = std::thread(...)`` below hits a still-
+	// joinable thread, which std::terminate's the process with the
+	// classic ``terminate called without an active exception`` followed
+	// by SIGSEGV (exit 139). Production seen ~5 times/day on
+	// kalshi-websocket before this fix.
+	if (data->service_thread.joinable()) {
+		data->should_stop = true;
+		data->service_thread.join();
+	}
+	if (data->context) {
+		lws_context_destroy(data->context);
+		data->context = nullptr;
+	}
+	data->wsi = nullptr;
 	data->should_stop = false;
 
 	// Parse URL
