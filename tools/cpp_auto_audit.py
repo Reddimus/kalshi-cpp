@@ -77,16 +77,27 @@ class Violation:
 
 
 def tracked_cpp_files(repo_root: Path) -> list[Path]:
+    # ``git ls-files`` returns tracked files only — a brand-new
+    # untracked test file is invisible to local audit but still
+    # caught by CI once it's committed, which makes the divergence
+    # surface as a CI fail after the developer thought they ran
+    # lint clean. Also include ``--others --exclude-standard`` so
+    # untracked-but-not-ignored files (typical for fresh test files)
+    # get audited too.
     proc = subprocess.run(
-        ["git", "ls-files"],
+        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
         cwd=repo_root,
         check=True,
         capture_output=True,
         text=True,
     )
+    seen: set[Path] = set()
     files: list[Path] = []
     for raw in proc.stdout.splitlines():
         path = repo_root / raw
+        if path in seen:
+            continue
+        seen.add(path)
         if path.suffix not in CPP_SUFFIXES:
             continue
         if any(part.startswith("build") for part in path.parts):
