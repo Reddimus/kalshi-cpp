@@ -650,8 +650,7 @@ public:
 	[[nodiscard]] Result<Subaccount> create_subaccount();
 
 	/// Transfer ``amount`` cents from one subaccount to another.
-	[[nodiscard]] Result<SubaccountTransfer>
-	transfer_subaccount(const SubaccountTransfer& request);
+	[[nodiscard]] Result<SubaccountTransfer> transfer_subaccount(const SubaccountTransfer& request);
 
 	/// List balances across every subaccount on this account holder.
 	[[nodiscard]] Result<SubaccountBalances> get_subaccount_balances();
@@ -661,8 +660,8 @@ public:
 	get_subaccount_transfers(const GetSubaccountTransfersParams& params = {});
 
 	/// Toggle position-netting on a single subaccount.
-	[[nodiscard]] Result<void>
-	update_subaccount_netting(std::int64_t subaccount, bool netting_enabled);
+	[[nodiscard]] Result<void> update_subaccount_netting(std::int64_t subaccount,
+														 bool netting_enabled);
 
 	/// Read netting settings across every subaccount.
 	[[nodiscard]] Result<SubaccountNettingList> get_subaccount_netting();

@@ -2434,8 +2434,7 @@ Result<Subaccount> KalshiClient::create_subaccount() {
 	return sub;
 }
 
-Result<SubaccountTransfer>
-KalshiClient::transfer_subaccount(const SubaccountTransfer& request) {
+Result<SubaccountTransfer> KalshiClient::transfer_subaccount(const SubaccountTransfer& request) {
 	nlohmann::ordered_json body;
 	body["from_subaccount"] = request.from_subaccount;
 	body["to_subaccount"] = request.to_subaccount;
@@ -2462,10 +2461,10 @@ Result<SubaccountBalances> KalshiClient::get_subaccount_balances() {
 		return std::unexpected(response.error());
 	}
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get subaccount balances: " +
-										 std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get subaccount balances: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 	SubaccountBalances result;
 	for (const auto& obj : extract_array_objects(response->body, "balances")) {
@@ -2491,10 +2490,10 @@ KalshiClient::get_subaccount_transfers(const GetSubaccountTransfersParams& param
 		return std::unexpected(response.error());
 	}
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get subaccount transfers: " +
-										 std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get subaccount transfers: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 	SubaccountTransfers result;
 	for (const auto& obj : extract_array_objects(response->body, "transfers")) {
@@ -2508,8 +2507,8 @@ KalshiClient::get_subaccount_transfers(const GetSubaccountTransfersParams& param
 	return result;
 }
 
-Result<void>
-KalshiClient::update_subaccount_netting(std::int64_t subaccount, bool netting_enabled) {
+Result<void> KalshiClient::update_subaccount_netting(std::int64_t subaccount,
+													 bool netting_enabled) {
 	nlohmann::ordered_json body;
 	body["subaccount"] = subaccount;
 	body["netting_enabled"] = netting_enabled;
@@ -2533,10 +2532,10 @@ Result<SubaccountNettingList> KalshiClient::get_subaccount_netting() {
 		return std::unexpected(response.error());
 	}
 	if (response->status_code != 200) {
-		return std::unexpected(Error{ErrorCode::ServerError,
-									 "Failed to get subaccount netting: " +
-										 std::to_string(response->status_code),
-									 response->status_code});
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get subaccount netting: " + std::to_string(response->status_code),
+				  response->status_code});
 	}
 	SubaccountNettingList result;
 	for (const auto& obj : extract_array_objects(response->body, "netting_settings")) {
