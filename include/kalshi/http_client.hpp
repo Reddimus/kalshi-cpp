@@ -13,8 +13,17 @@
 
 namespace kalshi {
 
-/// HTTP methods
-enum class HttpMethod : std::uint8_t { GET, POST, PUT, DELETE };
+/// HTTP methods.
+///
+/// Note: ``DEL`` (not ``DELETE``) is the enumerator for the wire
+/// verb ``"DELETE"``. ``<windows.h>`` defines ``DELETE`` as a macro
+/// for an access-rights constant (``0x00010000L``); any indirect
+/// inclusion (e.g. via libcurl pulled in by vcpkg) makes
+/// ``HttpMethod::DELETE`` expand to ``HttpMethod::0x00010000L`` and
+/// the build dies with C2589 / C2144 on MSVC. ``http_method_to_string``
+/// and the CURLOPT_CUSTOMREQUEST value still emit ``"DELETE"`` so the
+/// wire protocol is unchanged.
+enum class HttpMethod : std::uint8_t { GET, POST, PUT, DEL };
 
 /// Convert HTTP method to string
 [[nodiscard]] constexpr std::string_view to_string(HttpMethod method) noexcept {
@@ -25,7 +34,7 @@ enum class HttpMethod : std::uint8_t { GET, POST, PUT, DELETE };
 			return "POST";
 		case HttpMethod::PUT:
 			return "PUT";
-		case HttpMethod::DELETE:
+		case HttpMethod::DEL:
 			return "DELETE";
 	}
 	return "GET";

@@ -77,7 +77,7 @@ Result<HttpResponse> HttpClient::put(std::string_view path, std::string_view bod
 }
 
 Result<HttpResponse> HttpClient::del(std::string_view path) const {
-	return request(HttpMethod::DELETE, path);
+	return request(HttpMethod::DEL, path);
 }
 
 Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view path,
@@ -114,7 +114,7 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 		case HttpMethod::PUT:
 			curl_easy_setopt(impl_->curl, CURLOPT_CUSTOMREQUEST, "PUT");
 			break;
-		case HttpMethod::DELETE:
+		case HttpMethod::DEL:
 			curl_easy_setopt(impl_->curl, CURLOPT_CUSTOMREQUEST, "DELETE");
 			break;
 	}

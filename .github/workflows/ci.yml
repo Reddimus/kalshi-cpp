@@ -50,6 +50,34 @@ jobs:
       - name: Test
         run: make test
 
+  build-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v6
+
+      - name: Install dependencies (vcpkg)
+        # GitHub-hosted Windows runners ship vcpkg pre-installed at
+        # $env:VCPKG_INSTALLATION_ROOT. Pin the triplet so the resolved
+        # ABI matches what the CMake config-mode discovery expects.
+        shell: pwsh
+        run: |
+          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install `
+            openssl:x64-windows curl:x64-windows libwebsockets:x64-windows
+          "VCPKG_TARGET_TRIPLET=x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Append
+          "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Append
+
+      - name: Build
+        shell: pwsh
+        run: |
+          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:CMAKE_TOOLCHAIN_FILE" `
+            "-DVCPKG_TARGET_TRIPLET=$env:VCPKG_TARGET_TRIPLET"
+          cmake --build build --config Release -j
+
+      - name: Test
+        shell: pwsh
+        run: ctest --test-dir build --output-on-failure -C Release
+
   markdown-lint:
     runs-on: ubuntu-latest
     steps:

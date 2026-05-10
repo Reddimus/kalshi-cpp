@@ -15,8 +15,11 @@ option(KALSHI_BUILD_EXAMPLES "Build examples" ON)
 option(KALSHI_ENABLE_LTO "Enable Link Time Optimization" ON)
 option(KALSHI_NATIVE_ARCH "Use -march=native for CPU-specific tuning" OFF)
 
-# Aggressive optimization flags for Release builds
-set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+# Aggressive optimization flags for Release builds. MSVC has its own
+# Release flags via CMake's default; only override for GCC/Clang.
+if(NOT MSVC)
+    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
+endif()
 
 # Enable LTO if requested and supported
 if(KALSHI_ENABLE_LTO)
@@ -30,20 +33,20 @@ if(KALSHI_ENABLE_LTO)
     endif()
 endif()
 
-# CPU-specific tuning.
-# KALSHI_NATIVE_ARCH=ON → -march=native (only when you know the deploy CPU).
-# Default: -march=x86-64-v3 (2017+ x86 baseline — AVX2, BMI2, FMA). Matches the
-# service Dockerfiles so FetchContent-consumed builds produce identical codegen.
-if(KALSHI_NATIVE_ARCH)
-    set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=native")
-    message(STATUS "Using -march=native for CPU-specific optimizations")
-else()
-    include(CheckCXXCompilerFlag)
-    check_cxx_compiler_flag("-march=x86-64-v3" COMPILER_SUPPORTS_X86_64_V3)
-    if(COMPILER_SUPPORTS_X86_64_V3)
-        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=x86-64-v3")
+# CPU-specific tuning. GCC/Clang only — MSVC uses /arch flags with
+# different semantics, so we leave its defaults alone.
+if(NOT MSVC)
+    if(KALSHI_NATIVE_ARCH)
+        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=native")
+        message(STATUS "Using -march=native for CPU-specific optimizations")
     else()
-        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -mtune=generic")
+        include(CheckCXXCompilerFlag)
+        check_cxx_compiler_flag("-march=x86-64-v3" COMPILER_SUPPORTS_X86_64_V3)
+        if(COMPILER_SUPPORTS_X86_64_V3)
+            set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=x86-64-v3")
+        else()
+            set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -mtune=generic")
+        endif()
     endif()
 endif()
 
@@ -74,11 +77,17 @@ configure_file(
     @ONLY
 )
 
-# Find dependencies
+# Find dependencies. Linux/macOS use pkg-config to locate
+# libwebsockets (apt/brew packages ship .pc files); Windows/MSVC
+# uses vcpkg's CMake config-mode export.
 find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
-find_package(PkgConfig REQUIRED)
-pkg_check_modules(WEBSOCKETS REQUIRED IMPORTED_TARGET libwebsockets)
+if(NOT WIN32)
+    find_package(PkgConfig REQUIRED)
+    pkg_check_modules(WEBSOCKETS REQUIRED IMPORTED_TARGET libwebsockets)
+else()
+    find_package(libwebsockets CONFIG REQUIRED)
+endif()
 
 include(FetchContent)
 FetchContent_Declare(
