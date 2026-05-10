@@ -152,6 +152,47 @@ TEST(Api, CandlestickDefaultConstruction) {
 	ASSERT_EQ(candle.volume, 0);
 }
 
+TEST(Api, SubaccountDefaultConstruction) {
+	kalshi::Subaccount sub;
+	ASSERT_EQ(sub.subaccount_number, 0);
+	ASSERT_EQ(sub.balance, 0);
+}
+
+TEST(Api, SubaccountTransferDefaultConstruction) {
+	kalshi::SubaccountTransfer transfer;
+	ASSERT_EQ(transfer.from_subaccount, 0);
+	ASSERT_EQ(transfer.to_subaccount, 0);
+	ASSERT_EQ(transfer.amount, 0);
+}
+
+TEST(Api, SubaccountBalancesDefaultConstruction) {
+	kalshi::SubaccountBalances balances;
+	ASSERT_TRUE(balances.balances.empty());
+}
+
+TEST(Api, SubaccountTransfersDefaultConstruction) {
+	kalshi::SubaccountTransfers transfers;
+	ASSERT_TRUE(transfers.transfers.empty());
+	ASSERT_TRUE(transfers.cursor.empty());
+}
+
+TEST(Api, SubaccountNettingDefaultConstruction) {
+	kalshi::SubaccountNetting netting;
+	ASSERT_EQ(netting.subaccount, 0);
+	ASSERT_FALSE(netting.netting_enabled);
+}
+
+TEST(Api, SubaccountNettingListDefaultConstruction) {
+	kalshi::SubaccountNettingList list;
+	ASSERT_TRUE(list.netting_settings.empty());
+}
+
+TEST(Api, GetSubaccountTransfersParamsDefaultConstruction) {
+	kalshi::GetSubaccountTransfersParams params;
+	ASSERT_FALSE(params.limit.has_value());
+	ASSERT_FALSE(params.cursor.has_value());
+}
+
 TEST(Api, PublicTradeDefaultConstruction) {
 	kalshi::PublicTrade trade;
 	ASSERT_TRUE(trade.trade_id.empty());
