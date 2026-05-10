@@ -46,7 +46,12 @@ target_include_directories(kalshi_models PUBLIC
 add_library(kalshi_ws STATIC
     ws/websocket.cpp
 )
-target_link_libraries(kalshi_ws PUBLIC kalshi_core kalshi_auth kalshi_models PkgConfig::WEBSOCKETS)
+if(NOT WIN32)
+    set(_KALSHI_WS_TARGET PkgConfig::WEBSOCKETS)
+else()
+    set(_KALSHI_WS_TARGET websockets_shared)
+endif()
+target_link_libraries(kalshi_ws PUBLIC kalshi_core kalshi_auth kalshi_models ${_KALSHI_WS_TARGET})
 target_include_directories(kalshi_ws PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
