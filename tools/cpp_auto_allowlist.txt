@@ -147,3 +147,9 @@ src/ws/websocket.cpp|auto& data = impl_->data;
 src/ws/websocket.cpp|auto& data = impl_->data;
 src/ws/websocket.cpp|auto& data = impl_->data;
 src/ws/websocket.cpp|auto& data = impl_->data;
+src/api/client.cpp|auto response = impl_->client.get("/portfolio/subaccounts/balances");
+src/api/client.cpp|for (const auto& obj : extract_array_objects(response->body, "balances")) {
+src/api/client.cpp|for (const auto& obj : extract_array_objects(response->body, "transfers")) {
+src/api/client.cpp|auto response = impl_->client.put("/portfolio/subaccounts/netting", body.dump());
+src/api/client.cpp|auto response = impl_->client.get("/portfolio/subaccounts/netting");
+src/api/client.cpp|for (const auto& obj : extract_array_objects(response->body, "netting_settings")) {

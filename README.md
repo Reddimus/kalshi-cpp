@@ -318,6 +318,15 @@ int main() {
 - `get_fills(params)` - Get fills
 - `get_settlements(params)` - Get settlements
 
+### Subaccounts
+
+- `create_subaccount()` - Create a new subaccount under the primary holder
+- `transfer_subaccount(request)` - Move funds between two subaccounts
+- `get_subaccount_balances()` - List balance per subaccount
+- `get_subaccount_transfers(params)` - Paginated history of cross-subaccount transfers
+- `update_subaccount_netting(subaccount, enabled)` - Toggle position netting on a subaccount
+- `get_subaccount_netting()` - Read netting setting per subaccount
+
 ### Order Management
 
 - `create_order(params)` - Create order

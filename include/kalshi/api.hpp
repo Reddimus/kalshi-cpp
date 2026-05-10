@@ -265,6 +265,49 @@ struct IncentiveProgram {
 
 // ===== Additional Models for Full SDK Parity =====
 
+/// Subaccount on the primary account holder. Created via
+/// ``create_subaccount`` and identified for the rest of the API by
+/// the integer ``subaccount_number``.
+struct Subaccount {
+	std::int64_t subaccount_number{0};
+	std::int64_t balance{0}; // cents
+};
+
+/// Cross-subaccount transfer record (also the request body shape).
+struct SubaccountTransfer {
+	std::int64_t from_subaccount{0};
+	std::int64_t to_subaccount{0};
+	std::int64_t amount{0}; // cents
+};
+
+/// Response for ``GET /portfolio/subaccounts/balances``.
+struct SubaccountBalances {
+	std::vector<Subaccount> balances;
+};
+
+/// Response for ``GET /portfolio/subaccounts/transfers``.
+struct SubaccountTransfers {
+	std::vector<SubaccountTransfer> transfers;
+	std::string cursor; // empty when no further pages
+};
+
+/// One row in the netting-settings list.
+struct SubaccountNetting {
+	std::int64_t subaccount{0};
+	bool netting_enabled{false};
+};
+
+/// Response for ``GET /portfolio/subaccounts/netting``.
+struct SubaccountNettingList {
+	std::vector<SubaccountNetting> netting_settings;
+};
+
+/// Query params for ``GET /portfolio/subaccounts/transfers``.
+struct GetSubaccountTransfersParams {
+	std::optional<std::int32_t> limit; // 1..200, default 100
+	std::optional<std::string> cursor;
+};
+
 /// Total resting order value response
 struct TotalRestingOrderValue {
 	std::int64_t total_value{0}; // in cents
@@ -598,6 +641,30 @@ public:
 
 	/// Get total resting order value
 	[[nodiscard]] Result<TotalRestingOrderValue> get_total_resting_order_value();
+
+	// ===== Subaccounts (Authenticated) =====
+
+	/// Create a new subaccount under the primary account holder.
+	/// The Kalshi API takes no body; the new subaccount's
+	/// ``subaccount_number`` is returned for use in subsequent calls.
+	[[nodiscard]] Result<Subaccount> create_subaccount();
+
+	/// Transfer ``amount`` cents from one subaccount to another.
+	[[nodiscard]] Result<SubaccountTransfer> transfer_subaccount(const SubaccountTransfer& request);
+
+	/// List balances across every subaccount on this account holder.
+	[[nodiscard]] Result<SubaccountBalances> get_subaccount_balances();
+
+	/// Paginated list of past cross-subaccount transfers.
+	[[nodiscard]] Result<SubaccountTransfers>
+	get_subaccount_transfers(const GetSubaccountTransfersParams& params = {});
+
+	/// Toggle position-netting on a single subaccount.
+	[[nodiscard]] Result<void> update_subaccount_netting(std::int64_t subaccount,
+														 bool netting_enabled);
+
+	/// Read netting settings across every subaccount.
+	[[nodiscard]] Result<SubaccountNettingList> get_subaccount_netting();
 
 	// ===== Order Management (Authenticated) =====
 
