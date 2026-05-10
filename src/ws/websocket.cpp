@@ -417,6 +417,9 @@ WebSocketClient::WebSocketClient(WebSocketClient&&) noexcept = default;
 WebSocketClient& WebSocketClient::operator=(WebSocketClient&&) noexcept = default;
 
 Result<void> WebSocketClient::connect() {
+	if (!impl_) {
+		return std::unexpected(Error::network("Client moved-from"));
+	}
 	auto& data = impl_->data;
 
 	if (data->connected) {
@@ -539,6 +542,16 @@ Result<void> WebSocketClient::connect() {
 }
 
 void WebSocketClient::disconnect() {
+	// The defaulted move ctor / move-assignment leave the moved-from
+	// object's impl_ as nullptr. ~WebSocketClient unconditionally
+	// calls disconnect(), so without this guard the implicit
+	// destructor on a moved-from instance dereferences the nullptr
+	// below (auto& data = impl_->data) and segfaults. The same
+	// pattern exists in polymarket-cpp's clob::WebSocketClient and
+	// polymarket::us::ws::Subscriber — pinning the contract here.
+	if (!impl_) {
+		return;
+	}
 	auto& data = impl_->data;
 
 	if (!data->context) {
@@ -562,11 +575,17 @@ void WebSocketClient::disconnect() {
 }
 
 bool WebSocketClient::is_connected() const noexcept {
+	if (!impl_) {
+		return false;
+	}
 	return impl_->data->connected;
 }
 
 Result<SubscriptionId>
 WebSocketClient::subscribe_orderbook(const std::vector<std::string>& market_tickers) {
+	if (!impl_) {
+		return std::unexpected(Error::network("Client moved-from"));
+	}
 	auto& data = impl_->data;
 
 	if (!data->connected) {
@@ -586,6 +605,9 @@ WebSocketClient::subscribe_orderbook(const std::vector<std::string>& market_tick
 
 Result<SubscriptionId>
 WebSocketClient::subscribe_trades(const std::vector<std::string>& market_tickers) {
+	if (!impl_) {
+		return std::unexpected(Error::network("Client moved-from"));
+	}
 	auto& data = impl_->data;
 
 	if (!data->connected) {
@@ -601,6 +623,9 @@ WebSocketClient::subscribe_trades(const std::vector<std::string>& market_tickers
 
 Result<SubscriptionId>
 WebSocketClient::subscribe_fills(const std::vector<std::string>& market_tickers) {
+	if (!impl_) {
+		return std::unexpected(Error::network("Client moved-from"));
+	}
 	auto& data = impl_->data;
 
 	if (!data->connected) {
@@ -615,6 +640,9 @@ WebSocketClient::subscribe_fills(const std::vector<std::string>& market_tickers)
 }
 
 Result<SubscriptionId> WebSocketClient::subscribe_lifecycle() {
+	if (!impl_) {
+		return std::unexpected(Error::network("Client moved-from"));
+	}
 	auto& data = impl_->data;
 
 	if (!data->connected) {
@@ -629,6 +657,9 @@ Result<SubscriptionId> WebSocketClient::subscribe_lifecycle() {
 }
 
 Result<void> WebSocketClient::unsubscribe(SubscriptionId sub_id) {
+	if (!impl_) {
+		return std::unexpected(Error::network("Client moved-from"));
+	}
 	auto& data = impl_->data;
 
 	if (!data->connected) {
@@ -644,6 +675,9 @@ Result<void> WebSocketClient::unsubscribe(SubscriptionId sub_id) {
 
 Result<void> WebSocketClient::add_markets(SubscriptionId sub_id,
 										  const std::vector<std::string>& market_tickers) {
+	if (!impl_) {
+		return std::unexpected(Error::network("Client moved-from"));
+	}
 	auto& data = impl_->data;
 
 	if (!data->connected) {
@@ -664,6 +698,9 @@ Result<void> WebSocketClient::add_markets(SubscriptionId sub_id,
 
 Result<void> WebSocketClient::remove_markets(SubscriptionId sub_id,
 											 const std::vector<std::string>& market_tickers) {
+	if (!impl_) {
+		return std::unexpected(Error::network("Client moved-from"));
+	}
 	auto& data = impl_->data;
 
 	if (!data->connected) {
@@ -683,21 +720,38 @@ Result<void> WebSocketClient::remove_markets(SubscriptionId sub_id,
 }
 
 void WebSocketClient::on_message(WsMessageCallback callback) {
+	if (!impl_) {
+		return;
+	}
 	std::lock_guard lock(impl_->data->callback_mutex);
 	impl_->data->message_callback = std::move(callback);
 }
 
 void WebSocketClient::on_error(WsErrorCallback callback) {
+	if (!impl_) {
+		return;
+	}
 	std::lock_guard lock(impl_->data->callback_mutex);
 	impl_->data->error_callback = std::move(callback);
 }
 
 void WebSocketClient::on_state_change(WsStateCallback callback) {
+	if (!impl_) {
+		return;
+	}
 	std::lock_guard lock(impl_->data->callback_mutex);
 	impl_->data->state_callback = std::move(callback);
 }
 
 const WsConfig& WebSocketClient::config() const noexcept {
+	// Returning a reference into a nullptr would crash; surface a
+	// static empty config so accessors stay safe on moved-from
+	// instances (matches the null-guard pattern in disconnect() /
+	// is_connected()).
+	if (!impl_) {
+		static const WsConfig kEmpty{};
+		return kEmpty;
+	}
 	return impl_->data->config;
 }
 
