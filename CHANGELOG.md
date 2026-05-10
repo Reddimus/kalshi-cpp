@@ -6,6 +6,20 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.1] - 2026-05-10
+
+### Fixed
+
+- FetchContent consumers fail to find `kalshi/version.hpp` (introduced in
+  v0.1.0). The configure-time generated header lives at
+  `${PROJECT_BINARY_DIR}/include/kalshi/version.hpp` but the
+  `target_include_directories(kalshi_core PUBLIC ...)` was pointing at
+  `${CMAKE_BINARY_DIR}/include` — under FetchContent that resolves to the
+  consumer's top-level build dir (where the header is NOT), not the
+  kalshi-cpp subproject dir (where it IS). Using `PROJECT_BINARY_DIR`
+  pins to the kalshi-cpp project's own build dir under either standalone
+  or FetchContent layouts.
+
 ## [0.1.0] - 2026-05-10
 
 ### Added
