@@ -6,6 +6,46 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.1.0] - 2026-05-10
+
+### Added
+
+- **`pm::api::Subaccount`** — Kalshi subaccount endpoint suite (create,
+  list, get, update, disable). Returns `std::expected<Subaccount, Error>`
+  on all operations; mirrors the `Account` surface for primary-account
+  callers. Unblocks the multi-account separation Kalshi recommends for
+  capital partitioning across strategies. (PR #12)
+
+### Fixed
+
+- `WebSocketClient` move-from null-guard — null-check all pimpl
+  accessors (`is_connected()`, `last_error()`, etc.) so a moved-from
+  instance is safe to destroy without UB. Caught by the same crash
+  mode (`terminate called without an active exception`) v0.0.9 fixed
+  in the reconnect path; this closes the move-destruction sibling
+  case. (PR #13)
+- Test signer key — `Signer.SignProducesHeaders` previously embedded
+  an invalid `TEST_RSA_KEY` placeholder string; the test silently
+  skipped its assertions. Replaced with a real PKCS#8-encoded private
+  key so the test actually runs and pins the signer's header output
+  shape. (PR #14)
+
+### CI
+
+- `build-windows` job added via vcpkg — parity with the rest of the
+  SDK family (alpaca-markets-cpp, ncei-cpp, nws-cpp, open-meteo-cpp,
+  polymarket-cpp all now have Linux + macOS + Windows). Zero source
+  changes needed; the codebase was already POSIX-isms-free. (PR #11)
+- `actions/checkout@v6` for Node 24 runtime parity with sibling SDKs.
+- `cpp_auto_audit.py` walks `--cached` + `--others` so new test
+  files in a feature branch trigger the audit during local lint
+  (previously only `--cached` was checked).
+
+### Docs
+
+- `SECURITY.md` — canonical contact path for reporting vulnerabilities
+  in the auth / signer / WebSocket paths. (PR #15)
+
 ## [0.0.9] — 2026-05-04
 
 ### Fixed
