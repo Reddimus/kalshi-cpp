@@ -2413,6 +2413,141 @@ Result<TotalRestingOrderValue> KalshiClient::get_total_resting_order_value() {
 	return result;
 }
 
+// ===== Subaccounts =====
+
+Result<Subaccount> KalshiClient::create_subaccount() {
+	// Kalshi's create-subaccount endpoint takes no body — POST with
+	// an empty payload returns the new subaccount_number + initial
+	// balance (always 0 on creation).
+	auto response = impl_->client.post("/portfolio/subaccounts", "");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+	if (response->status_code != 200 && response->status_code != 201) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to create subaccount: " + response->body,
+									 response->status_code});
+	}
+	Subaccount sub;
+	sub.subaccount_number = extract_int(response->body, "subaccount_number");
+	sub.balance = extract_int(response->body, "balance");
+	return sub;
+}
+
+Result<SubaccountTransfer>
+KalshiClient::transfer_subaccount(const SubaccountTransfer& request) {
+	nlohmann::ordered_json body;
+	body["from_subaccount"] = request.from_subaccount;
+	body["to_subaccount"] = request.to_subaccount;
+	body["amount"] = request.amount;
+	auto response = impl_->client.post("/portfolio/subaccounts/transfer", body.dump());
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+	if (response->status_code != 200 && response->status_code != 201) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to transfer between subaccounts: " + response->body,
+									 response->status_code});
+	}
+	SubaccountTransfer t;
+	t.from_subaccount = extract_int(response->body, "from_subaccount");
+	t.to_subaccount = extract_int(response->body, "to_subaccount");
+	t.amount = extract_int(response->body, "amount");
+	return t;
+}
+
+Result<SubaccountBalances> KalshiClient::get_subaccount_balances() {
+	auto response = impl_->client.get("/portfolio/subaccounts/balances");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+	if (response->status_code != 200) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to get subaccount balances: " +
+										 std::to_string(response->status_code),
+									 response->status_code});
+	}
+	SubaccountBalances result;
+	for (const auto& obj : extract_array_objects(response->body, "balances")) {
+		Subaccount sub;
+		sub.subaccount_number = extract_int(obj, "subaccount_number");
+		sub.balance = extract_int(obj, "balance");
+		result.balances.push_back(sub);
+	}
+	return result;
+}
+
+Result<SubaccountTransfers>
+KalshiClient::get_subaccount_transfers(const GetSubaccountTransfersParams& params) {
+	std::string query = "/portfolio/subaccounts/transfers";
+	if (params.limit) {
+		append_query_param(query, "limit", *params.limit);
+	}
+	if (params.cursor) {
+		append_query_param(query, "cursor", *params.cursor);
+	}
+	auto response = impl_->client.get(query);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+	if (response->status_code != 200) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to get subaccount transfers: " +
+										 std::to_string(response->status_code),
+									 response->status_code});
+	}
+	SubaccountTransfers result;
+	for (const auto& obj : extract_array_objects(response->body, "transfers")) {
+		SubaccountTransfer t;
+		t.from_subaccount = extract_int(obj, "from_subaccount");
+		t.to_subaccount = extract_int(obj, "to_subaccount");
+		t.amount = extract_int(obj, "amount");
+		result.transfers.push_back(t);
+	}
+	result.cursor = extract_string(response->body, "cursor");
+	return result;
+}
+
+Result<void>
+KalshiClient::update_subaccount_netting(std::int64_t subaccount, bool netting_enabled) {
+	nlohmann::ordered_json body;
+	body["subaccount"] = subaccount;
+	body["netting_enabled"] = netting_enabled;
+	auto response = impl_->client.put("/portfolio/subaccounts/netting", body.dump());
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+	// Kalshi documents the success response as 204/200 with no body —
+	// accept either as the success path.
+	if (response->status_code != 200 && response->status_code != 204) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to update subaccount netting: " + response->body,
+									 response->status_code});
+	}
+	return {};
+}
+
+Result<SubaccountNettingList> KalshiClient::get_subaccount_netting() {
+	auto response = impl_->client.get("/portfolio/subaccounts/netting");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+	if (response->status_code != 200) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to get subaccount netting: " +
+										 std::to_string(response->status_code),
+									 response->status_code});
+	}
+	SubaccountNettingList result;
+	for (const auto& obj : extract_array_objects(response->body, "netting_settings")) {
+		SubaccountNetting n;
+		n.subaccount = extract_int(obj, "subaccount");
+		n.netting_enabled = extract_bool(obj, "netting_enabled");
+		result.netting_settings.push_back(n);
+	}
+	return result;
+}
+
 Result<UserDataTimestamp> KalshiClient::get_user_data_timestamp() {
 	auto response = impl_->client.get("/exchange/user-data-timestamp");
 	if (!response) {
