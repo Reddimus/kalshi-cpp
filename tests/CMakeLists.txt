@@ -6,6 +6,7 @@ add_executable(kalshi_tests
     test_api.cpp
     test_version.cpp
     test_ws_parser.cpp
+    test_ws_lifecycle.cpp
 )
 
 target_link_libraries(kalshi_tests PRIVATE
