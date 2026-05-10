@@ -3,34 +3,42 @@
 #include <gtest/gtest.h>
 #include <string>
 
-// Test RSA key for testing (DO NOT USE IN PRODUCTION)
+// Throwaway 2048-bit RSA private key for tests only. Generated via
+// ``openssl genrsa -traditional 2048``. Never used to sign live
+// traffic.
+//
+// Replaces a previous hand-crafted PEM whose private-key components
+// were structured nonsense (only the public part decoded as base64).
+// OpenSSL's ``d2i_RSAPrivateKey`` rejected it, so
+// ``Signer::SignProducesHeaders`` was permanently ``GTEST_SKIP``'d
+// — the signing path therefore had **no test coverage** and a
+// regression in ``Signer::sign()`` could ship without surfacing.
 const char* TEST_RSA_KEY = R"(-----BEGIN RSA PRIVATE KEY-----
-MIIEowIBAAKCAQEA0Z3VS5JJcds3xfn/ygWyF8PbnGy0AHB7MvXIJyIxCGKbN9jA
-xhJA3kewG1C1fLX3xZP9Pf6hMqXAuqJlPBofeLXpHhnR+DV/2n7gHCVCpPPrMZhM
-BKhXpMgTlXh2THsa4BQFR4qFPJNaH7q4bHwmPpU9SevEqMqFPFoGaK+Y8gSbJJsM
-qkJSXMlPzCnlZgF0+Y4YjdSHZ1btLyhmPdJXl/k12Z7M0N+Y+D+V0y/ZJcOy/G+H
-E1f+eRaY3H/HPzrtbYPx+oRJMr0tYqM6WqzEgvTORqZhzQNSsLjPxf0Yp3k4yR5X
-Z0zYJPcTtJRg5XZbGJ0cVlVCJQZZJhONxxWPqwIDAQABAoIBAFPrsZVH3srU7Q0S
-IlCvOFnG1sS3LD+J1JZHmYhM0CG4jf4yMGxBj9JdyTY/0mLUYaR0lR6U8r9vLxWh
-r6staNqmkKUlUKpavB4/TRH+K7DNdE4Gg+o0d0Z1b0JmAldJHFgeUWMajwAPKYp5
-pLJ+0J8I+FqXqnZQNrxdRwVv5qExBfC9Ibfe+gY9S++JLcJHMCyNfLdj+wXTh7oQ
-xhsH0u3rrvwpDwnHy4L5m6S3T6fIK4bmZYT6qJr0/2kR6VN+N0Y5SWFQ4QRHM6Hq
-3Y/GnP6dQYNasJAjf0ov3F5Y7HKYcGLVYgrtbqHr7JYVqvNsJPKZ0fS/F8jPCKh8
-rYoJfAECgYEA8J5hfn+q+EY9ztB3SLNmPAJvEwH9B5KpPYfpZPHQPHvPOBGd5KfN
-SXkhUdE7X3+nMR3kJJOPIYm5Y6Y3Y8bEMz4QlMoKxrfh0Lc1l9RjN0I0rJ0h6L9p
-yewDw5eFwJM5nJP/Nx8XKI9kNxHdESF0N9pz+kpFJJwMdF7J84e+B6sCgYEA3r8r
-nH1AKJol8v2zK0v1vT1cK5F5C5Vqyq7F0M0M7Y4P9b5m3H4Y9y/S7X2T5Y1gX7nM
-sNvLgGCzL5B7Aq4sFG8W5u5TYhvJLq6E5jC5X5D5m5Z5T5V5Y5z5S5Q5G5b5d5K5
-N5H5J5M5P5L5R5f5X5c5W5h5i5k5j5l5n5o5p5q5r5s5t5AECgYBmG9B5u5G5m5L5
-i5h5W5c5X5f5R5L5P5M5J5H5N5K5d5b5G5Q5S5z5Y5V5T5m5D5X5C5q5E5j5L5o5
-n5l5k5j5i5h5c5W5f5X5R5L5P5M5J5H5N5K5d5b5G5Q5S5z5Y5V5T5m5D5X5C5q5
-E5j5L5o5n5l5k5j5i5h5c5W5f5X5R5L5P5M5J5H5N5K5d5b5G5QwKBgC7V5T5m5D5
-X5C5q5E5j5L5o5n5l5k5j5i5h5c5W5f5X5R5L5P5M5J5H5N5K5d5b5G5Q5S5z5Y5
-V5T5m5D5X5C5q5E5j5L5o5n5l5k5j5i5h5c5W5f5X5R5L5P5M5J5H5N5K5d5b5G5
-Q5S5z5Y5V5T5m5D5X5C5q5E5j5L5o5n5l5k5j5i5h5c5W5f5X5R5LAoGBAL5P5M5J
-5H5N5K5d5b5G5Q5S5z5Y5V5T5m5D5X5C5q5E5j5L5o5n5l5k5j5i5h5c5W5f5X5R5
-L5P5M5J5H5N5K5d5b5G5Q5S5z5Y5V5T5m5D5X5C5q5E5j5L5o5n5l5k5j5i5h5c5
-W5f5X5R5L5P5M5J5H5N5K5d5b5G5Q5S5z5Y5V5T5m5D5X5C5q5E5j5L5o5n5l5k5
+MIIEpAIBAAKCAQEA3ZNc4DAP9V2Rq8H1zNNb2X7x7hxQrCtWt6D7EnuFXsOLMJ0B
+2WPDUVlvVlsF5EofNM0Tejf3BP6x1qtPxY+LC1oGcvVPJhQp3AiCRjt1fpZeEqaR
+H9/pSatURcb+E/M4kL4F4IK1vn6RnqA/VqO2WQiKCMfQgL9h+XCNi12wX9l+sH+8
+6mIX2yan0UeKGKvLBgNjdqxaD9QElo0lz+APvNF9bTSHe4zSycr8MQvWVmY+/CG9
+6JzIid/SFChYJjZ5btDRZy8/iHftf99lo1pJ80I/NKiHk/wlsiQpJpAVmBYBfOxp
+4YS3Uy3uEnWvTvbGl1zT4aZAa1jOmGGvZiHUUQIDAQABAoIBAC7/w09NepEX9h55
+36bA/WZawjv41xbSAYylUaRXvZA+h5956kq/mc4/W3m0iIEmRMzJJDTEOrodQUEw
+6NSV0E9J2vzW8mE4HTHuPx3hHljJ0e4AVV+uudf1xsQfQ8UdDfZLzEjVSPI9fCtq
+v8yjoLntcQQQSDaLAd/sYyW464DE50pUwgt3wGyIHx19m+TF8ntULzZv/e0P++hW
+ox8L1Ytfd5h1augQ0K3rD27i9QSOauesLN4cc2eZZ8ow1rr6pR38++NHyrYO/NaR
+nm6qU6W0EqUgyZdRaApD89UK1lGvt9rq++Yg2kAtw3MPsFoK2lFTYjEyGphyadBN
+dG9jym0CgYEA8PF7m6C+LcPdKk1BoN2b3mt9FvV0AJu/3yIijHd2RCSmr2OVV2py
+SZ0J9xWQi95eSU0y5RUiA3k82AFHlPJSsCpLqfeAS8fJcYHo09mMM6+xKv8E6KEW
+Laxt6GsIeaJRLkcn4pO2ZAq4aTk79lhNHXc7rg0kKNokgvMBamPIN60CgYEA62wL
+MKpGfUp6Hl1jOszbXt867XbTSX2eoK1HQ8mkeGlxJgBI7UrIKIaArbU1Ov/gAfu5
+gDWiLcxZtl8gHRjlEaSl01wKM6AXbEl+3jU1lOATscdsRyeyJ48dk5IWPZygnVUo
++amtQyet07Bht90Q3ULsDPaFXVtZAJDxj0vHM7UCgYEAlsg4d6M3gMJjBNcGLBqj
+MaUIyjZfGwZdI9Fj143nGCvrmDT0v5jg3sqE8viu1akaTjsej5gTCiNz/SWH22Fu
+d8pwQXSe+E2V9g+7WeB5ydq4P9UKCF7O11RiD6Hz0tLOhOyIvFV+PcsrrsXfjYGi
++L6mPX0B1QL2+HAEwcSiBp0CgYA82hSaY6kMwa+HIcSAcmtRvonQz6IVoO7bwW5m
+SzzEEx04IWK4U1ghgYLJY8l6kqEoYhS02ygshmG6DiSS4Nh1EwX5+BR6+6qSRv0Q
+GtjavoDYtx951Pzr1MZkWqJ9EntBr72DqyQp85uu2CyqBe5SAvZY82/NjcsXpl+K
+FqBK8QKBgQDeSgsq3ljKeIuLBl9yYzc9rEGnMZJl33wcVgAG6jTr+qZ5iEToiRTu
+TSBYZgwgMJTq7i4blpsYJCoHcQynRJgSmIvSLuCw/ovyBHmHvJDDjrFsCutQYXA9
+Y2lRUoypd9DhH64Hki9kaqKd23817XEXR9kwu7QdrzWYWST5l+cTAg==
 -----END RSA PRIVATE KEY-----
 )";
 
@@ -42,17 +50,16 @@ TEST(Signer, FromInvalidPemFails) {
 
 TEST(Signer, ApiKeyIdStored) {
 	kalshi::Result<kalshi::Signer> result = kalshi::Signer::from_pem("my_api_key", TEST_RSA_KEY);
-	if (result.has_value()) {
-		ASSERT_EQ(std::string(result->api_key_id()), std::string("my_api_key"));
-	}
+	ASSERT_TRUE(result.has_value()) << "TEST_RSA_KEY failed to parse — regenerate via "
+									   "openssl genrsa -traditional 2048";
+	ASSERT_EQ(std::string(result->api_key_id()), std::string("my_api_key"));
 }
 
 TEST(Signer, SignProducesHeaders) {
 	kalshi::Result<kalshi::Signer> signer_result =
 		kalshi::Signer::from_pem("test_key", TEST_RSA_KEY);
-	if (!signer_result.has_value()) {
-		GTEST_SKIP() << "Test key parsing failed (format issue)";
-	}
+	ASSERT_TRUE(signer_result.has_value()) << "TEST_RSA_KEY failed to parse — regenerate via "
+											  "openssl genrsa -traditional 2048";
 
 	kalshi::Result<kalshi::AuthHeaders> headers_result =
 		signer_result->sign_with_timestamp("GET", "/trade-api/v2/markets", 1234567890000);
