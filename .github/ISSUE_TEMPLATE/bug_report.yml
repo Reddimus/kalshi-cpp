@@ -1,0 +1,38 @@
+name: Bug report
+description: A bug, crash, or incorrect behavior.
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: A clear description of the bug. Include error messages, crash backtraces, or wire-format dumps if relevant.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Reproduction steps
+      description: Minimum steps + minimum code that triggers the bug. Inline snippets are fine; please don't paste a whole project.
+      placeholder: |
+        1. Build with `make build`
+        2. Run `./build/bin/example_<name>`
+        3. Observe ...
+    validations:
+      required: true
+  - type: textarea
+    id: env
+    attributes:
+      label: Environment
+      description: SDK version, compiler, OS, dependency versions (libcurl/libwebsockets/openssl).
+      placeholder: |
+        - SDK version: vX.Y.Z (or commit SHA)
+        - OS: Ubuntu 24.04 / macOS 14 / Windows 2022
+        - Compiler: gcc 13.3 / clang 18 / MSVC 19.40
+        - cmake --version: ...
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: |
+        **Security vulnerabilities:** please use the channel in [SECURITY.md](../SECURITY.md), not a public issue.

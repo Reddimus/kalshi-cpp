@@ -1,0 +1,21 @@
+name: Feature request
+description: Propose a new API surface, endpoint coverage gap, or developer-experience improvement.
+labels: [enhancement]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What feature would you like?
+      description: Describe the API or behavior you'd like to see, and what consumer code it would enable.
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other ways you could solve this today (workarounds, system installs, vendored copies). Helps us see whether the request is a gap or a preference.
+  - type: textarea
+    id: context
+    attributes:
+      label: Additional context
+      description: Links to upstream API docs, related issues, or example code.
