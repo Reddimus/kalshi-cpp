@@ -159,7 +159,7 @@ include(FetchContent)
 FetchContent_Declare(
     kalshi
     GIT_REPOSITORY https://github.com/Reddimus/kalshi-cpp.git
-    GIT_TAG v0.0.8  # pin a tagged release
+    GIT_TAG v0.1.1  # pin a tagged release
 )
 # Suppress upstream tests + examples in your service builds
 set(KALSHI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
