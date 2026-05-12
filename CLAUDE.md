@@ -21,7 +21,7 @@ make run-get_daily_temp  # Run examples/get_daily_temp.cpp
 - **Layered static libraries**: `kalshi_core` → `kalshi_auth` → `kalshi_http` → `kalshi_models` → `kalshi_ws` → `kalshi_api` → `kalshi` (INTERFACE)
 - **C++23**: `std::expected<T, Error>` for all returns, no exceptions
 - **Patterns**: Pimpl (`HttpClient`, `KalshiClient`), non-copyable/movable clients, `[[nodiscard]]`
-- **JSON**: nlohmann/json via FetchContent. Use null-safe helpers from `models/common.hpp`.
+- **JSON**: [Glaze](https://github.com/stephenberry/glaze) v7.6.0 via FetchContent for OUTGOING serialization (`KalshiClient::serialize_*` REST bodies + WS subscribe/unsubscribe/update frames). Shim structs + `glz::meta` live in `src/api/json_bodies.hpp` and `src/ws/ws_cmd_bodies.hpp` (not installed). The WS **receive** hot path (`handle_message` + `include/kalshi/detail/ws_json.hpp`) and REST response parsers (`extract_*` in `src/api/client.cpp`) are hand-rolled string scanners and DO NOT use a JSON library — they were stripped in v0.0.7/v0.0.8 for perf and v2-schema correctness. See `tests/test_json_serialize.cpp` for the byte-equivalence regression gate and `tests/parse_benchmark.cpp` for the throughput cap.
 - **Auth**: RSA PSS-SHA256 signature on every request — see `kalshi_auth`.
 - **WebSocket**: cpp-httplib WS upgrade. v0.0.7 added `_dollars`/`_fp`/quoted-int parsing for Kalshi v2 schema.
 - **Tests**: GoogleTest via FetchContent. Fixture files in `tests/fixtures/`.
