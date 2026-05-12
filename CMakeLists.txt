@@ -90,14 +90,21 @@ else()
 endif()
 
 include(FetchContent)
+
+# Glaze — JSON library (compile-time reflection). Used for outgoing
+# request serialization where stable key order matters (Kalshi's API
+# rejects unordered subscribe payloads). The REST response path uses
+# the hand-rolled scanners in detail/ws_json.hpp + the local helpers
+# in api/client.cpp and was deliberately stripped of any JSON library
+# in v0.0.7/v0.0.8 — DO NOT reintroduce a runtime parser there.
+# License: MIT. Same v7.6.0 pin as open-meteo-cpp.
 FetchContent_Declare(
-    json
-    GIT_REPOSITORY https://github.com/nlohmann/json.git
-    GIT_TAG v3.11.3
+    glaze
+    GIT_REPOSITORY https://github.com/stephenberry/glaze.git
+    GIT_TAG v7.6.0
     GIT_SHALLOW TRUE
 )
-set(JSON_BuildTests OFF CACHE INTERNAL "")
-FetchContent_MakeAvailable(json)
+FetchContent_MakeAvailable(glaze)
 
 # Include directories
 include_directories(${PROJECT_SOURCE_DIR}/include)
