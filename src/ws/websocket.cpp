@@ -2,6 +2,28 @@
 
 #include "kalshi/detail/ws_json.hpp"
 
+// IMPORTANT: include order below is load-bearing on Windows.
+//
+// ``ws_cmd_bodies.hpp`` pulls in ``<glaze/glaze.hpp>``, whose templated
+// code (``glaze/core/buffer_traits.hpp``, ``glaze/util/fast_float.hpp``,
+// ``glaze/json/read.hpp``) leans on ``std::numeric_limits<T>::max()`` /
+// ``::min()``. ``<libwebsockets.h>`` transitively includes ``<windows.h>``
+// on MSVC, which by default ``#define``s ``max`` and ``min`` as
+// function-like macros — once those macros are live, every
+// ``std::numeric_limits<T>::max()`` token gets clobbered and the build
+// dies with a 100+ error cascade (C2589 / C3878 / C2760) in glaze
+// headers. PR #19 first Windows CI run reproduced exactly that.
+//
+// We force the Glaze shim BEFORE ``<libwebsockets.h>`` via
+// ``// clang-format off`` (the project's clang-format style otherwise
+// regroups quoted includes after angle-bracket ones, which would
+// undo the fix). We also belt-and-brace with ``NOMINMAX`` as a
+// target-level compile definition in ``src/CMakeLists.txt`` so any
+// future Windows header pulled in below this point stays safe.
+// clang-format off
+#include "ws_cmd_bodies.hpp"
+// clang-format on
+
 #include <atomic>
 #include <chrono>
 #include <condition_variable>
@@ -12,8 +34,6 @@
 #include <string>
 #include <thread>
 #include <vector>
-
-#include "ws_cmd_bodies.hpp"
 
 // ===== Glaze serializers for outgoing WS commands =====
 //

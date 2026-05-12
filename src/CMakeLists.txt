@@ -56,6 +56,20 @@ if(NOT WIN32)
     set(_KALSHI_WS_TARGET PkgConfig::WEBSOCKETS)
 else()
     set(_KALSHI_WS_TARGET websockets_shared)
+    # libwebsockets pulls in <windows.h> on Windows, which by default
+    # #defines ``max`` and ``min`` as function-like macros. Glaze's
+    # headers use ``std::numeric_limits<T>::max()`` extensively (e.g.
+    # ``glaze/core/buffer_traits.hpp``, ``glaze/util/fast_float.hpp``,
+    # ``glaze/json/read.hpp``); once those macros are live, every such
+    # call expands to garbage and the build dies with a 100+ error
+    # cascade (C2589 / C3878 / C2760) — first triggered on PR #19
+    # Windows CI. NOMINMAX suppresses the macro definitions so
+    # ``std::numeric_limits<T>::max()`` parses cleanly. The
+    # include-order fix in ws/websocket.cpp (Glaze shim before
+    # ``<libwebsockets.h>``) is the primary defense; this is
+    # belt-and-brace for any future Windows header that might land
+    # above the Glaze include.
+    target_compile_definitions(kalshi_ws PRIVATE NOMINMAX)
 endif()
 # NOTE: Glaze is pulled in via include-path only (matching how
 # nlohmann was integrated pre-migration). This sidesteps CMake's
