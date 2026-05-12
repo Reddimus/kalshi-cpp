@@ -6,6 +6,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.0] - 2026-05-12
+
 ### Build
 
 - Migrate outgoing-JSON serialization from `nlohmann/json` to
@@ -189,7 +191,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.0.8...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.2.0...HEAD
+[0.2.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.1.1...v0.2.0
+[0.1.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.1.0...v0.1.1
+[0.1.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.0.9...v0.1.0
+[0.0.9]: https://github.com/Reddimus/kalshi-cpp/compare/v0.0.8...v0.0.9
 [0.0.8]: https://github.com/Reddimus/kalshi-cpp/compare/v0.0.7...v0.0.8
 [0.0.7]: https://github.com/Reddimus/kalshi-cpp/compare/v0.0.6...v0.0.7
 [0.0.6]: https://github.com/Reddimus/kalshi-cpp/compare/v0.0.5...v0.0.6
