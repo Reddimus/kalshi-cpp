@@ -6,6 +6,46 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Build
+
+- Migrate outgoing-JSON serialization from `nlohmann/json` to
+  [Glaze](https://github.com/stephenberry/glaze) v7.6.0. Affects the
+  WS subscribe / unsubscribe / update_subscription frame builders and
+  the dozen `KalshiClient::serialize_*` REST request body methods.
+  Public API and ABI unchanged; downstream consumers (kalshi-trader)
+  link without modification. Glaze is FetchContent-only and never
+  appears in the install / export sets — it stays a TU-private
+  implementation detail.
+
+  Recorded benchmark (x86_64-v3, GCC 13.3, -O3 -DNDEBUG, 50-order
+  batch-create payload, 1000 iters):
+
+      nlohmann::ordered_json v3.11.3 : ~162 us/op  (pre-migration)
+      glaze v7.6.0                   :   ~3 us/op  (post-migration)
+      speedup                        :  ~55-60x
+
+  See `tests/parse_benchmark.cpp` for the regression guard
+  (cap = 500 us/op, ctest --timeout = 30s).
+
+- WS *receive* hot path (`handle_message` + the `kalshi/detail/ws_json.hpp`
+  scanners) is **deliberately untouched** — it was stripped of
+  nlohmann in v0.0.7 / v0.0.8 for perf and v2-schema correctness. See
+  `feedback_find_first_json_scanner` memory note for rationale. The
+  REST response parsers (still hand-rolled `extract_*` in
+  `src/api/client.cpp`) are likewise unchanged.
+
+### Tests
+
+- `tests/test_json_serialize.cpp` (25 cases) — byte-equivalence
+  regression gate for every migrated `glz::meta`-driven serializer
+  against the pre-migration `nlohmann::ordered_json::dump()` output.
+  Kalshi's API rejects unordered payloads on the order-management
+  routes and the WS server rejects unordered subscribe frames; any
+  key-reorder or whitespace change in the emitted bytes is a
+  production breakage.
+- `tests/parse_benchmark.cpp` — serialize-throughput regression
+  guard wired via `add_test` + `set_tests_properties(... TIMEOUT 30)`.
+
 ## [0.1.1] - 2026-05-10
 
 ### Fixed

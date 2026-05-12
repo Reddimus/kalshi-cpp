@@ -9,8 +9,24 @@
 #include <deque>
 #include <libwebsockets.h>
 #include <mutex>
-#include <nlohmann/json.hpp>
+#include <string>
 #include <thread>
+#include <vector>
+
+#include "ws_cmd_bodies.hpp"
+
+// ===== Glaze serializers for outgoing WS commands =====
+//
+// Shim structs + glz::meta live in `src/ws/ws_cmd_bodies.hpp` (not
+// installed). The WS server rejects frames whose top-level keys are
+// not in the documented order; the meta there pins it. Byte-exact
+// equivalence vs the pre-migration `nlohmann::ordered_json` output is
+// pinned by `tests/test_json_serialize.cpp`.
+//
+// IMPORTANT: only the OUTGOING command builders use Glaze. The WS
+// `handle_message` hot path below uses the hand-rolled scanners in
+// `kalshi/detail/ws_json.hpp` and is deliberately untouched — see
+// the `feedback_find_first_json_scanner` memory note.
 
 namespace kalshi {
 
@@ -21,7 +37,6 @@ static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason, void* 
 
 namespace {
 
-// JSON helpers for WebSocket messages
 std::string channel_to_string(Channel channel) {
 	switch (channel) {
 		case Channel::OrderbookDelta:
@@ -38,43 +53,34 @@ std::string channel_to_string(Channel channel) {
 
 std::string build_subscribe_command(std::int32_t id, Channel channel,
 									const std::vector<std::string>& market_tickers) {
-	// NOTE: ordered_json — API requires stable key order
-	nlohmann::ordered_json params;
-	params["channels"] = nlohmann::ordered_json::array({channel_to_string(channel)});
+	ws_cmd::SubscribeCmd cmd;
+	cmd.id = id;
+	cmd.cmd = "subscribe";
+	cmd.params.channels = {channel_to_string(channel)};
 	if (!market_tickers.empty()) {
-		params["market_tickers"] = market_tickers;
+		cmd.params.market_tickers = market_tickers;
 	}
-
-	nlohmann::ordered_json cmd;
-	cmd["id"] = id;
-	cmd["cmd"] = "subscribe";
-	cmd["params"] = std::move(params);
-	return cmd.dump();
+	return ws_cmd::render_cmd(cmd);
 }
 
 std::string build_unsubscribe_command(std::int32_t id, std::int32_t sid) {
-	// NOTE: ordered_json — API requires stable key order
-	nlohmann::ordered_json cmd;
-	cmd["id"] = id;
-	cmd["cmd"] = "unsubscribe";
-	cmd["params"] = {{"sids", nlohmann::json::array({sid})}};
-	return cmd.dump();
+	ws_cmd::UnsubscribeCmd cmd;
+	cmd.id = id;
+	cmd.cmd = "unsubscribe";
+	cmd.params.sids = {sid};
+	return ws_cmd::render_cmd(cmd);
 }
 
 std::string build_update_command(std::int32_t id, std::int32_t sid, const std::string& action,
 								 Channel channel, const std::vector<std::string>& market_tickers) {
-	// NOTE: ordered_json — API requires stable key order
-	nlohmann::ordered_json params;
-	params["action"] = action;
-	params["channel"] = std::string(to_string(channel));
-	params["sids"] = nlohmann::ordered_json::array({sid});
-	params["market_tickers"] = market_tickers;
-
-	nlohmann::ordered_json cmd;
-	cmd["id"] = id;
-	cmd["cmd"] = "update_subscription";
-	cmd["params"] = std::move(params);
-	return cmd.dump();
+	ws_cmd::UpdateCmd cmd;
+	cmd.id = id;
+	cmd.cmd = "update_subscription";
+	cmd.params.action = action;
+	cmd.params.channel = std::string(to_string(channel));
+	cmd.params.sids = {sid};
+	cmd.params.market_tickers = market_tickers;
+	return ws_cmd::render_cmd(cmd);
 }
 
 } // anonymous namespace

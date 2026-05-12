@@ -57,13 +57,22 @@ if(NOT WIN32)
 else()
     set(_KALSHI_WS_TARGET websockets_shared)
 endif()
+# NOTE: Glaze is pulled in via include-path only (matching how
+# nlohmann was integrated pre-migration). This sidesteps CMake's
+# "INTERFACE target not in export set" error that fires if we link
+# glaze::glaze directly onto these installable static libs. Glaze is
+# header-only, so the include path is the only thing the TU needs;
+# downstream consumers (kalshi-trader) never see these headers
+# because the include path is BUILD_INTERFACE-only and the symbols
+# never escape the .cpp (the shim structs + glz::meta are in an
+# anonymous namespace inside the TU).
 target_link_libraries(kalshi_ws PUBLIC kalshi_core kalshi_auth kalshi_models ${_KALSHI_WS_TARGET})
 target_include_directories(kalshi_ws PUBLIC
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_include_directories(kalshi_ws PRIVATE
-    $<BUILD_INTERFACE:${json_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${glaze_SOURCE_DIR}/include>
 )
 
 # API client library (full REST endpoint coverage)
@@ -76,7 +85,7 @@ target_include_directories(kalshi_api PUBLIC
     $<INSTALL_INTERFACE:${CMAKE_INSTALL_INCLUDEDIR}>
 )
 target_include_directories(kalshi_api PRIVATE
-    $<BUILD_INTERFACE:${json_SOURCE_DIR}/include>
+    $<BUILD_INTERFACE:${glaze_SOURCE_DIR}/include>
 )
 
 # Main SDK library (combines all)
