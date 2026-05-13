@@ -1,36 +1,24 @@
-#include "kalshi/error.hpp"
-#include "kalshi/http_client.hpp"
-#include "kalshi/signer.hpp"
-
-#define private public
-#include "kalshi/api.hpp"
-#undef private
-
 #include <gtest/gtest.h>
 #include <string>
-#include <utility>
 
-extern const char* TEST_RSA_KEY;
+#include "query_builders.hpp"
 
-namespace {
-
-kalshi::KalshiClient make_client() {
-	kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem("test_key", TEST_RSA_KEY);
-	EXPECT_TRUE(signer.has_value()) << "test RSA key failed to parse";
-	kalshi::HttpClient http_client(std::move(*signer));
-	return kalshi::KalshiClient(std::move(http_client));
-}
-
-} // namespace
+// The query-builder logic is exercised through the free function
+// ``kalshi::api_detail::build_series_query_string`` rather than the
+// private ``KalshiClient::build_series_query`` member. This avoids
+// the ``#define private public`` hack which doesn't link on MSVC —
+// on Windows the access modifier is part of the mangled symbol name,
+// so a translation unit that re-declares a private method as public
+// emits a different symbol than the implementation TU and the linker
+// can't find it. Routing through ``api_detail`` keeps the test
+// portable to all three CI platforms.
 
 TEST(QueryBuilders, SeriesListEncodesStringParameters) {
-	kalshi::KalshiClient client = make_client();
-
 	kalshi::GetSeriesParams params;
 	params.limit = 200;
 	params.category = "Climate and Weather";
 	params.cursor = "abc+/=";
 
-	EXPECT_EQ(client.build_series_query(params),
+	EXPECT_EQ(kalshi::api_detail::build_series_query_string(params),
 			  "/series?limit=200&cursor=abc%2B%2F%3D&category=Climate%20and%20Weather");
 }

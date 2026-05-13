@@ -8,6 +8,7 @@
 #include <vector>
 
 #include "json_bodies.hpp"
+#include "query_builders.hpp"
 #include "response_parsers.hpp"
 
 // ===== JSON serialization for outgoing REST request bodies =====
@@ -553,6 +554,17 @@ std::vector<Candlestick> parse_candlesticks_response(std::string_view body) {
 	}
 
 	return candlesticks;
+}
+
+std::string build_series_query_string(const GetSeriesParams& params) {
+	std::string query = "/series";
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	if (params.category)
+		append_query_param(query, "category", *params.category);
+	return query;
 }
 
 } // namespace api_detail
@@ -1547,14 +1559,7 @@ Result<EventMetadata> KalshiClient::get_event_metadata(const std::string& event_
 }
 
 std::string KalshiClient::build_series_query(const GetSeriesParams& params) {
-	std::string query = "/series";
-	if (params.limit)
-		append_query_param(query, "limit", *params.limit);
-	if (params.cursor)
-		append_query_param(query, "cursor", *params.cursor);
-	if (params.category)
-		append_query_param(query, "category", *params.category);
-	return query;
+	return api_detail::build_series_query_string(params);
 }
 
 Result<PaginatedResponse<Series>> KalshiClient::get_series_list(const GetSeriesParams& params) {
