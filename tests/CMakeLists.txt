@@ -9,6 +9,7 @@ add_executable(kalshi_tests
     test_ws_lifecycle.cpp
     test_json_serialize.cpp
     test_response_parsers.cpp
+    test_query_builders.cpp
 )
 
 target_link_libraries(kalshi_tests PRIVATE

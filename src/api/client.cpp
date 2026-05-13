@@ -1,5 +1,6 @@
 #include "kalshi/api.hpp"
 
+#include <cctype>
 #include <charconv>
 #include <cstdint>
 #include <cstring>
@@ -463,11 +464,31 @@ std::string escape_json_string(const std::string& s) {
 	return result;
 }
 
+bool is_query_unreserved(unsigned char c) {
+	return std::isalnum(c) || c == '-' || c == '.' || c == '_' || c == '~';
+}
+
+std::string percent_encode_query_value(std::string_view value) {
+	constexpr char hex[] = "0123456789ABCDEF";
+	std::string encoded;
+	encoded.reserve(value.size());
+	for (unsigned char c : value) {
+		if (is_query_unreserved(c)) {
+			encoded.push_back(static_cast<char>(c));
+		} else {
+			encoded.push_back('%');
+			encoded.push_back(hex[c >> 4]);
+			encoded.push_back(hex[c & 0x0F]);
+		}
+	}
+	return encoded;
+}
+
 void append_query_param(std::string& query, const std::string& key, const std::string& value) {
 	if (value.empty())
 		return;
 	query += (query.find('?') == std::string::npos ? '?' : '&');
-	query += key + "=" + value;
+	query += key + "=" + percent_encode_query_value(value);
 }
 
 void append_query_param(std::string& query, const std::string& key, std::int32_t value) {
