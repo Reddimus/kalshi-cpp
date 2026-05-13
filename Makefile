@@ -7,7 +7,7 @@ CMAKE := cmake
 NPROC := $(shell nproc 2>/dev/null || echo 4)
 BENCH_ITERATIONS := 254
 
-.PHONY: all build test lint clean configure help bench bench-compare format coverage run-get_markets run-basic_usage run-get_daily_temp
+.PHONY: all build test lint clean configure help bench bench-compare format pre-commit install-hooks coverage run-get_markets run-basic_usage run-get_daily_temp
 
 # Default target
 all: build
@@ -48,6 +48,25 @@ format:
 	else \
 		echo "clang-format not found. Install clang-format to format code."; \
 		exit 1; \
+	fi
+
+# pre-commit: auto-format, then lint. Run before every commit to avoid
+# the recurring "push -> Linux CI lint fail -> follow-up fix PR" loop.
+# `format` is idempotent (running it again is a no-op) so this target
+# is safe to wire into a git pre-commit hook (see install-hooks below).
+pre-commit: format lint
+
+# install-hooks: drop a .git/hooks/pre-commit shim that runs `make pre-commit`
+# automatically on `git commit`. One-shot operator setup — no-op if the
+# hook is already installed.
+install-hooks:
+	@mkdir -p .git/hooks
+	@if [ -f .git/hooks/pre-commit ] && grep -q 'make pre-commit' .git/hooks/pre-commit 2>/dev/null; then \
+		echo "pre-commit hook already installed"; \
+	else \
+		printf '#!/bin/sh\nexec make pre-commit\n' > .git/hooks/pre-commit; \
+		chmod +x .git/hooks/pre-commit; \
+		echo "Installed .git/hooks/pre-commit -> make pre-commit"; \
 	fi
 
 # Code coverage (requires lcov)
