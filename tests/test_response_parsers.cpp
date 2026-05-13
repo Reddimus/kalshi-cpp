@@ -1,8 +1,7 @@
-#include "response_parsers.hpp"
-
 #include <gtest/gtest.h>
-
 #include <string>
+
+#include "response_parsers.hpp"
 
 namespace {
 

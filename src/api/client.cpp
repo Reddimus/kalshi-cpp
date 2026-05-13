@@ -508,7 +508,8 @@ namespace api_detail {
 std::vector<Candlestick> parse_candlesticks_response(std::string_view body) {
 	const std::string response_body{body};
 	std::vector<Candlestick> candlesticks;
-	auto candle_objects = extract_array_objects(response_body, "market_candlesticks");
+	std::vector<std::string> candle_objects =
+		extract_array_objects(response_body, "market_candlesticks");
 
 	if (candle_objects.empty() && !response_body.empty()) {
 		if (response_body.find("candlesticks") != std::string::npos &&
@@ -521,9 +522,9 @@ std::vector<Candlestick> parse_candlesticks_response(std::string_view body) {
 	for (const auto& obj : candle_objects) {
 		Candlestick c;
 		c.timestamp = extract_int(obj, "end_period_ts");
-		c.volume = static_cast<std::int32_t>(
-			obj.find("\"volume_fp\"") != std::string::npos ? extract_fixed_point_int(obj, "volume_fp")
-														   : extract_int(obj, "volume"));
+		c.volume = static_cast<std::int32_t>(obj.find("\"volume_fp\"") != std::string::npos
+												 ? extract_fixed_point_int(obj, "volume_fp")
+												 : extract_int(obj, "volume"));
 
 		const size_t price_pos = obj.find("\"price\"");
 		if (price_pos != std::string::npos) {
@@ -539,9 +540,12 @@ std::vector<Candlestick> parse_candlesticks_response(std::string_view body) {
 					brace_end++;
 				}
 				const std::string price_obj = obj.substr(brace_start, brace_end - brace_start);
-				c.open_price = static_cast<std::int32_t>(extract_cents_or_dollars(price_obj, "open"));
-				c.close_price = static_cast<std::int32_t>(extract_cents_or_dollars(price_obj, "close"));
-				c.high_price = static_cast<std::int32_t>(extract_cents_or_dollars(price_obj, "high"));
+				c.open_price =
+					static_cast<std::int32_t>(extract_cents_or_dollars(price_obj, "open"));
+				c.close_price =
+					static_cast<std::int32_t>(extract_cents_or_dollars(price_obj, "close"));
+				c.high_price =
+					static_cast<std::int32_t>(extract_cents_or_dollars(price_obj, "high"));
 				c.low_price = static_cast<std::int32_t>(extract_cents_or_dollars(price_obj, "low"));
 			}
 		}

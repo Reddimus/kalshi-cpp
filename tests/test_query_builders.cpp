@@ -15,7 +15,7 @@ extern const char* TEST_RSA_KEY;
 namespace {
 
 kalshi::KalshiClient make_client() {
-	auto signer = kalshi::Signer::from_pem("test_key", TEST_RSA_KEY);
+	kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem("test_key", TEST_RSA_KEY);
 	EXPECT_TRUE(signer.has_value()) << "test RSA key failed to parse";
 	kalshi::HttpClient http_client(std::move(*signer));
 	return kalshi::KalshiClient(std::move(http_client));
