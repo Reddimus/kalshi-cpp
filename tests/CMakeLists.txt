@@ -8,6 +8,7 @@ add_executable(kalshi_tests
     test_ws_parser.cpp
     test_ws_lifecycle.cpp
     test_json_serialize.cpp
+    test_response_parsers.cpp
 )
 
 target_link_libraries(kalshi_tests PRIVATE
@@ -19,6 +20,7 @@ target_link_libraries(kalshi_tests PRIVATE
 # never escape this test TU (mirrors the kalshi_api/kalshi_ws TUs that
 # include them privately).
 target_include_directories(kalshi_tests PRIVATE
+    $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/src/api>
     $<BUILD_INTERFACE:${glaze_SOURCE_DIR}/include>
 )
 
