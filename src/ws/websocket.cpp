@@ -530,7 +530,10 @@ Result<void> WebSocketClient::connect() {
 	conn_info.port = port;
 	conn_info.path = path.c_str();
 	conn_info.host = host.c_str();
-	conn_info.origin = host.c_str();
+	// Kalshi rejects websocket upgrades that include an Origin header
+	// (403), while the documented Python websockets example sends no
+	// Origin and succeeds. Leave this unset so libwebsockets omits it.
+	conn_info.origin = nullptr;
 
 	if (use_ssl) {
 		conn_info.ssl_connection =
