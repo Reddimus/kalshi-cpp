@@ -86,8 +86,8 @@ TEST(JsonSerialize, WsSubscribeWithoutMarketTickers) {
 	//   `if (!market_tickers.empty()) params["market_tickers"] = market_tickers;`
 	// so the key wasn't present in the serialized output.
 	const std::string expected =
-		R"({"id":1,"cmd":"subscribe","params":{"channels":["market_lifecycle"]}})";
-	EXPECT_EQ(make_subscribe(1, "market_lifecycle", {}), expected);
+		R"({"id":1,"cmd":"subscribe","params":{"channels":["market_lifecycle_v2"]}})";
+	EXPECT_EQ(make_subscribe(1, "market_lifecycle_v2", {}), expected);
 }
 
 TEST(JsonSerialize, WsUnsubscribe) {

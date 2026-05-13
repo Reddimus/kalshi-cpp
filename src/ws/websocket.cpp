@@ -66,7 +66,7 @@ std::string channel_to_string(Channel channel) {
 		case Channel::Fill:
 			return "fill";
 		case Channel::MarketLifecycle:
-			return "market_lifecycle";
+			return "market_lifecycle_v2";
 	}
 	return "";
 }
@@ -342,6 +342,9 @@ void WsImplData::handle_message(const std::string& json) {
 		if (msg_pos != std::string::npos) {
 			err.code = extract_int("code");
 			err.message = extract_string("message");
+			if (err.message.empty()) {
+				err.message = extract_string("msg");
+			}
 		}
 		invoke_error_callback(err);
 	} else if (msg_type == "subscribed") {
@@ -407,7 +410,7 @@ void WsImplData::handle_message(const std::string& json) {
 		fill.action = (action_str == "buy") ? Action::Buy : Action::Sell;
 		fill.timestamp = extract_int("ts");
 		invoke_message_callback(fill);
-	} else if (msg_type == "market_lifecycle") {
+	} else if (msg_type == "market_lifecycle" || msg_type == "market_lifecycle_v2") {
 		MarketLifecycle lc;
 		lc.sid = extract_int("sid");
 		lc.market_ticker = extract_string("market_ticker");
