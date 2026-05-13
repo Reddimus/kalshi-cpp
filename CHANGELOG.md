@@ -6,12 +6,49 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.2.1] - 2026-05-13
+
+### Fixed
+
+- **WebSocket**: subscribe + dispatch paths now use the `market_lifecycle_v2`
+  channel (Kalshi deprecated `market_lifecycle`). The dispatcher still
+  accepts v1 frames for the transition window so older subscriptions don't
+  break.
+- **WebSocket**: handshake headers (`KALSHI-ACCESS-KEY`,
+  `KALSHI-ACCESS-SIGNATURE`, `KALSHI-ACCESS-TIMESTAMP`) now include the
+  trailing `:` required by `lws_add_http_header_by_name`. Previously the
+  authenticated upgrade silently sent malformed header lines.
+- **WebSocket**: omit the `Origin` header on Kalshi upgrades. Kalshi
+  rejects upgrades that include one with HTTP 403; the documented Python
+  client sends no Origin and succeeds.
+- **REST**: query parameters are percent-encoded via the new
+  `percent_encode_query_value` helper. Cursor + category values containing
+  `,`/spaces/`=` now survive intact through `append_query_param`.
+- **REST**: the `GET /markets/.../candlesticks` response parser now
+  handles Kalshi's current `price.*_dollars` / `volume_fp` string-decimal
+  schema alongside the legacy raw-cent ints. Adds a small
+  `extract_fixed_point_int` helper.
+
 ### Tests
 
-- Add direct candlestick response parser coverage for Kalshi's current
+- Direct candlestick response parser coverage for Kalshi's current
   `price.*_dollars` / `volume_fp` schema, the legacy raw-cent schema, and
-  the alternate `candlesticks` array key. This pins the parser behavior that
+  the alternate `candlesticks` array key. Pins the parser behavior that
   downstream market-data ingestion depends on for nonzero OHLC backtest rows.
+- Query-builder coverage for the `GET /series` percent-encoding through a
+  new pure free function (`kalshi::api_detail::build_series_query_string`).
+  The test routes through the free function instead of poking the private
+  member method via `#define private public`; MSVC encodes access modifiers
+  in mangled symbol names, so the hack broke `build-windows` on PR #20
+  until this refactor.
+
+### Build
+
+- `Makefile`: new `pre-commit` and `install-hooks` targets. `make
+  pre-commit` runs `format` then `lint` in one shot. `make install-hooks`
+  drops a `.git/hooks/pre-commit` shim that fires `make pre-commit` on
+  every `git commit` (idempotent). Mirrors the pattern adopted across the
+  C++ SDK family.
 
 ## [0.2.0] - 2026-05-12
 
