@@ -31,7 +31,7 @@ enum class Channel : std::uint8_t { OrderbookDelta, Trade, Fill, MarketLifecycle
 		case Channel::Fill:
 			return "fill";
 		case Channel::MarketLifecycle:
-			return "market_lifecycle";
+			return "market_lifecycle_v2";
 	}
 	return "orderbook_delta";
 }

@@ -6,6 +6,13 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Tests
+
+- Add direct candlestick response parser coverage for Kalshi's current
+  `price.*_dollars` / `volume_fp` schema, the legacy raw-cent schema, and
+  the alternate `candlesticks` array key. This pins the parser behavior that
+  downstream market-data ingestion depends on for nonzero OHLC backtest rows.
+
 ## [0.2.0] - 2026-05-12
 
 ### Build

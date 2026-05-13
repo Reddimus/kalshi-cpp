@@ -66,7 +66,7 @@ std::string channel_to_string(Channel channel) {
 		case Channel::Fill:
 			return "fill";
 		case Channel::MarketLifecycle:
-			return "market_lifecycle";
+			return "market_lifecycle_v2";
 	}
 	return "";
 }
@@ -269,9 +269,8 @@ static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason, void* 
 			unsigned char** p = reinterpret_cast<unsigned char**>(in);
 			unsigned char* end = (*p) + len;
 
-			// Helper to add a header
+			// Helper to add a header. libwebsockets expects header names to include ':'.
 			auto add_header = [&](const char* name, const std::string& value) -> bool {
-				std::string header = std::string(name) + ": " + value;
 				if (lws_add_http_header_by_name(
 						wsi, reinterpret_cast<const unsigned char*>(name),
 						reinterpret_cast<const unsigned char*>(value.c_str()),
@@ -281,9 +280,9 @@ static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason, void* 
 				return true;
 			};
 
-			if (!add_header("KALSHI-ACCESS-KEY", impl->auth_headers.access_key) ||
-				!add_header("KALSHI-ACCESS-SIGNATURE", impl->auth_headers.signature) ||
-				!add_header("KALSHI-ACCESS-TIMESTAMP", impl->auth_headers.timestamp)) {
+			if (!add_header("KALSHI-ACCESS-KEY:", impl->auth_headers.access_key) ||
+				!add_header("KALSHI-ACCESS-SIGNATURE:", impl->auth_headers.signature) ||
+				!add_header("KALSHI-ACCESS-TIMESTAMP:", impl->auth_headers.timestamp)) {
 				return -1; // Header buffer overflow
 			}
 			break;
@@ -343,6 +342,9 @@ void WsImplData::handle_message(const std::string& json) {
 		if (msg_pos != std::string::npos) {
 			err.code = extract_int("code");
 			err.message = extract_string("message");
+			if (err.message.empty()) {
+				err.message = extract_string("msg");
+			}
 		}
 		invoke_error_callback(err);
 	} else if (msg_type == "subscribed") {
@@ -408,7 +410,7 @@ void WsImplData::handle_message(const std::string& json) {
 		fill.action = (action_str == "buy") ? Action::Buy : Action::Sell;
 		fill.timestamp = extract_int("ts");
 		invoke_message_callback(fill);
-	} else if (msg_type == "market_lifecycle") {
+	} else if (msg_type == "market_lifecycle" || msg_type == "market_lifecycle_v2") {
 		MarketLifecycle lc;
 		lc.sid = extract_int("sid");
 		lc.market_ticker = extract_string("market_ticker");
@@ -531,8 +533,10 @@ Result<void> WebSocketClient::connect() {
 	conn_info.port = port;
 	conn_info.path = path.c_str();
 	conn_info.host = host.c_str();
-	conn_info.origin = host.c_str();
-	conn_info.protocol = protocols[0].name;
+	// Kalshi rejects websocket upgrades that include an Origin header
+	// (403), while the documented Python websockets example sends no
+	// Origin and succeeds. Leave this unset so libwebsockets omits it.
+	conn_info.origin = nullptr;
 
 	if (use_ssl) {
 		conn_info.ssl_connection =
