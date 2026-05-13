@@ -145,7 +145,7 @@ TEST(WebSocket, ChannelToString) {
 	ASSERT_EQ(kalshi::to_string(kalshi::Channel::Trade), std::string_view("trade"));
 	ASSERT_EQ(kalshi::to_string(kalshi::Channel::Fill), std::string_view("fill"));
 	ASSERT_EQ(kalshi::to_string(kalshi::Channel::MarketLifecycle),
-			  std::string_view("market_lifecycle"));
+			  std::string_view("market_lifecycle_v2"));
 }
 
 TEST(WebSocket, OrderbookSnapshotDefault) {

@@ -1,5 +1,6 @@
 #include "kalshi/api.hpp"
 
+#include <cctype>
 #include <charconv>
 #include <cstdint>
 #include <cstring>
@@ -7,6 +8,8 @@
 #include <vector>
 
 #include "json_bodies.hpp"
+#include "query_builders.hpp"
+#include "response_parsers.hpp"
 
 // ===== JSON serialization for outgoing REST request bodies =====
 //
@@ -207,6 +210,26 @@ std::int64_t extract_cents_or_dollars(const std::string& json, const std::string
 		return extract_dollar_cents(json, dollars_key);
 	}
 	return extract_int(json, key);
+}
+
+std::int64_t extract_fixed_point_int(const std::string& json, const std::string& key) {
+	const std::string s = extract_string(json, key);
+	if (s.empty()) {
+		return extract_int(json, key);
+	}
+	std::size_t i = 0;
+	std::int64_t whole = 0;
+	while (i < s.size() && s[i] >= '0' && s[i] <= '9') {
+		whole = whole * 10 + (s[i] - '0');
+		i++;
+	}
+	if (i < s.size() && s[i] == '.') {
+		i++;
+		if (i < s.size() && s[i] >= '5' && s[i] <= '9') {
+			whole++;
+		}
+	}
+	return whole;
 }
 
 bool extract_bool(const std::string& json, const std::string& key) {
@@ -442,11 +465,31 @@ std::string escape_json_string(const std::string& s) {
 	return result;
 }
 
+bool is_query_unreserved(unsigned char c) {
+	return std::isalnum(c) || c == '-' || c == '.' || c == '_' || c == '~';
+}
+
+std::string percent_encode_query_value(std::string_view value) {
+	constexpr char hex[] = "0123456789ABCDEF";
+	std::string encoded;
+	encoded.reserve(value.size());
+	for (unsigned char c : value) {
+		if (is_query_unreserved(c)) {
+			encoded.push_back(static_cast<char>(c));
+		} else {
+			encoded.push_back('%');
+			encoded.push_back(hex[c >> 4]);
+			encoded.push_back(hex[c & 0x0F]);
+		}
+	}
+	return encoded;
+}
+
 void append_query_param(std::string& query, const std::string& key, const std::string& value) {
 	if (value.empty())
 		return;
 	query += (query.find('?') == std::string::npos ? '?' : '&');
-	query += key + "=" + value;
+	query += key + "=" + percent_encode_query_value(value);
 }
 
 void append_query_param(std::string& query, const std::string& key, std::int32_t value) {
@@ -460,6 +503,71 @@ void append_query_param(std::string& query, const std::string& key, std::int64_t
 }
 
 } // anonymous namespace
+
+namespace api_detail {
+
+std::vector<Candlestick> parse_candlesticks_response(std::string_view body) {
+	const std::string response_body{body};
+	std::vector<Candlestick> candlesticks;
+	std::vector<std::string> candle_objects =
+		extract_array_objects(response_body, "market_candlesticks");
+
+	if (candle_objects.empty() && !response_body.empty()) {
+		if (response_body.find("candlesticks") != std::string::npos &&
+			response_body.find("market_candlesticks") == std::string::npos) {
+			candle_objects = extract_array_objects(response_body, "candlesticks");
+		}
+	}
+
+	candlesticks.reserve(candle_objects.size());
+	for (const auto& obj : candle_objects) {
+		Candlestick c;
+		c.timestamp = extract_int(obj, "end_period_ts");
+		c.volume = static_cast<std::int32_t>(obj.find("\"volume_fp\"") != std::string::npos
+												 ? extract_fixed_point_int(obj, "volume_fp")
+												 : extract_int(obj, "volume"));
+
+		const size_t price_pos = obj.find("\"price\"");
+		if (price_pos != std::string::npos) {
+			const size_t brace_start = obj.find('{', price_pos);
+			if (brace_start != std::string::npos) {
+				int depth = 1;
+				size_t brace_end = brace_start + 1;
+				while (brace_end < obj.size() && depth > 0) {
+					if (obj[brace_end] == '{')
+						depth++;
+					else if (obj[brace_end] == '}')
+						depth--;
+					brace_end++;
+				}
+				const std::string price_obj = obj.substr(brace_start, brace_end - brace_start);
+				c.open_price =
+					static_cast<std::int32_t>(extract_cents_or_dollars(price_obj, "open"));
+				c.close_price =
+					static_cast<std::int32_t>(extract_cents_or_dollars(price_obj, "close"));
+				c.high_price =
+					static_cast<std::int32_t>(extract_cents_or_dollars(price_obj, "high"));
+				c.low_price = static_cast<std::int32_t>(extract_cents_or_dollars(price_obj, "low"));
+			}
+		}
+		candlesticks.push_back(c);
+	}
+
+	return candlesticks;
+}
+
+std::string build_series_query_string(const GetSeriesParams& params) {
+	std::string query = "/series";
+	if (params.limit)
+		append_query_param(query, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(query, "cursor", *params.cursor);
+	if (params.category)
+		append_query_param(query, "category", *params.category);
+	return query;
+}
+
+} // namespace api_detail
 
 // ===== Exchange API =====
 
@@ -730,50 +838,7 @@ KalshiClient::get_market_candlesticks(const GetCandlesticksParams& params) {
 									 response->status_code});
 	}
 
-	std::vector<Candlestick> candlesticks;
-	// Response has "market_candlesticks" array with nested price object
-	auto candle_objects = extract_array_objects(response->body, "market_candlesticks");
-
-	// Debug: if no candles parsed but we got a response, something is wrong with parsing
-	if (candle_objects.empty() && !response->body.empty()) {
-		// Try to detect if the array key is different
-		if (response->body.find("candlesticks") != std::string::npos &&
-			response->body.find("market_candlesticks") == std::string::npos) {
-			// Try alternate key
-			candle_objects = extract_array_objects(response->body, "candlesticks");
-		}
-	}
-
-	for (const auto& obj : candle_objects) {
-		Candlestick c;
-		c.timestamp = extract_int(obj, "end_period_ts");
-		c.volume = static_cast<std::int32_t>(extract_int(obj, "volume"));
-
-		// Extract nested "price" object for OHLC data
-		size_t price_pos = obj.find("\"price\"");
-		if (price_pos != std::string::npos) {
-			size_t brace_start = obj.find('{', price_pos);
-			if (brace_start != std::string::npos) {
-				int depth = 1;
-				size_t brace_end = brace_start + 1;
-				while (brace_end < obj.size() && depth > 0) {
-					if (obj[brace_end] == '{')
-						depth++;
-					else if (obj[brace_end] == '}')
-						depth--;
-					brace_end++;
-				}
-				std::string price_obj = obj.substr(brace_start, brace_end - brace_start);
-				c.open_price = static_cast<std::int32_t>(extract_int(price_obj, "open"));
-				c.close_price = static_cast<std::int32_t>(extract_int(price_obj, "close"));
-				c.high_price = static_cast<std::int32_t>(extract_int(price_obj, "high"));
-				c.low_price = static_cast<std::int32_t>(extract_int(price_obj, "low"));
-			}
-		}
-		candlesticks.push_back(c);
-	}
-
-	return candlesticks;
+	return api_detail::parse_candlesticks_response(response->body);
 }
 
 std::string KalshiClient::build_trades_query(const GetTradesParams& params) {
@@ -1494,14 +1559,7 @@ Result<EventMetadata> KalshiClient::get_event_metadata(const std::string& event_
 }
 
 std::string KalshiClient::build_series_query(const GetSeriesParams& params) {
-	std::string query = "/series";
-	if (params.limit)
-		append_query_param(query, "limit", *params.limit);
-	if (params.cursor)
-		append_query_param(query, "cursor", *params.cursor);
-	if (params.category)
-		append_query_param(query, "category", *params.category);
-	return query;
+	return api_detail::build_series_query_string(params);
 }
 
 Result<PaginatedResponse<Series>> KalshiClient::get_series_list(const GetSeriesParams& params) {
