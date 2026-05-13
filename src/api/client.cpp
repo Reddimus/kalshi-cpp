@@ -209,6 +209,26 @@ std::int64_t extract_cents_or_dollars(const std::string& json, const std::string
 	return extract_int(json, key);
 }
 
+std::int64_t extract_fixed_point_int(const std::string& json, const std::string& key) {
+	const std::string s = extract_string(json, key);
+	if (s.empty()) {
+		return extract_int(json, key);
+	}
+	std::size_t i = 0;
+	std::int64_t whole = 0;
+	while (i < s.size() && s[i] >= '0' && s[i] <= '9') {
+		whole = whole * 10 + (s[i] - '0');
+		i++;
+	}
+	if (i < s.size() && s[i] == '.') {
+		i++;
+		if (i < s.size() && s[i] >= '5' && s[i] <= '9') {
+			whole++;
+		}
+	}
+	return whole;
+}
+
 bool extract_bool(const std::string& json, const std::string& key) {
 	std::string search = "\"" + key + "\"";
 	size_t pos = json.find(search);
@@ -747,7 +767,9 @@ KalshiClient::get_market_candlesticks(const GetCandlesticksParams& params) {
 	for (const auto& obj : candle_objects) {
 		Candlestick c;
 		c.timestamp = extract_int(obj, "end_period_ts");
-		c.volume = static_cast<std::int32_t>(extract_int(obj, "volume"));
+		c.volume = static_cast<std::int32_t>(
+			obj.find("\"volume_fp\"") != std::string::npos ? extract_fixed_point_int(obj, "volume_fp")
+														   : extract_int(obj, "volume"));
 
 		// Extract nested "price" object for OHLC data
 		size_t price_pos = obj.find("\"price\"");
@@ -764,10 +786,10 @@ KalshiClient::get_market_candlesticks(const GetCandlesticksParams& params) {
 					brace_end++;
 				}
 				std::string price_obj = obj.substr(brace_start, brace_end - brace_start);
-				c.open_price = static_cast<std::int32_t>(extract_int(price_obj, "open"));
-				c.close_price = static_cast<std::int32_t>(extract_int(price_obj, "close"));
-				c.high_price = static_cast<std::int32_t>(extract_int(price_obj, "high"));
-				c.low_price = static_cast<std::int32_t>(extract_int(price_obj, "low"));
+				c.open_price = static_cast<std::int32_t>(extract_cents_or_dollars(price_obj, "open"));
+				c.close_price = static_cast<std::int32_t>(extract_cents_or_dollars(price_obj, "close"));
+				c.high_price = static_cast<std::int32_t>(extract_cents_or_dollars(price_obj, "high"));
+				c.low_price = static_cast<std::int32_t>(extract_cents_or_dollars(price_obj, "low"));
 			}
 		}
 		candlesticks.push_back(c);
