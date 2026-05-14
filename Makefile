@@ -7,7 +7,7 @@ CMAKE := cmake
 NPROC := $(shell nproc 2>/dev/null || echo 4)
 BENCH_ITERATIONS := 254
 
-.PHONY: all build test lint clean configure help bench bench-compare format pre-commit install-hooks coverage run-get_markets run-basic_usage run-get_daily_temp
+.PHONY: all build debug test lint clean configure configure-debug help bench bench-compare format pre-commit install-hooks coverage run-get_markets run-basic_usage run-get_daily_temp
 
 # Default target
 all: build
@@ -17,8 +17,17 @@ configure:
 	@mkdir -p $(BUILD_DIR)
 	@cd $(BUILD_DIR) && $(CMAKE) .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
 
+# Configure CMake for a Debug build (-O0 -g, sanitizer-friendly)
+configure-debug:
+	@mkdir -p $(BUILD_DIR)
+	@cd $(BUILD_DIR) && $(CMAKE) .. -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+
 # Build all targets
 build: configure
+	@$(CMAKE) --build $(BUILD_DIR) -j$(NPROC)
+
+# Build all targets with Debug symbols + -O0 (for gdb/valgrind/asan)
+debug: configure-debug
 	@$(CMAKE) --build $(BUILD_DIR) -j$(NPROC)
 
 # Run tests
@@ -125,7 +134,8 @@ help:
 	@echo "Kalshi C++ SDK Build System"
 	@echo ""
 	@echo "Targets:"
-	@echo "  make build         - Configure and build the SDK"
+	@echo "  make build         - Configure and build the SDK (Release)"
+	@echo "  make debug         - Configure and build the SDK (Debug: -O0 -g, sanitizer-friendly)"
 	@echo "  make test          - Run tests"
 	@echo "  make bench         - Run benchmark ($(BENCH_ITERATIONS) iterations)"
 	@echo "  make bench-compare - Compare HEAD vs working tree"
