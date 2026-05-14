@@ -127,6 +127,19 @@ TEST(Models, CreateQuoteParamsDefaultsAndPostOnly) {
 	ASSERT_TRUE(*params.post_only);
 }
 
+TEST(Models, OrderMutationTsMsDefault) {
+	// 2026-05-05 upstream: V2 order-mutating endpoints now include a top-
+	// level `ts_ms` matching-engine timestamp. parse_order surfaces it as
+	// Order::mutation_ts_ms; nullopt for non-mutation reads (get_order,
+	// list endpoints, pre-2026-05-05 servers).
+	kalshi::Order order;
+	ASSERT_FALSE(order.mutation_ts_ms.has_value());
+
+	order.mutation_ts_ms = 1788000123456LL;
+	ASSERT_TRUE(order.mutation_ts_ms.has_value());
+	ASSERT_EQ(*order.mutation_ts_ms, 1788000123456LL);
+}
+
 TEST(Models, WsErrorCodeName) {
 	// 1-22 are the original AsyncAPI codes; 25 was added 2026-05-12
 	// for subscription buffer overflow. Spot-check the boundaries plus
