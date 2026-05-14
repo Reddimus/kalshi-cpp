@@ -33,6 +33,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   those that responded to RFQs the authenticated user created. Appended
   to the query string by `build_quotes_query` when set; omitted when
   nullopt (preserves byte-equivalence with pre-filter calls).
+- **WebSocket**: `MarketLifecycle::yes_sub_title` (`std::optional<std::string>`).
+  Kalshi added this field to the v2 `metadata_updated` lifecycle sub-event
+  on 2026-05-11 — emitted only when the yes-side subtitle changes. The
+  hand-rolled dispatcher in `src/ws/websocket.cpp` extracts it when
+  non-empty; nullopt for the open/close/determination/settlement
+  sub-events.
 
 ## [0.2.1] - 2026-05-13
 

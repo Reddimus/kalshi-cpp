@@ -426,6 +426,12 @@ void WsImplData::handle_message(const std::string& json) {
 		if (!result.empty())
 			lc.result = result;
 		lc.is_deactivated = (extract_string("is_deactivated") == "true");
+		// `yes_sub_title` is emitted only by the `metadata_updated` sub-event
+		// (added 2026-05-11). Non-empty here ⇒ the frame is a metadata
+		// update. Empty extraction ⇒ leave nullopt.
+		std::string yes_sub_title = extract_string("yes_sub_title");
+		if (!yes_sub_title.empty())
+			lc.yes_sub_title = yes_sub_title;
 		invoke_message_callback(lc);
 	}
 }

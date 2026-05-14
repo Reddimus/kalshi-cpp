@@ -92,6 +92,10 @@ struct MarketLifecycle {
 	std::optional<std::int64_t> settled_ts;
 	std::optional<std::string> result;
 	bool is_deactivated{false};
+	/// Set when the upstream `metadata_updated` lifecycle event reports a
+	/// yes-side subtitle change. Added to the v2 channel 2026-05-11.
+	/// Nullopt when the frame omits the field (most lifecycle frames).
+	std::optional<std::string> yes_sub_title;
 };
 
 /// Union of all possible WebSocket data messages
