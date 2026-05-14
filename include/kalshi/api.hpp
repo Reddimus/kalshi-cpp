@@ -403,6 +403,12 @@ struct GetQuotesParams {
 	std::optional<std::string> cursor;
 	std::optional<std::string> rfq_id;
 	std::optional<std::string> status;
+	/// Filter for quotes that responded to RFQs created by the authenticated
+	/// user. Added to GET /communications/quotes on 2026-05-07. When set,
+	/// only quotes whose parent RFQ was created by the calling user are
+	/// returned. Values follow the Kalshi convention (typically `"true"` to
+	/// enable; absent ≡ all quotes the user can see).
+	std::optional<std::string> rfq_user_filter;
 };
 
 /// Parameters for creating a quote

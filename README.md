@@ -110,7 +110,7 @@ cd kalshi-cpp
 # Build (Release with -O3 and LTO by default)
 make build
 
-# Run tests (GoogleTest, 130 tests)
+# Run tests (GoogleTest, 132 tests)
 make test
 
 # Generate code coverage report (requires lcov)
