@@ -62,3 +62,34 @@ TEST(Models, SideEnumValues) {
 TEST(Models, ActionEnumValues) {
 	ASSERT_NE(kalshi::Action::Buy, kalshi::Action::Sell);
 }
+
+TEST(Models, DeriveOutcomeSide) {
+	// buy-yes and sell-no both expose to YES
+	ASSERT_EQ(kalshi::derive_outcome_side(kalshi::Side::Yes, kalshi::Action::Buy),
+			  kalshi::OutcomeSide::Yes);
+	ASSERT_EQ(kalshi::derive_outcome_side(kalshi::Side::No, kalshi::Action::Sell),
+			  kalshi::OutcomeSide::Yes);
+	// buy-no and sell-yes both expose to NO
+	ASSERT_EQ(kalshi::derive_outcome_side(kalshi::Side::No, kalshi::Action::Buy),
+			  kalshi::OutcomeSide::No);
+	ASSERT_EQ(kalshi::derive_outcome_side(kalshi::Side::Yes, kalshi::Action::Sell),
+			  kalshi::OutcomeSide::No);
+}
+
+TEST(Models, DeriveBookSide) {
+	// Bid ≡ OutcomeSide::Yes
+	ASSERT_EQ(kalshi::derive_book_side(kalshi::Side::Yes, kalshi::Action::Buy),
+			  kalshi::BookSide::Bid);
+	ASSERT_EQ(kalshi::derive_book_side(kalshi::Side::No, kalshi::Action::Sell),
+			  kalshi::BookSide::Bid);
+	// Ask ≡ OutcomeSide::No
+	ASSERT_EQ(kalshi::derive_book_side(kalshi::Side::No, kalshi::Action::Buy),
+			  kalshi::BookSide::Ask);
+	ASSERT_EQ(kalshi::derive_book_side(kalshi::Side::Yes, kalshi::Action::Sell),
+			  kalshi::BookSide::Ask);
+}
+
+TEST(Models, OutcomeSideAndBookSideEnumValues) {
+	ASSERT_NE(kalshi::OutcomeSide::Yes, kalshi::OutcomeSide::No);
+	ASSERT_NE(kalshi::BookSide::Bid, kalshi::BookSide::Ask);
+}

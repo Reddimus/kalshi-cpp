@@ -13,6 +13,29 @@ enum class Side : std::uint8_t { Yes, No };
 /// Order action (buy or sell)
 enum class Action : std::uint8_t { Buy, Sell };
 
+/// Normalized outcome exposure. Yes = buy-yes ∨ sell-no; No = buy-no ∨ sell-yes.
+/// Added to Kalshi v2 API on 2026-05-06 — eventually intended to replace the
+/// (side, action) pair, but for now they coexist.
+enum class OutcomeSide : std::uint8_t { Yes, No };
+
+/// Normalized orderbook side. Bid = OutcomeSide::Yes; Ask = OutcomeSide::No.
+/// Companion to OutcomeSide, also new on the v2 response surface 2026-05-06.
+enum class BookSide : std::uint8_t { Bid, Ask };
+
+/// Derive OutcomeSide from the (side, action) pair (offline; useful when the
+/// server response predates the 2026-05-06 fields or when constructing an
+/// outgoing request).
+[[nodiscard]] constexpr OutcomeSide derive_outcome_side(Side side, Action action) noexcept {
+	const bool yes_exposure = (side == Side::Yes && action == Action::Buy) ||
+							  (side == Side::No && action == Action::Sell);
+	return yes_exposure ? OutcomeSide::Yes : OutcomeSide::No;
+}
+
+/// Derive BookSide from the (side, action) pair. Bid ≡ OutcomeSide::Yes.
+[[nodiscard]] constexpr BookSide derive_book_side(Side side, Action action) noexcept {
+	return derive_outcome_side(side, action) == OutcomeSide::Yes ? BookSide::Bid : BookSide::Ask;
+}
+
 /// Market status
 enum class MarketStatus : std::uint8_t { Open, Closed, Settled };
 
