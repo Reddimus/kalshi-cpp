@@ -127,6 +127,41 @@ TEST(Models, CreateQuoteParamsDefaultsAndPostOnly) {
 	ASSERT_TRUE(*params.post_only);
 }
 
+TEST(Models, ClassifyLifecycleEvent) {
+	// Default frame ⇒ Unknown
+	kalshi::MarketLifecycle empty;
+	EXPECT_EQ(kalshi::classify_lifecycle_event(empty), kalshi::LifecycleEventType::Unknown);
+
+	// Settled wins over everything
+	kalshi::MarketLifecycle settled;
+	settled.settled_ts = 1788000000;
+	settled.determination_ts = 1788000000;
+	settled.is_deactivated = true;
+	EXPECT_EQ(kalshi::classify_lifecycle_event(settled), kalshi::LifecycleEventType::Settled);
+
+	// Determined ranks above Deactivated
+	kalshi::MarketLifecycle determined;
+	determined.determination_ts = 1788000000;
+	determined.is_deactivated = true;
+	EXPECT_EQ(kalshi::classify_lifecycle_event(determined), kalshi::LifecycleEventType::Determined);
+
+	// Deactivated standalone
+	kalshi::MarketLifecycle deact;
+	deact.is_deactivated = true;
+	EXPECT_EQ(kalshi::classify_lifecycle_event(deact), kalshi::LifecycleEventType::Deactivated);
+
+	// yes_sub_title alone ⇒ MetadataUpdated (the new 2026-05-11 sub-event)
+	kalshi::MarketLifecycle md;
+	md.yes_sub_title = "above 65°F";
+	EXPECT_EQ(kalshi::classify_lifecycle_event(md), kalshi::LifecycleEventType::MetadataUpdated);
+
+	// open_ts populated ⇒ OpenOrCreated
+	kalshi::MarketLifecycle opened;
+	opened.open_ts = 1778792400;
+	opened.close_ts = 1798865940;
+	EXPECT_EQ(kalshi::classify_lifecycle_event(opened), kalshi::LifecycleEventType::OpenOrCreated);
+}
+
 TEST(Models, OrderMutationTsMsDefault) {
 	// 2026-05-05 upstream: V2 order-mutating endpoints now include a top-
 	// level `ts_ms` matching-engine timestamp. parse_order surfaces it as
