@@ -318,6 +318,8 @@ int main() {
 - `get_order(id)` - Get single order
 - `get_fills(params)` - Get fills
 - `get_settlements(params)` - Get settlements
+- `get_deposits(params)` - List deposits (cursor-paginated)
+- `get_withdrawals(params)` - List withdrawals (cursor-paginated)
 
 ### Subaccounts
 
