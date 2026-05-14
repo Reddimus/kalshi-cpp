@@ -283,7 +283,8 @@ int main() {
 | `kalshi_api` | REST API client with typed methods |
 | `kalshi_ws` | WebSocket streaming client |
 | `kalshi_models` | Data models |
-| `kalshi_tests` | Test executable |
+| `kalshi_tests` | Test executable (GoogleTest, 136 tests) |
+| `kalshi_parse_benchmark` | JSON parse-throughput regression guard (1000 iters; ctest-invoked) |
 
 ## API Coverage
 
