@@ -6,6 +6,23 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **API**: `kalshi::Deposit` + `kalshi::Withdrawal` structs (same wire shape,
+  distinct types for call-site clarity), `kalshi::GetPortfolioMovementParams`
+  (limit + cursor), and two cursor-paginated client methods:
+  `KalshiClient::get_deposits(...)` and `KalshiClient::get_withdrawals(...)`.
+  Kalshi added the `GET /portfolio/deposits` and `GET /portfolio/withdrawals`
+  endpoints on 2026-05-05. Schema per
+  <https://docs.kalshi.com/api-reference/portfolio>: id, status (pending |
+  applied | failed | returned), type (ach | wire | crypto | debit | apm),
+  amount_cents, fee_cents, created_ts, finalized_ts (nullable). Parsers
+  live in `src/api/response_parsers.hpp` as
+  `parse_deposits_response` / `parse_withdrawals_response`; a shared
+  `extract_nullable_int` helper handles the nullable `finalized_ts`
+  field. Four new tests in `tests/test_response_parsers.cpp` cover the
+  finalized + pending shapes for both endpoints.
+
 ## [0.3.0] - 2026-05-14
 
 ### Added
