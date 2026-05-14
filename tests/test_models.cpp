@@ -1,6 +1,7 @@
 #include "kalshi/api.hpp"
 #include "kalshi/models/market.hpp"
 #include "kalshi/models/order.hpp"
+#include "kalshi/websocket.hpp"
 
 #include <gtest/gtest.h>
 #include <string>
@@ -124,4 +125,25 @@ TEST(Models, CreateQuoteParamsDefaultsAndPostOnly) {
 	params.post_only = true;
 	ASSERT_TRUE(params.post_only.has_value());
 	ASSERT_TRUE(*params.post_only);
+}
+
+TEST(Models, MarketLifecycleDefaultsAndYesSubTitle) {
+	// 2026-05-11 upstream: the v2 market_lifecycle `metadata_updated`
+	// sub-event now carries `yes_sub_title` when the yes-side subtitle
+	// changes. The field is optional — most lifecycle frames (open / close
+	// / determination / settlement) omit it.
+	kalshi::MarketLifecycle lc;
+	ASSERT_EQ(lc.sid, 0);
+	ASSERT_TRUE(lc.market_ticker.empty());
+	ASSERT_EQ(lc.open_ts, 0);
+	ASSERT_EQ(lc.close_ts, 0);
+	ASSERT_FALSE(lc.determination_ts.has_value());
+	ASSERT_FALSE(lc.settled_ts.has_value());
+	ASSERT_FALSE(lc.result.has_value());
+	ASSERT_FALSE(lc.is_deactivated);
+	ASSERT_FALSE(lc.yes_sub_title.has_value());
+
+	lc.yes_sub_title = "above 65°F";
+	ASSERT_TRUE(lc.yes_sub_title.has_value());
+	ASSERT_EQ(*lc.yes_sub_title, "above 65°F");
 }
