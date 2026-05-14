@@ -335,6 +335,7 @@ int main() {
 - `decrease_order(params)` - Decrease order size
 - `batch_create_orders(request)` - Batch create
 - `batch_cancel_orders(request)` - Batch cancel
+- `get_total_resting_order_value()` - Sum of all resting buy orders
 
 ### Order Groups
 
@@ -354,16 +355,21 @@ int main() {
 - `create_rfq(params)` - Create RFQ
 - `get_rfqs(params)` - List RFQs
 - `get_rfq(id)` - Get single RFQ
+- `delete_rfq(id)` - Delete an RFQ
 - `create_quote(params)` - Create quote
 - `get_quotes(params)` - List quotes
 - `get_quote(id)` - Get single quote
 - `accept_quote(id)` - Accept quote
+- `confirm_quote(id)` - Confirm quote
+- `delete_quote(id)` - Delete quote
 
 ### Administrative
 
 - `get_api_keys()` - List API keys
 - `create_api_key(params)` - Create API key
+- `generate_api_key(params)` - Generate an API key with specific scopes
 - `delete_api_key(id)` - Delete API key
+- `get_user_data_timestamp()` - Last-modified timestamp for the authenticated user
 - `get_milestones(params)` - List milestones
 - `get_milestone(id)` - Get milestone
 - `get_multivariate_collections(params)` - List collections
