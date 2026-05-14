@@ -1143,6 +1143,16 @@ Result<Order> KalshiClient::parse_order(const std::string& json) {
 		order.expiration_ts = exp;
 	}
 
+	// V2 order-mutating endpoints (create / amend / decrease / batch_*)
+	// carry a top-level `ts_ms` matching-engine timestamp alongside the
+	// wrapped `order` object (added 2026-05-05). When parse_order is
+	// called from a list endpoint each `obj` is just the order body
+	// (no ts_ms sibling) and extract_int returns 0 → leave nullopt.
+	std::int64_t ts_ms = extract_int(json, "ts_ms");
+	if (ts_ms > 0) {
+		order.mutation_ts_ms = ts_ms;
+	}
+
 	return order;
 }
 

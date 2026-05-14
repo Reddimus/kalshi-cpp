@@ -45,6 +45,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   overflow`) added 2026-05-12. Falls back to `"Unknown error code"`
   for codes outside the documented 1-22 + 25 range so consumers can
   log unknown codes without branching themselves.
+- **API**: `Order::mutation_ts_ms` (`std::optional<std::int64_t>`).
+  Kalshi added a top-level `ts_ms` field to V2 order-mutating endpoint
+  responses on 2026-05-05 — the matching-engine wall-clock timestamp
+  (Unix epoch ms) at which the request was processed. `parse_order`
+  extracts it from the response top-level (sibling to the wrapped
+  `order` object) and surfaces it on the returned Order. Populated by
+  `create_order`, `amend_order`, `decrease_order`, `batch_create_orders`,
+  `batch_cancel_orders`; nullopt for `get_order` / `get_orders` reads
+  and pre-2026-05-05 servers.
 
 ## [0.2.1] - 2026-05-13
 

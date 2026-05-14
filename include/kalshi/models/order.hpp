@@ -39,6 +39,13 @@ struct Order {
 	// 8-byte aligned fields
 	std::int64_t created_time{0};
 	std::optional<std::int64_t> expiration_ts;
+	/// Matching-engine wall-clock timestamp (Unix epoch ms) at which the
+	/// mutation that produced this response was processed. Populated by
+	/// V2 order-mutating endpoints (create / amend / decrease / batch_create
+	/// / batch_cancel) starting 2026-05-05. Nullopt when the response
+	/// doesn't carry it (e.g. `get_order` / `get_orders` reads, or pre-
+	/// 2026-05-05 servers).
+	std::optional<std::int64_t> mutation_ts_ms;
 
 	// 4-byte fields grouped together
 	std::int32_t initial_count{0};
