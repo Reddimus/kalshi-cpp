@@ -1901,6 +1901,7 @@ std::string KalshiClient::serialize_quote(const CreateQuoteParams& params) {
 	body.price = params.price;
 	body.count = params.count;
 	body.expires_at = params.expires_at;
+	body.post_only = params.post_only;
 	return render_body(body);
 }
 

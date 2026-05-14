@@ -408,6 +408,10 @@ struct CreateQuoteParams {
 	std::int32_t price{0};
 	std::int32_t count{0};
 	std::optional<std::int64_t> expires_at;
+	/// When true, the quote will never take resting orders or pay taker fees;
+	/// it is auto-cancelled at execution if it would have matched. Added to
+	/// the Kalshi v2 API on 2026-05-05.
+	std::optional<bool> post_only;
 };
 
 /// Parameters for creating an API key

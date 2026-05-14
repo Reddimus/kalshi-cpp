@@ -17,6 +17,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   derivation helpers let consumers normalize today without waiting for
   a response-field parse path. See `tests/test_models.cpp` for the truth
   table.
+- **API**: `CreateQuoteParams::post_only` (`std::optional<bool>`). Kalshi
+  added the `post_only` quote flag on 2026-05-05 — when true the quote
+  never takes resting orders or pays taker fees; it auto-cancels at
+  execution if it would have matched. Serialized after `expires_at` per
+  the `glz::meta<ser::QuoteBody>` field order; omitted from the body
+  when nullopt (preserves byte-equivalence with pre-flag calls).
 
 ## [0.2.1] - 2026-05-13
 
