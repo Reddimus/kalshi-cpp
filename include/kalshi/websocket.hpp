@@ -113,6 +113,65 @@ struct WsError {
 	std::string message;
 };
 
+/// Map a Kalshi WebSocket error code to the canonical name documented at
+/// https://docs.kalshi.com/websockets/websocket-connection#error-messages.
+/// Returns "Unknown error code" for codes outside the documented range.
+/// Names mirror Kalshi's AsyncAPI spec snapshot 2026-05-12 (codes 1-22
+/// from the original v2 spec + code 25 added 2026-05-12 for subscription
+/// buffer overflow). Codes 23, 24, 26+ are currently undefined upstream.
+[[nodiscard]] constexpr std::string_view ws_error_code_name(std::int32_t code) noexcept {
+	switch (code) {
+		case 1:
+			return "Unable to process message";
+		case 2:
+			return "Params required";
+		case 3:
+			return "Channels required";
+		case 4:
+			return "Subscription IDs required";
+		case 5:
+			return "Unknown command";
+		case 6:
+			return "Already subscribed";
+		case 7:
+			return "Unknown subscription ID";
+		case 8:
+			return "Unknown channel name";
+		case 9:
+			return "Authentication required";
+		case 10:
+			return "Channel error";
+		case 11:
+			return "Invalid parameter";
+		case 12:
+			return "Exactly one subscription ID required";
+		case 13:
+			return "Unsupported action";
+		case 14:
+			return "Market Ticker required";
+		case 15:
+			return "Action required";
+		case 16:
+			return "Market not found";
+		case 17:
+			return "Internal error";
+		case 18:
+			return "Command timeout";
+		case 19:
+			return "shard_factor validation";
+		case 20:
+			return "shard_factor dependency";
+		case 21:
+			return "shard_key validation";
+		case 22:
+			return "shard_factor limit";
+		case 25:
+			return "Subscription buffer overflow";
+		default:
+			return "Unknown error code";
+	}
+}
+
 /// Callback for WebSocket messages
 using WsMessageCallback = std::function<void(const WsMessage&)>;
 

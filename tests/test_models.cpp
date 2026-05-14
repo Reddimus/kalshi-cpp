@@ -127,6 +127,20 @@ TEST(Models, CreateQuoteParamsDefaultsAndPostOnly) {
 	ASSERT_TRUE(*params.post_only);
 }
 
+TEST(Models, WsErrorCodeName) {
+	// 1-22 are the original AsyncAPI codes; 25 was added 2026-05-12
+	// for subscription buffer overflow. Spot-check the boundaries plus
+	// the new addition and the unknown-fallback.
+	EXPECT_EQ(kalshi::ws_error_code_name(1), "Unable to process message");
+	EXPECT_EQ(kalshi::ws_error_code_name(9), "Authentication required");
+	EXPECT_EQ(kalshi::ws_error_code_name(22), "shard_factor limit");
+	EXPECT_EQ(kalshi::ws_error_code_name(25), "Subscription buffer overflow");
+	// Currently-undefined upstream codes fall through.
+	EXPECT_EQ(kalshi::ws_error_code_name(0), "Unknown error code");
+	EXPECT_EQ(kalshi::ws_error_code_name(23), "Unknown error code");
+	EXPECT_EQ(kalshi::ws_error_code_name(99), "Unknown error code");
+}
+
 TEST(Models, MarketLifecycleDefaultsAndYesSubTitle) {
 	// 2026-05-11 upstream: the v2 market_lifecycle `metadata_updated`
 	// sub-event now carries `yes_sub_title` when the yes-side subtitle
