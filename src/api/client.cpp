@@ -520,7 +520,7 @@ std::vector<Candlestick> parse_candlesticks_response(std::string_view body) {
 	}
 
 	candlesticks.reserve(candle_objects.size());
-	for (const auto& obj : candle_objects) {
+	for (const std::string& obj : candle_objects) {
 		Candlestick c;
 		c.timestamp = extract_int(obj, "end_period_ts");
 		c.volume = static_cast<std::int32_t>(obj.find("\"volume_fp\"") != std::string::npos
@@ -572,7 +572,7 @@ std::string build_series_query_string(const GetSeriesParams& params) {
 // ===== Exchange API =====
 
 Result<ExchangeStatus> KalshiClient::get_exchange_status() {
-	auto response = impl_->client.get("/exchange/status");
+	Result<HttpResponse> response = impl_->client.get("/exchange/status");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -593,7 +593,7 @@ Result<ExchangeStatus> KalshiClient::get_exchange_status() {
 // ===== Markets API =====
 
 Result<Market> KalshiClient::get_market(const std::string& ticker) {
-	auto response = impl_->client.get("/markets/" + ticker);
+	Result<HttpResponse> response = impl_->client.get("/markets/" + ticker);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -657,10 +657,10 @@ Result<Market> KalshiClient::parse_market(const std::string& json) {
 
 Result<std::vector<Market>> KalshiClient::parse_markets(const std::string& json) {
 	std::vector<Market> markets;
-	auto market_objects = extract_array_objects(json, "markets");
+	std::vector<std::string> market_objects = extract_array_objects(json, "markets");
 
-	for (const auto& obj : market_objects) {
-		auto market = parse_market(obj);
+	for (const std::string& obj : market_objects) {
+		Result<Market> market = parse_market(obj);
 		if (market) {
 			markets.push_back(std::move(*market));
 		}
@@ -690,7 +690,7 @@ std::string KalshiClient::build_markets_query(const GetMarketsParams& params) {
 
 Result<PaginatedResponse<Market>> KalshiClient::get_markets(const GetMarketsParams& params) {
 	std::string path = build_markets_query(params);
-	auto response = impl_->client.get(path);
+	Result<HttpResponse> response = impl_->client.get(path);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -702,7 +702,7 @@ Result<PaginatedResponse<Market>> KalshiClient::get_markets(const GetMarketsPara
 				  response->status_code});
 	}
 
-	auto markets = parse_markets(response->body);
+	Result<std::vector<Market>> markets = parse_markets(response->body);
 	if (!markets) {
 		return std::unexpected(markets.error());
 	}
@@ -725,7 +725,7 @@ Result<OrderBook> KalshiClient::get_market_orderbook(const std::string& ticker,
 		append_query_param(path, "depth", *depth);
 	}
 
-	auto response = impl_->client.get(path);
+	Result<HttpResponse> response = impl_->client.get(path);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -825,7 +825,7 @@ KalshiClient::get_market_candlesticks(const GetCandlesticksParams& params) {
 	if (params.end_ts)
 		append_query_param(path, "end_ts", *params.end_ts);
 
-	auto response = impl_->client.get(path);
+	Result<HttpResponse> response = impl_->client.get(path);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -860,7 +860,7 @@ std::string KalshiClient::build_trades_query(const GetTradesParams& params) {
 
 Result<PaginatedResponse<PublicTrade>> KalshiClient::get_trades(const GetTradesParams& params) {
 	std::string path = build_trades_query(params);
-	auto response = impl_->client.get(path);
+	Result<HttpResponse> response = impl_->client.get(path);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -873,9 +873,9 @@ Result<PaginatedResponse<PublicTrade>> KalshiClient::get_trades(const GetTradesP
 	}
 
 	std::vector<PublicTrade> trades;
-	auto trade_objects = extract_array_objects(response->body, "trades");
+	std::vector<std::string> trade_objects = extract_array_objects(response->body, "trades");
 
-	for (const auto& obj : trade_objects) {
+	for (const std::string& obj : trade_objects) {
 		PublicTrade t;
 		t.trade_id = extract_string(obj, "trade_id");
 		t.market_ticker = extract_string(obj, "ticker");
@@ -916,7 +916,7 @@ std::string KalshiClient::build_events_query(const GetEventsParams& params) {
 }
 
 Result<Event> KalshiClient::get_event(const std::string& event_ticker) {
-	auto response = impl_->client.get("/events/" + event_ticker);
+	Result<HttpResponse> response = impl_->client.get("/events/" + event_ticker);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -947,7 +947,7 @@ Result<Event> KalshiClient::get_event(const std::string& event_ticker) {
 
 Result<PaginatedResponse<Event>> KalshiClient::get_events(const GetEventsParams& params) {
 	std::string path = build_events_query(params);
-	auto response = impl_->client.get(path);
+	Result<HttpResponse> response = impl_->client.get(path);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -960,9 +960,9 @@ Result<PaginatedResponse<Event>> KalshiClient::get_events(const GetEventsParams&
 	}
 
 	std::vector<Event> events;
-	auto event_objects = extract_array_objects(response->body, "events");
+	std::vector<std::string> event_objects = extract_array_objects(response->body, "events");
 
-	for (const auto& obj : event_objects) {
+	for (const std::string& obj : event_objects) {
 		Event e;
 		e.event_ticker = extract_string(obj, "event_ticker");
 		e.series_ticker = extract_string(obj, "series_ticker");
@@ -985,7 +985,7 @@ Result<PaginatedResponse<Event>> KalshiClient::get_events(const GetEventsParams&
 // ===== Series API =====
 
 Result<Series> KalshiClient::get_series(const std::string& series_ticker) {
-	auto response = impl_->client.get("/series/" + series_ticker);
+	Result<HttpResponse> response = impl_->client.get("/series/" + series_ticker);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1016,7 +1016,7 @@ Result<Series> KalshiClient::get_series(const std::string& series_ticker) {
 // ===== Portfolio API =====
 
 Result<Balance> KalshiClient::get_balance() {
-	auto response = impl_->client.get("/portfolio/balance");
+	Result<HttpResponse> response = impl_->client.get("/portfolio/balance");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1054,7 +1054,7 @@ std::string KalshiClient::build_positions_query(const GetPositionsParams& params
 
 Result<PaginatedResponse<Position>> KalshiClient::get_positions(const GetPositionsParams& params) {
 	std::string path = build_positions_query(params);
-	auto response = impl_->client.get(path);
+	Result<HttpResponse> response = impl_->client.get(path);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1067,9 +1067,9 @@ Result<PaginatedResponse<Position>> KalshiClient::get_positions(const GetPositio
 	}
 
 	std::vector<Position> positions;
-	auto pos_objects = extract_array_objects(response->body, "positions");
+	std::vector<std::string> pos_objects = extract_array_objects(response->body, "positions");
 
-	for (const auto& obj : pos_objects) {
+	for (const std::string& obj : pos_objects) {
 		Position p;
 		p.market_ticker = extract_string(obj, "market_ticker");
 		p.yes_contracts = static_cast<std::int32_t>(extract_int(obj, "position"));
@@ -1148,10 +1148,10 @@ Result<Order> KalshiClient::parse_order(const std::string& json) {
 
 Result<std::vector<Order>> KalshiClient::parse_orders(const std::string& json) {
 	std::vector<Order> orders;
-	auto order_objects = extract_array_objects(json, "orders");
+	std::vector<std::string> order_objects = extract_array_objects(json, "orders");
 
-	for (const auto& obj : order_objects) {
-		auto order = parse_order(obj);
+	for (const std::string& obj : order_objects) {
+		Result<Order> order = parse_order(obj);
 		if (order) {
 			orders.push_back(std::move(*order));
 		}
@@ -1162,7 +1162,7 @@ Result<std::vector<Order>> KalshiClient::parse_orders(const std::string& json) {
 
 Result<PaginatedResponse<Order>> KalshiClient::get_orders(const GetOrdersParams& params) {
 	std::string path = build_orders_query(params);
-	auto response = impl_->client.get(path);
+	Result<HttpResponse> response = impl_->client.get(path);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1174,7 +1174,7 @@ Result<PaginatedResponse<Order>> KalshiClient::get_orders(const GetOrdersParams&
 				  response->status_code});
 	}
 
-	auto orders = parse_orders(response->body);
+	Result<std::vector<Order>> orders = parse_orders(response->body);
 	if (!orders) {
 		return std::unexpected(orders.error());
 	}
@@ -1191,7 +1191,7 @@ Result<PaginatedResponse<Order>> KalshiClient::get_orders(const GetOrdersParams&
 }
 
 Result<Order> KalshiClient::get_order(const std::string& order_id) {
-	auto response = impl_->client.get("/portfolio/orders/" + order_id);
+	Result<HttpResponse> response = impl_->client.get("/portfolio/orders/" + order_id);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1226,7 +1226,7 @@ std::string KalshiClient::build_fills_query(const GetFillsParams& params) {
 
 Result<PaginatedResponse<Fill>> KalshiClient::get_fills(const GetFillsParams& params) {
 	std::string path = build_fills_query(params);
-	auto response = impl_->client.get(path);
+	Result<HttpResponse> response = impl_->client.get(path);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1238,9 +1238,9 @@ Result<PaginatedResponse<Fill>> KalshiClient::get_fills(const GetFillsParams& pa
 	}
 
 	std::vector<Fill> fills;
-	auto fill_objects = extract_array_objects(response->body, "fills");
+	std::vector<std::string> fill_objects = extract_array_objects(response->body, "fills");
 
-	for (const auto& obj : fill_objects) {
+	for (const std::string& obj : fill_objects) {
 		Fill f;
 		f.trade_id = extract_string(obj, "trade_id");
 		f.order_id = extract_string(obj, "order_id");
@@ -1277,7 +1277,7 @@ KalshiClient::get_settlements(const GetPositionsParams& params) {
 	if (params.market_ticker)
 		append_query_param(path, "market_ticker", *params.market_ticker);
 
-	auto response = impl_->client.get(path);
+	Result<HttpResponse> response = impl_->client.get(path);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1290,9 +1290,10 @@ KalshiClient::get_settlements(const GetPositionsParams& params) {
 	}
 
 	std::vector<Settlement> settlements;
-	auto settlement_objects = extract_array_objects(response->body, "settlements");
+	std::vector<std::string> settlement_objects =
+		extract_array_objects(response->body, "settlements");
 
-	for (const auto& obj : settlement_objects) {
+	for (const std::string& obj : settlement_objects) {
 		Settlement s;
 		s.market_ticker = extract_string(obj, "market_ticker");
 		s.result = extract_string(obj, "result");
@@ -1324,7 +1325,7 @@ std::string KalshiClient::serialize_create_order(const CreateOrderParams& params
 Result<Order> KalshiClient::create_order(const CreateOrderParams& params) {
 	std::string body = serialize_create_order(params);
 
-	auto response = impl_->client.post("/portfolio/orders", body);
+	Result<HttpResponse> response = impl_->client.post("/portfolio/orders", body);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1339,7 +1340,7 @@ Result<Order> KalshiClient::create_order(const CreateOrderParams& params) {
 }
 
 Result<void> KalshiClient::cancel_order(const std::string& order_id) {
-	auto response = impl_->client.del("/portfolio/orders/" + order_id);
+	Result<HttpResponse> response = impl_->client.del("/portfolio/orders/" + order_id);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1365,7 +1366,8 @@ std::string KalshiClient::serialize_amend_order(const AmendOrderParams& params) 
 Result<Order> KalshiClient::amend_order(const AmendOrderParams& params) {
 	std::string body = serialize_amend_order(params);
 
-	auto response = impl_->client.post("/portfolio/orders/" + params.order_id + "/amend", body);
+	Result<HttpResponse> response =
+		impl_->client.post("/portfolio/orders/" + params.order_id + "/amend", body);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1388,7 +1390,8 @@ std::string KalshiClient::serialize_decrease_order(const DecreaseOrderParams& pa
 Result<Order> KalshiClient::decrease_order(const DecreaseOrderParams& params) {
 	std::string body = serialize_decrease_order(params);
 
-	auto response = impl_->client.post("/portfolio/orders/" + params.order_id + "/decrease", body);
+	Result<HttpResponse> response =
+		impl_->client.post("/portfolio/orders/" + params.order_id + "/decrease", body);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1418,7 +1421,7 @@ std::string KalshiClient::serialize_batch_create(const BatchOrderRequest& reques
 Result<BatchResponse<Order>> KalshiClient::batch_create_orders(const BatchOrderRequest& request) {
 	std::string body = serialize_batch_create(request);
 
-	auto response = impl_->client.post("/portfolio/orders/batched", body);
+	Result<HttpResponse> response = impl_->client.post("/portfolio/orders/batched", body);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1430,7 +1433,7 @@ Result<BatchResponse<Order>> KalshiClient::batch_create_orders(const BatchOrderR
 	}
 
 	BatchResponse<Order> result;
-	auto orders = parse_orders(response->body);
+	Result<std::vector<Order>> orders = parse_orders(response->body);
 	if (orders) {
 		result.results = std::move(*orders);
 	}
@@ -1448,7 +1451,7 @@ Result<BatchResponse<std::string>>
 KalshiClient::batch_cancel_orders(const BatchCancelRequest& request) {
 	std::string body = serialize_batch_cancel(request);
 
-	auto response = impl_->client.del("/portfolio/orders/batched");
+	Result<HttpResponse> response = impl_->client.del("/portfolio/orders/batched");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1470,7 +1473,7 @@ KalshiClient::batch_cancel_orders(const BatchCancelRequest& request) {
 // ===== Phase 1: Exchange API (Schedule, Announcements) =====
 
 Result<Schedule> KalshiClient::get_exchange_schedule() {
-	auto response = impl_->client.get("/exchange/schedule");
+	Result<HttpResponse> response = impl_->client.get("/exchange/schedule");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1485,8 +1488,9 @@ Result<Schedule> KalshiClient::get_exchange_schedule() {
 	Schedule schedule;
 
 	// Parse standard_hours array
-	auto hours_objects = extract_array_objects(response->body, "standard_hours");
-	for (const auto& obj : hours_objects) {
+	std::vector<std::string> hours_objects =
+		extract_array_objects(response->body, "standard_hours");
+	for (const std::string& obj : hours_objects) {
 		WeeklySchedule ws;
 		ws.day = extract_string(obj, "day");
 		ws.open = extract_string(obj, "open");
@@ -1495,8 +1499,9 @@ Result<Schedule> KalshiClient::get_exchange_schedule() {
 	}
 
 	// Parse maintenance_windows array
-	auto maint_objects = extract_array_objects(response->body, "maintenance_windows");
-	for (const auto& obj : maint_objects) {
+	std::vector<std::string> maint_objects =
+		extract_array_objects(response->body, "maintenance_windows");
+	for (const std::string& obj : maint_objects) {
 		MaintenanceWindow mw;
 		mw.start = extract_int(obj, "start");
 		mw.end = extract_int(obj, "end");
@@ -1508,7 +1513,7 @@ Result<Schedule> KalshiClient::get_exchange_schedule() {
 }
 
 Result<std::vector<Announcement>> KalshiClient::get_exchange_announcements() {
-	auto response = impl_->client.get("/exchange/announcements");
+	Result<HttpResponse> response = impl_->client.get("/exchange/announcements");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1521,8 +1526,8 @@ Result<std::vector<Announcement>> KalshiClient::get_exchange_announcements() {
 	}
 
 	std::vector<Announcement> announcements;
-	auto objects = extract_array_objects(response->body, "announcements");
-	for (const auto& obj : objects) {
+	std::vector<std::string> objects = extract_array_objects(response->body, "announcements");
+	for (const std::string& obj : objects) {
 		Announcement ann;
 		ann.id = extract_string(obj, "id");
 		ann.title = extract_string(obj, "title");
@@ -1538,7 +1543,7 @@ Result<std::vector<Announcement>> KalshiClient::get_exchange_announcements() {
 // ===== Phase 2: Events/Series API =====
 
 Result<EventMetadata> KalshiClient::get_event_metadata(const std::string& event_ticker) {
-	auto response = impl_->client.get("/events/" + event_ticker + "/metadata");
+	Result<HttpResponse> response = impl_->client.get("/events/" + event_ticker + "/metadata");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1564,7 +1569,7 @@ std::string KalshiClient::build_series_query(const GetSeriesParams& params) {
 
 Result<PaginatedResponse<Series>> KalshiClient::get_series_list(const GetSeriesParams& params) {
 	std::string query = build_series_query(params);
-	auto response = impl_->client.get(query);
+	Result<HttpResponse> response = impl_->client.get(query);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1579,8 +1584,8 @@ Result<PaginatedResponse<Series>> KalshiClient::get_series_list(const GetSeriesP
 	PaginatedResponse<Series> result;
 	result.next_cursor = Cursor{extract_cursor(response->body)};
 
-	auto objects = extract_array_objects(response->body, "series");
-	for (const auto& obj : objects) {
+	std::vector<std::string> objects = extract_array_objects(response->body, "series");
+	for (const std::string& obj : objects) {
 		Series s;
 		s.ticker = extract_string(obj, "ticker");
 		s.title = extract_string(obj, "title");
@@ -1615,7 +1620,7 @@ std::string KalshiClient::build_order_groups_query(const GetOrderGroupsParams& p
 
 Result<OrderGroup> KalshiClient::create_order_group(const CreateOrderGroupParams& params) {
 	std::string body = serialize_order_group(params);
-	auto response = impl_->client.post("/portfolio/order-groups", body);
+	Result<HttpResponse> response = impl_->client.post("/portfolio/order-groups", body);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1637,7 +1642,7 @@ Result<OrderGroup> KalshiClient::create_order_group(const CreateOrderGroupParams
 Result<PaginatedResponse<OrderGroup>>
 KalshiClient::get_order_groups(const GetOrderGroupsParams& params) {
 	std::string query = build_order_groups_query(params);
-	auto response = impl_->client.get(query);
+	Result<HttpResponse> response = impl_->client.get(query);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1652,8 +1657,8 @@ KalshiClient::get_order_groups(const GetOrderGroupsParams& params) {
 	PaginatedResponse<OrderGroup> result;
 	result.next_cursor = Cursor{extract_cursor(response->body)};
 
-	auto objects = extract_array_objects(response->body, "order_groups");
-	for (const auto& obj : objects) {
+	std::vector<std::string> objects = extract_array_objects(response->body, "order_groups");
+	for (const std::string& obj : objects) {
 		OrderGroup g;
 		g.id = extract_string(obj, "id");
 		g.status = extract_string(obj, "status");
@@ -1666,7 +1671,7 @@ KalshiClient::get_order_groups(const GetOrderGroupsParams& params) {
 }
 
 Result<OrderGroup> KalshiClient::get_order_group(const std::string& group_id) {
-	auto response = impl_->client.get("/portfolio/order-groups/" + group_id);
+	Result<HttpResponse> response = impl_->client.get("/portfolio/order-groups/" + group_id);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1687,7 +1692,7 @@ Result<OrderGroup> KalshiClient::get_order_group(const std::string& group_id) {
 }
 
 Result<void> KalshiClient::delete_order_group(const std::string& group_id) {
-	auto response = impl_->client.del("/portfolio/order-groups/" + group_id);
+	Result<HttpResponse> response = impl_->client.del("/portfolio/order-groups/" + group_id);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1703,7 +1708,8 @@ Result<void> KalshiClient::delete_order_group(const std::string& group_id) {
 }
 
 Result<OrderGroup> KalshiClient::reset_order_group(const std::string& group_id) {
-	auto response = impl_->client.post("/portfolio/order-groups/" + group_id + "/reset", "{}");
+	Result<HttpResponse> response =
+		impl_->client.post("/portfolio/order-groups/" + group_id + "/reset", "{}");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1726,7 +1732,8 @@ Result<OrderGroup> KalshiClient::reset_order_group(const std::string& group_id) 
 // ===== Phase 4: Order Queue Position =====
 
 Result<OrderQueuePosition> KalshiClient::get_order_queue_position(const std::string& order_id) {
-	auto response = impl_->client.get("/portfolio/orders/" + order_id + "/queue-position");
+	Result<HttpResponse> response =
+		impl_->client.get("/portfolio/orders/" + order_id + "/queue-position");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1754,7 +1761,7 @@ std::string KalshiClient::serialize_order_ids(const std::vector<std::string>& or
 Result<std::vector<OrderQueuePosition>>
 KalshiClient::get_queue_positions(const std::vector<std::string>& order_ids) {
 	std::string body = serialize_order_ids(order_ids);
-	auto response = impl_->client.post("/portfolio/orders/queue-positions", body);
+	Result<HttpResponse> response = impl_->client.post("/portfolio/orders/queue-positions", body);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1767,8 +1774,8 @@ KalshiClient::get_queue_positions(const std::vector<std::string>& order_ids) {
 	}
 
 	std::vector<OrderQueuePosition> positions;
-	auto objects = extract_array_objects(response->body, "positions");
-	for (const auto& obj : objects) {
+	std::vector<std::string> objects = extract_array_objects(response->body, "positions");
+	for (const std::string& obj : objects) {
 		OrderQueuePosition pos;
 		pos.order_id = extract_string(obj, "order_id");
 		pos.position = static_cast<std::int32_t>(extract_int(obj, "position"));
@@ -1807,7 +1814,7 @@ std::string KalshiClient::build_rfqs_query(const GetRfqsParams& params) {
 
 Result<Rfq> KalshiClient::create_rfq(const CreateRfqParams& params) {
 	std::string body = serialize_rfq(params);
-	auto response = impl_->client.post("/rfqs", body);
+	Result<HttpResponse> response = impl_->client.post("/rfqs", body);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1832,7 +1839,7 @@ Result<Rfq> KalshiClient::create_rfq(const CreateRfqParams& params) {
 
 Result<PaginatedResponse<Rfq>> KalshiClient::get_rfqs(const GetRfqsParams& params) {
 	std::string query = build_rfqs_query(params);
-	auto response = impl_->client.get(query);
+	Result<HttpResponse> response = impl_->client.get(query);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1846,8 +1853,8 @@ Result<PaginatedResponse<Rfq>> KalshiClient::get_rfqs(const GetRfqsParams& param
 	PaginatedResponse<Rfq> result;
 	result.next_cursor = Cursor{extract_cursor(response->body)};
 
-	auto objects = extract_array_objects(response->body, "rfqs");
-	for (const auto& obj : objects) {
+	std::vector<std::string> objects = extract_array_objects(response->body, "rfqs");
+	for (const std::string& obj : objects) {
 		Rfq rfq;
 		rfq.id = extract_string(obj, "id");
 		rfq.market_ticker = extract_string(obj, "market_ticker");
@@ -1864,7 +1871,7 @@ Result<PaginatedResponse<Rfq>> KalshiClient::get_rfqs(const GetRfqsParams& param
 }
 
 Result<Rfq> KalshiClient::get_rfq(const std::string& rfq_id) {
-	auto response = impl_->client.get("/rfqs/" + rfq_id);
+	Result<HttpResponse> response = impl_->client.get("/rfqs/" + rfq_id);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1912,7 +1919,7 @@ std::string KalshiClient::build_quotes_query(const GetQuotesParams& params) {
 
 Result<Quote> KalshiClient::create_quote(const CreateQuoteParams& params) {
 	std::string body = serialize_quote(params);
-	auto response = impl_->client.post("/quotes", body);
+	Result<HttpResponse> response = impl_->client.post("/quotes", body);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1936,7 +1943,7 @@ Result<Quote> KalshiClient::create_quote(const CreateQuoteParams& params) {
 
 Result<PaginatedResponse<Quote>> KalshiClient::get_quotes(const GetQuotesParams& params) {
 	std::string query = build_quotes_query(params);
-	auto response = impl_->client.get(query);
+	Result<HttpResponse> response = impl_->client.get(query);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1951,8 +1958,8 @@ Result<PaginatedResponse<Quote>> KalshiClient::get_quotes(const GetQuotesParams&
 	PaginatedResponse<Quote> result;
 	result.next_cursor = Cursor{extract_cursor(response->body)};
 
-	auto objects = extract_array_objects(response->body, "quotes");
-	for (const auto& obj : objects) {
+	std::vector<std::string> objects = extract_array_objects(response->body, "quotes");
+	for (const std::string& obj : objects) {
 		Quote q;
 		q.id = extract_string(obj, "id");
 		q.rfq_id = extract_string(obj, "rfq_id");
@@ -1968,7 +1975,7 @@ Result<PaginatedResponse<Quote>> KalshiClient::get_quotes(const GetQuotesParams&
 }
 
 Result<Quote> KalshiClient::get_quote(const std::string& quote_id) {
-	auto response = impl_->client.get("/quotes/" + quote_id);
+	Result<HttpResponse> response = impl_->client.get("/quotes/" + quote_id);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1991,7 +1998,7 @@ Result<Quote> KalshiClient::get_quote(const std::string& quote_id) {
 }
 
 Result<void> KalshiClient::accept_quote(const std::string& quote_id) {
-	auto response = impl_->client.post("/quotes/" + quote_id + "/accept", "{}");
+	Result<HttpResponse> response = impl_->client.post("/quotes/" + quote_id + "/accept", "{}");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2009,7 +2016,7 @@ Result<void> KalshiClient::accept_quote(const std::string& quote_id) {
 // ===== Phase 6: Administrative Endpoints =====
 
 Result<std::vector<ApiKey>> KalshiClient::get_api_keys() {
-	auto response = impl_->client.get("/api-keys");
+	Result<HttpResponse> response = impl_->client.get("/api-keys");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2022,8 +2029,8 @@ Result<std::vector<ApiKey>> KalshiClient::get_api_keys() {
 	}
 
 	std::vector<ApiKey> keys;
-	auto objects = extract_array_objects(response->body, "api_keys");
-	for (const auto& obj : objects) {
+	std::vector<std::string> objects = extract_array_objects(response->body, "api_keys");
+	for (const std::string& obj : objects) {
 		ApiKey key;
 		key.id = extract_string(obj, "id");
 		key.name = extract_string(obj, "name");
@@ -2045,7 +2052,7 @@ std::string KalshiClient::serialize_api_key(const CreateApiKeyParams& params) {
 
 Result<ApiKey> KalshiClient::create_api_key(const CreateApiKeyParams& params) {
 	std::string body = serialize_api_key(params);
-	auto response = impl_->client.post("/api-keys", body);
+	Result<HttpResponse> response = impl_->client.post("/api-keys", body);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2064,7 +2071,7 @@ Result<ApiKey> KalshiClient::create_api_key(const CreateApiKeyParams& params) {
 }
 
 Result<void> KalshiClient::delete_api_key(const std::string& key_id) {
-	auto response = impl_->client.del("/api-keys/" + key_id);
+	Result<HttpResponse> response = impl_->client.del("/api-keys/" + key_id);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2093,7 +2100,7 @@ std::string KalshiClient::build_milestones_query(const GetMilestonesParams& para
 Result<PaginatedResponse<Milestone>>
 KalshiClient::get_milestones(const GetMilestonesParams& params) {
 	std::string query = build_milestones_query(params);
-	auto response = impl_->client.get(query);
+	Result<HttpResponse> response = impl_->client.get(query);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2108,8 +2115,8 @@ KalshiClient::get_milestones(const GetMilestonesParams& params) {
 	PaginatedResponse<Milestone> result;
 	result.next_cursor = Cursor{extract_cursor(response->body)};
 
-	auto objects = extract_array_objects(response->body, "milestones");
-	for (const auto& obj : objects) {
+	std::vector<std::string> objects = extract_array_objects(response->body, "milestones");
+	for (const std::string& obj : objects) {
 		Milestone m;
 		m.id = extract_string(obj, "id");
 		m.event_ticker = extract_string(obj, "event_ticker");
@@ -2124,7 +2131,7 @@ KalshiClient::get_milestones(const GetMilestonesParams& params) {
 }
 
 Result<Milestone> KalshiClient::get_milestone(const std::string& milestone_id) {
-	auto response = impl_->client.get("/milestones/" + milestone_id);
+	Result<HttpResponse> response = impl_->client.get("/milestones/" + milestone_id);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2158,7 +2165,7 @@ std::string KalshiClient::build_multivariate_query(const GetMultivariateCollecti
 Result<PaginatedResponse<MultivariateCollection>>
 KalshiClient::get_multivariate_collections(const GetMultivariateCollectionsParams& params) {
 	std::string query = build_multivariate_query(params);
-	auto response = impl_->client.get(query);
+	Result<HttpResponse> response = impl_->client.get(query);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2173,8 +2180,8 @@ KalshiClient::get_multivariate_collections(const GetMultivariateCollectionsParam
 	PaginatedResponse<MultivariateCollection> result;
 	result.next_cursor = Cursor{extract_cursor(response->body)};
 
-	auto objects = extract_array_objects(response->body, "collections");
-	for (const auto& obj : objects) {
+	std::vector<std::string> objects = extract_array_objects(response->body, "collections");
+	for (const std::string& obj : objects) {
 		MultivariateCollection c;
 		c.id = extract_string(obj, "id");
 		c.title = extract_string(obj, "title");
@@ -2187,7 +2194,7 @@ KalshiClient::get_multivariate_collections(const GetMultivariateCollectionsParam
 
 Result<MultivariateCollection>
 KalshiClient::get_multivariate_collection(const std::string& collection_id) {
-	auto response = impl_->client.get("/multivariate-collections/" + collection_id);
+	Result<HttpResponse> response = impl_->client.get("/multivariate-collections/" + collection_id);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2218,7 +2225,7 @@ std::string KalshiClient::build_structured_targets_query(const GetStructuredTarg
 Result<PaginatedResponse<StructuredTarget>>
 KalshiClient::get_structured_targets(const GetStructuredTargetsParams& params) {
 	std::string query = build_structured_targets_query(params);
-	auto response = impl_->client.get(query);
+	Result<HttpResponse> response = impl_->client.get(query);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2233,8 +2240,8 @@ KalshiClient::get_structured_targets(const GetStructuredTargetsParams& params) {
 	PaginatedResponse<StructuredTarget> result;
 	result.next_cursor = Cursor{extract_cursor(response->body)};
 
-	auto objects = extract_array_objects(response->body, "targets");
-	for (const auto& obj : objects) {
+	std::vector<std::string> objects = extract_array_objects(response->body, "targets");
+	for (const std::string& obj : objects) {
 		StructuredTarget t;
 		t.id = extract_string(obj, "id");
 		t.title = extract_string(obj, "title");
@@ -2247,7 +2254,7 @@ KalshiClient::get_structured_targets(const GetStructuredTargetsParams& params) {
 }
 
 Result<StructuredTarget> KalshiClient::get_structured_target(const std::string& target_id) {
-	auto response = impl_->client.get("/structured-targets/" + target_id);
+	Result<HttpResponse> response = impl_->client.get("/structured-targets/" + target_id);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2268,7 +2275,7 @@ Result<StructuredTarget> KalshiClient::get_structured_target(const std::string& 
 }
 
 Result<Communication> KalshiClient::get_communication(const std::string& comm_id) {
-	auto response = impl_->client.get("/communications/" + comm_id);
+	Result<HttpResponse> response = impl_->client.get("/communications/" + comm_id);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2303,7 +2310,7 @@ std::string KalshiClient::build_search_query(const SearchParams& params) {
 
 Result<PaginatedResponse<Event>> KalshiClient::search_events(const SearchParams& params) {
 	std::string query = "/search/events" + build_search_query(params);
-	auto response = impl_->client.get(query);
+	Result<HttpResponse> response = impl_->client.get(query);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2318,8 +2325,8 @@ Result<PaginatedResponse<Event>> KalshiClient::search_events(const SearchParams&
 	PaginatedResponse<Event> result;
 	result.next_cursor = Cursor{extract_cursor(response->body)};
 
-	auto objects = extract_array_objects(response->body, "events");
-	for (const auto& obj : objects) {
+	std::vector<std::string> objects = extract_array_objects(response->body, "events");
+	for (const std::string& obj : objects) {
 		Event e;
 		e.event_ticker = extract_string(obj, "event_ticker");
 		e.series_ticker = extract_string(obj, "series_ticker");
@@ -2335,7 +2342,7 @@ Result<PaginatedResponse<Event>> KalshiClient::search_events(const SearchParams&
 
 Result<PaginatedResponse<Market>> KalshiClient::search_markets(const SearchParams& params) {
 	std::string query = "/search/markets" + build_search_query(params);
-	auto response = impl_->client.get(query);
+	Result<HttpResponse> response = impl_->client.get(query);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2350,9 +2357,9 @@ Result<PaginatedResponse<Market>> KalshiClient::search_markets(const SearchParam
 	PaginatedResponse<Market> result;
 	result.next_cursor = Cursor{extract_cursor(response->body)};
 
-	auto objects = extract_array_objects(response->body, "markets");
-	for (const auto& obj : objects) {
-		auto market = parse_market(obj);
+	std::vector<std::string> objects = extract_array_objects(response->body, "markets");
+	for (const std::string& obj : objects) {
+		Result<Market> market = parse_market(obj);
 		if (market) {
 			result.items.push_back(*market);
 		}
@@ -2362,7 +2369,7 @@ Result<PaginatedResponse<Market>> KalshiClient::search_markets(const SearchParam
 }
 
 Result<LiveData> KalshiClient::get_live_data(const std::string& ticker) {
-	auto response = impl_->client.get("/live-data/" + ticker);
+	Result<HttpResponse> response = impl_->client.get("/live-data/" + ticker);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2408,7 +2415,7 @@ KalshiClient::get_live_datas(const std::vector<std::string>& tickers) {
 		append_query_param(query, "tickers", joined);
 	}
 
-	auto response = impl_->client.get(query);
+	Result<HttpResponse> response = impl_->client.get(query);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2421,8 +2428,8 @@ KalshiClient::get_live_datas(const std::vector<std::string>& tickers) {
 	}
 
 	std::vector<LiveData> results;
-	auto objects = extract_array_objects(response->body, "data");
-	for (const auto& obj : objects) {
+	std::vector<std::string> objects = extract_array_objects(response->body, "data");
+	for (const std::string& obj : objects) {
 		LiveData data;
 		data.ticker = extract_string(obj, "ticker");
 		data.yes_bid = static_cast<std::int32_t>(extract_int(obj, "yes_bid"));
@@ -2438,7 +2445,7 @@ KalshiClient::get_live_datas(const std::vector<std::string>& tickers) {
 }
 
 Result<std::vector<IncentiveProgram>> KalshiClient::get_incentive_programs() {
-	auto response = impl_->client.get("/incentive-programs");
+	Result<HttpResponse> response = impl_->client.get("/incentive-programs");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2451,8 +2458,8 @@ Result<std::vector<IncentiveProgram>> KalshiClient::get_incentive_programs() {
 	}
 
 	std::vector<IncentiveProgram> programs;
-	auto objects = extract_array_objects(response->body, "programs");
-	for (const auto& obj : objects) {
+	std::vector<std::string> objects = extract_array_objects(response->body, "programs");
+	for (const std::string& obj : objects) {
 		IncentiveProgram p;
 		p.id = extract_string(obj, "id");
 		p.title = extract_string(obj, "title");
@@ -2468,7 +2475,7 @@ Result<std::vector<IncentiveProgram>> KalshiClient::get_incentive_programs() {
 // ===== Additional endpoints for full SDK parity =====
 
 Result<TotalRestingOrderValue> KalshiClient::get_total_resting_order_value() {
-	auto response = impl_->client.get("/portfolio/total-resting-order-value");
+	Result<HttpResponse> response = impl_->client.get("/portfolio/total-resting-order-value");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2491,7 +2498,7 @@ Result<Subaccount> KalshiClient::create_subaccount() {
 	// Kalshi's create-subaccount endpoint takes no body — POST with
 	// an empty payload returns the new subaccount_number + initial
 	// balance (always 0 on creation).
-	auto response = impl_->client.post("/portfolio/subaccounts", "");
+	Result<HttpResponse> response = impl_->client.post("/portfolio/subaccounts", "");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2511,7 +2518,8 @@ Result<SubaccountTransfer> KalshiClient::transfer_subaccount(const SubaccountTra
 	body.from_subaccount = request.from_subaccount;
 	body.to_subaccount = request.to_subaccount;
 	body.amount = request.amount;
-	auto response = impl_->client.post("/portfolio/subaccounts/transfer", render_body(body));
+	Result<HttpResponse> response =
+		impl_->client.post("/portfolio/subaccounts/transfer", render_body(body));
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2528,7 +2536,7 @@ Result<SubaccountTransfer> KalshiClient::transfer_subaccount(const SubaccountTra
 }
 
 Result<SubaccountBalances> KalshiClient::get_subaccount_balances() {
-	auto response = impl_->client.get("/portfolio/subaccounts/balances");
+	Result<HttpResponse> response = impl_->client.get("/portfolio/subaccounts/balances");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2539,7 +2547,7 @@ Result<SubaccountBalances> KalshiClient::get_subaccount_balances() {
 				  response->status_code});
 	}
 	SubaccountBalances result;
-	for (const auto& obj : extract_array_objects(response->body, "balances")) {
+	for (const std::string& obj : extract_array_objects(response->body, "balances")) {
 		Subaccount sub;
 		sub.subaccount_number = extract_int(obj, "subaccount_number");
 		sub.balance = extract_int(obj, "balance");
@@ -2557,7 +2565,7 @@ KalshiClient::get_subaccount_transfers(const GetSubaccountTransfersParams& param
 	if (params.cursor) {
 		append_query_param(query, "cursor", *params.cursor);
 	}
-	auto response = impl_->client.get(query);
+	Result<HttpResponse> response = impl_->client.get(query);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2568,7 +2576,7 @@ KalshiClient::get_subaccount_transfers(const GetSubaccountTransfersParams& param
 				  response->status_code});
 	}
 	SubaccountTransfers result;
-	for (const auto& obj : extract_array_objects(response->body, "transfers")) {
+	for (const std::string& obj : extract_array_objects(response->body, "transfers")) {
 		SubaccountTransfer t;
 		t.from_subaccount = extract_int(obj, "from_subaccount");
 		t.to_subaccount = extract_int(obj, "to_subaccount");
@@ -2584,7 +2592,8 @@ Result<void> KalshiClient::update_subaccount_netting(std::int64_t subaccount,
 	ser::SubaccountNettingBody body;
 	body.subaccount = subaccount;
 	body.netting_enabled = netting_enabled;
-	auto response = impl_->client.put("/portfolio/subaccounts/netting", render_body(body));
+	Result<HttpResponse> response =
+		impl_->client.put("/portfolio/subaccounts/netting", render_body(body));
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2599,7 +2608,7 @@ Result<void> KalshiClient::update_subaccount_netting(std::int64_t subaccount,
 }
 
 Result<SubaccountNettingList> KalshiClient::get_subaccount_netting() {
-	auto response = impl_->client.get("/portfolio/subaccounts/netting");
+	Result<HttpResponse> response = impl_->client.get("/portfolio/subaccounts/netting");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2610,7 +2619,7 @@ Result<SubaccountNettingList> KalshiClient::get_subaccount_netting() {
 				  response->status_code});
 	}
 	SubaccountNettingList result;
-	for (const auto& obj : extract_array_objects(response->body, "netting_settings")) {
+	for (const std::string& obj : extract_array_objects(response->body, "netting_settings")) {
 		SubaccountNetting n;
 		n.subaccount = extract_int(obj, "subaccount");
 		n.netting_enabled = extract_bool(obj, "netting_enabled");
@@ -2620,7 +2629,7 @@ Result<SubaccountNettingList> KalshiClient::get_subaccount_netting() {
 }
 
 Result<UserDataTimestamp> KalshiClient::get_user_data_timestamp() {
-	auto response = impl_->client.get("/exchange/user-data-timestamp");
+	Result<HttpResponse> response = impl_->client.get("/exchange/user-data-timestamp");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2638,7 +2647,7 @@ Result<UserDataTimestamp> KalshiClient::get_user_data_timestamp() {
 }
 
 Result<void> KalshiClient::delete_rfq(const std::string& rfq_id) {
-	auto response = impl_->client.del("/rfqs/" + rfq_id);
+	Result<HttpResponse> response = impl_->client.del("/rfqs/" + rfq_id);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2654,7 +2663,7 @@ Result<void> KalshiClient::delete_rfq(const std::string& rfq_id) {
 }
 
 Result<void> KalshiClient::confirm_quote(const std::string& quote_id) {
-	auto response = impl_->client.post("/quotes/" + quote_id + "/confirm", "{}");
+	Result<HttpResponse> response = impl_->client.post("/quotes/" + quote_id + "/confirm", "{}");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2670,7 +2679,7 @@ Result<void> KalshiClient::confirm_quote(const std::string& quote_id) {
 }
 
 Result<void> KalshiClient::delete_quote(const std::string& quote_id) {
-	auto response = impl_->client.del("/quotes/" + quote_id);
+	Result<HttpResponse> response = impl_->client.del("/quotes/" + quote_id);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2696,7 +2705,7 @@ Result<ApiKey> KalshiClient::generate_api_key(const GenerateApiKeyParams& params
 	}
 	body.expires_at = params.expires_at;
 
-	auto response = impl_->client.post("/api-keys/generate", render_body(body));
+	Result<HttpResponse> response = impl_->client.post("/api-keys/generate", render_body(body));
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -2736,14 +2745,14 @@ Result<ApiKey> KalshiClient::generate_api_key(const GenerateApiKeyParams& params
 	key.created_time = extract_int(key_json, "created_time");
 
 	// Parse scopes array
-	auto scopes_objects = extract_array_objects(key_json, "scopes");
-	for (const auto& s : scopes_objects) {
+	std::vector<std::string> scopes_objects = extract_array_objects(key_json, "scopes");
+	for (const std::string& s : scopes_objects) {
 		// scopes might be simple strings, not objects
 		key.scopes.push_back(s);
 	}
 
 	// Handle expires_at if present
-	auto expires = extract_int(key_json, "expires_at");
+	std::int64_t expires = extract_int(key_json, "expires_at");
 	if (expires > 0) {
 		key.expires_at = expires;
 	}
@@ -2757,7 +2766,7 @@ KalshiClient::lookup_multivariate_bundle(const std::string& collection_ticker,
 	ser::MarketTickersBody body;
 	body.market_tickers = params.market_tickers;
 
-	auto response = impl_->client.post(
+	Result<HttpResponse> response = impl_->client.post(
 		"/multivariate-event-collections/" + collection_ticker + "/lookup", render_body(body));
 	if (!response) {
 		return std::unexpected(response.error());
@@ -2775,8 +2784,8 @@ KalshiClient::lookup_multivariate_bundle(const std::string& collection_ticker,
 	result.bundle_price = static_cast<std::int32_t>(extract_int(response->body, "bundle_price"));
 
 	// Parse market_tickers array
-	auto objects = extract_array_objects(response->body, "market_tickers");
-	for (const auto& obj : objects) {
+	std::vector<std::string> objects = extract_array_objects(response->body, "market_tickers");
+	for (const std::string& obj : objects) {
 		result.market_tickers.push_back(obj);
 	}
 

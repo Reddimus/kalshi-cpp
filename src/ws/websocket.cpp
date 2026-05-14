@@ -325,10 +325,10 @@ void WsImplData::handle_message(const std::string& json) {
 	// returning PriceQty pairs we translate into the public
 	// OrderBookEntry struct.
 	auto extract_orderbook_entries = [&](const std::string& key) -> std::vector<OrderBookEntry> {
-		const auto pairs = detail::extract_orderbook_entries(json, key);
+		const std::vector<detail::PriceQty> pairs = detail::extract_orderbook_entries(json, key);
 		std::vector<OrderBookEntry> entries;
 		entries.reserve(pairs.size());
-		for (const auto& p : pairs)
+		for (const detail::PriceQty& p : pairs)
 			entries.push_back(OrderBookEntry{p.price, p.quantity});
 		return entries;
 	};
@@ -448,7 +448,7 @@ Result<void> WebSocketClient::connect() {
 	if (!impl_) {
 		return std::unexpected(Error::network("Client moved-from"));
 	}
-	auto& data = impl_->data;
+	std::unique_ptr<WsImplData>& data = impl_->data;
 
 	if (data->connected) {
 		return {};
@@ -506,7 +506,7 @@ Result<void> WebSocketClient::connect() {
 	}
 
 	// Generate auth headers
-	auto auth_result = data->signer->sign("GET", path);
+	Result<AuthHeaders> auth_result = data->signer->sign("GET", path);
 	if (!auth_result) {
 		return std::unexpected(auth_result.error());
 	}
@@ -558,9 +558,9 @@ Result<void> WebSocketClient::connect() {
 	});
 
 	// Wait briefly for connection (with timeout)
-	auto start = std::chrono::steady_clock::now();
+	std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 	while (!data->connected && !data->should_stop) {
-		auto elapsed = std::chrono::steady_clock::now() - start;
+		std::chrono::steady_clock::duration elapsed = std::chrono::steady_clock::now() - start;
 		if (elapsed > std::chrono::seconds(10)) {
 			disconnect();
 			return std::unexpected(Error::network("Connection timeout"));
@@ -582,7 +582,7 @@ void WebSocketClient::disconnect() {
 	if (!impl_) {
 		return;
 	}
-	auto& data = impl_->data;
+	std::unique_ptr<WsImplData>& data = impl_->data;
 
 	if (!data->context) {
 		return;
@@ -616,7 +616,7 @@ WebSocketClient::subscribe_orderbook(const std::vector<std::string>& market_tick
 	if (!impl_) {
 		return std::unexpected(Error::network("Client moved-from"));
 	}
-	auto& data = impl_->data;
+	std::unique_ptr<WsImplData>& data = impl_->data;
 
 	if (!data->connected) {
 		return std::unexpected(Error::network("Not connected"));
@@ -638,7 +638,7 @@ WebSocketClient::subscribe_trades(const std::vector<std::string>& market_tickers
 	if (!impl_) {
 		return std::unexpected(Error::network("Client moved-from"));
 	}
-	auto& data = impl_->data;
+	std::unique_ptr<WsImplData>& data = impl_->data;
 
 	if (!data->connected) {
 		return std::unexpected(Error::network("Not connected"));
@@ -656,7 +656,7 @@ WebSocketClient::subscribe_fills(const std::vector<std::string>& market_tickers)
 	if (!impl_) {
 		return std::unexpected(Error::network("Client moved-from"));
 	}
-	auto& data = impl_->data;
+	std::unique_ptr<WsImplData>& data = impl_->data;
 
 	if (!data->connected) {
 		return std::unexpected(Error::network("Not connected"));
@@ -673,7 +673,7 @@ Result<SubscriptionId> WebSocketClient::subscribe_lifecycle() {
 	if (!impl_) {
 		return std::unexpected(Error::network("Client moved-from"));
 	}
-	auto& data = impl_->data;
+	std::unique_ptr<WsImplData>& data = impl_->data;
 
 	if (!data->connected) {
 		return std::unexpected(Error::network("Not connected"));
@@ -690,7 +690,7 @@ Result<void> WebSocketClient::unsubscribe(SubscriptionId sub_id) {
 	if (!impl_) {
 		return std::unexpected(Error::network("Client moved-from"));
 	}
-	auto& data = impl_->data;
+	std::unique_ptr<WsImplData>& data = impl_->data;
 
 	if (!data->connected) {
 		return std::unexpected(Error::network("Not connected"));
@@ -708,7 +708,7 @@ Result<void> WebSocketClient::add_markets(SubscriptionId sub_id,
 	if (!impl_) {
 		return std::unexpected(Error::network("Client moved-from"));
 	}
-	auto& data = impl_->data;
+	std::unique_ptr<WsImplData>& data = impl_->data;
 
 	if (!data->connected) {
 		return std::unexpected(Error::network("Not connected"));
@@ -731,7 +731,7 @@ Result<void> WebSocketClient::remove_markets(SubscriptionId sub_id,
 	if (!impl_) {
 		return std::unexpected(Error::network("Client moved-from"));
 	}
-	auto& data = impl_->data;
+	std::unique_ptr<WsImplData>& data = impl_->data;
 
 	if (!data->connected) {
 		return std::unexpected(Error::network("Not connected"));
