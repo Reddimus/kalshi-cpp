@@ -39,6 +39,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   hand-rolled dispatcher in `src/ws/websocket.cpp` extracts it when
   non-empty; nullopt for the open/close/determination/settlement
   sub-events.
+- **WebSocket**: `kalshi::ws_error_code_name(code)` constexpr helper —
+  maps the Kalshi WS error code (`WsError::code`) to its canonical name
+  per the AsyncAPI spec, including code 25 (`Subscription buffer
+  overflow`) added 2026-05-12. Falls back to `"Unknown error code"`
+  for codes outside the documented 1-22 + 25 range so consumers can
+  log unknown codes without branching themselves.
 
 ## [0.2.1] - 2026-05-13
 
