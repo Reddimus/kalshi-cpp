@@ -116,7 +116,7 @@ make test
 # Generate code coverage report (requires lcov)
 make coverage
 
-# Run benchmark (1000 iterations by default)
+# Run benchmark (254 iterations by default; override via BENCH_ITERATIONS=N)
 make bench
 
 # Check formatting
