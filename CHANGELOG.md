@@ -23,6 +23,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   execution if it would have matched. Serialized after `expires_at` per
   the `glz::meta<ser::QuoteBody>` field order; omitted from the body
   when nullopt (preserves byte-equivalence with pre-flag calls).
+- **API**: `OrderGroup::subaccount_number` field. Kalshi added this to
+  the order-group response surface on 2026-05-07 (the subaccount that
+  owns the group). Parsers in `create_order_group`, `get_order_group`,
+  `get_order_groups`, and `reset_order_group` now populate it. Empty
+  string when the server omits the field (back-compat).
 
 ## [0.2.1] - 2026-05-13
 
