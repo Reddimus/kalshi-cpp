@@ -1,3 +1,4 @@
+#include "kalshi/api.hpp"
 #include "kalshi/models/market.hpp"
 #include "kalshi/models/order.hpp"
 
@@ -92,4 +93,35 @@ TEST(Models, DeriveBookSide) {
 TEST(Models, OutcomeSideAndBookSideEnumValues) {
 	ASSERT_NE(kalshi::OutcomeSide::Yes, kalshi::OutcomeSide::No);
 	ASSERT_NE(kalshi::BookSide::Bid, kalshi::BookSide::Ask);
+}
+
+TEST(Models, GetQuotesParamsDefaultsAndRfqUserFilter) {
+	// 2026-05-07 upstream: optional `rfq_user_filter` on GET /quotes lets
+	// callers restrict the response to quotes that responded to RFQs the
+	// authenticated user created. Verify the field defaults to unset and
+	// can hold a string when set.
+	kalshi::GetQuotesParams params;
+	ASSERT_FALSE(params.limit.has_value());
+	ASSERT_FALSE(params.cursor.has_value());
+	ASSERT_FALSE(params.rfq_id.has_value());
+	ASSERT_FALSE(params.status.has_value());
+	ASSERT_FALSE(params.rfq_user_filter.has_value());
+
+	params.rfq_user_filter = "true";
+	ASSERT_TRUE(params.rfq_user_filter.has_value());
+	ASSERT_EQ(*params.rfq_user_filter, "true");
+}
+
+TEST(Models, CreateQuoteParamsDefaultsAndPostOnly) {
+	// 2026-05-05 upstream: optional `post_only` on CreateQuoteParams.
+	kalshi::CreateQuoteParams params;
+	ASSERT_TRUE(params.rfq_id.empty());
+	ASSERT_EQ(params.price, 0);
+	ASSERT_EQ(params.count, 0);
+	ASSERT_FALSE(params.expires_at.has_value());
+	ASSERT_FALSE(params.post_only.has_value());
+
+	params.post_only = true;
+	ASSERT_TRUE(params.post_only.has_value());
+	ASSERT_TRUE(*params.post_only);
 }
