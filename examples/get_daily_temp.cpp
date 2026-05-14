@@ -97,7 +97,7 @@ void print_candle_preview(const std::vector<kalshi::Candlestick>& candles,
 	// Calculate stats
 	std::int32_t min_low = INT32_MAX, max_high = 0;
 	std::int64_t total_volume = 0;
-	for (const auto& c : candles) {
+	for (const kalshi::Candlestick& c : candles) {
 		if (c.low_price > 0 && c.low_price < min_low)
 			min_low = c.low_price;
 		if (c.high_price > max_high)
@@ -400,7 +400,7 @@ int main(int argc, char* argv[]) {
 
 		// Live market view to track state
 		kalshi::LiveMarketView view;
-		for (const auto& ticker : discovered_tickers) {
+		for (const std::string& ticker : discovered_tickers) {
 			view.register_ticker(ticker);
 		}
 
@@ -416,14 +416,14 @@ int main(int argc, char* argv[]) {
 		});
 
 		// Connect
-		auto conn_result = ws.connect();
+		kalshi::Result<void> conn_result = ws.connect();
 		if (!conn_result) {
 			std::cerr << "Failed to connect WebSocket: " << conn_result.error().message << "\n";
 			return 1;
 		}
 
 		// Subscribe to orderbook and trades
-		auto ob_sub = ws.subscribe_orderbook(discovered_tickers);
+		kalshi::Result<kalshi::SubscriptionId> ob_sub = ws.subscribe_orderbook(discovered_tickers);
 		if (!ob_sub) {
 			std::cerr << "Failed to subscribe orderbook: " << ob_sub.error().message << "\n";
 		} else {
@@ -431,7 +431,7 @@ int main(int argc, char* argv[]) {
 					  << " markets\n";
 		}
 
-		auto trade_sub = ws.subscribe_trades(discovered_tickers);
+		kalshi::Result<kalshi::SubscriptionId> trade_sub = ws.subscribe_trades(discovered_tickers);
 		if (!trade_sub) {
 			std::cerr << "Failed to subscribe trades: " << trade_sub.error().message << "\n";
 		} else {
@@ -442,12 +442,12 @@ int main(int argc, char* argv[]) {
 		std::cout << "\n[Press Ctrl+C to stop streaming]\n\n";
 
 		// Main loop: print live view periodically
-		auto last_print = std::chrono::steady_clock::now();
+		std::chrono::steady_clock::time_point last_print = std::chrono::steady_clock::now();
 		while (g_running) {
 			std::this_thread::sleep_for(std::chrono::milliseconds(100));
 
 			// Print every 2 seconds
-			auto now_time = std::chrono::steady_clock::now();
+			std::chrono::steady_clock::time_point now_time = std::chrono::steady_clock::now();
 			if (std::chrono::duration_cast<std::chrono::seconds>(now_time - last_print).count() >=
 				2) {
 				last_print = now_time;
