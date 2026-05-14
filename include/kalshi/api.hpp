@@ -88,6 +88,38 @@ struct Settlement {
 	std::string result;
 };
 
+/// One row in ``GET /portfolio/deposits`` (Kalshi V2, shipped 2026-05-05).
+/// `finalized_ts` is nullopt when the deposit is still pending.
+struct Deposit {
+	std::int64_t amount_cents{0};
+	std::int64_t fee_cents{0};
+	std::int64_t created_ts{0};
+	std::optional<std::int64_t> finalized_ts;
+	std::string id;
+	std::string status; // pending | applied | failed | returned
+	std::string type;	// ach | wire | crypto | debit | apm
+};
+
+/// One row in ``GET /portfolio/withdrawals`` (Kalshi V2, shipped 2026-05-05).
+/// Schema mirrors `Deposit`; kept as a distinct type for call-site clarity.
+struct Withdrawal {
+	std::int64_t amount_cents{0};
+	std::int64_t fee_cents{0};
+	std::int64_t created_ts{0};
+	std::optional<std::int64_t> finalized_ts;
+	std::string id;
+	std::string status; // pending | applied | failed | returned
+	std::string type;	// ach | wire | crypto | debit | apm
+};
+
+/// Query params for ``GET /portfolio/deposits`` and
+/// ``GET /portfolio/withdrawals``. Both endpoints accept the same shape;
+/// limit is clamped server-side to [1, 500] with default 100.
+struct GetPortfolioMovementParams {
+	std::optional<std::int32_t> limit;
+	std::optional<std::string> cursor;
+};
+
 /// Candlestick data for market history
 struct Candlestick {
 	std::int64_t timestamp{0};
@@ -651,6 +683,18 @@ public:
 	/// Get user settlements
 	[[nodiscard]] Result<PaginatedResponse<Settlement>>
 	get_settlements(const GetPositionsParams& params = {});
+
+	/// List deposits (Kalshi V2 ``GET /portfolio/deposits``, shipped
+	/// 2026-05-05). Cursor-paginated; ``params.limit`` is clamped
+	/// server-side to [1, 500] with default 100.
+	[[nodiscard]] Result<PaginatedResponse<Deposit>>
+	get_deposits(const GetPortfolioMovementParams& params = {});
+
+	/// List withdrawals (Kalshi V2 ``GET /portfolio/withdrawals``,
+	/// shipped 2026-05-05). Cursor-paginated; ``params.limit`` is
+	/// clamped server-side to [1, 500] with default 100.
+	[[nodiscard]] Result<PaginatedResponse<Withdrawal>>
+	get_withdrawals(const GetPortfolioMovementParams& params = {});
 
 	/// Get total resting order value
 	[[nodiscard]] Result<TotalRestingOrderValue> get_total_resting_order_value();

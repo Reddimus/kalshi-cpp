@@ -556,6 +556,60 @@ std::vector<Candlestick> parse_candlesticks_response(std::string_view body) {
 	return candlesticks;
 }
 
+namespace {
+
+/// Returns nullopt if ``"<key>"`` appears followed by the literal token
+/// ``null`` (Kalshi's representation for unset timestamps); otherwise
+/// returns the parsed int (or 0 if the key is missing entirely — same
+/// behaviour as ``extract_int``).
+std::optional<std::int64_t> extract_nullable_int(const std::string& json, const std::string& key) {
+	const std::string search = "\"" + key + "\"";
+	const std::size_t kpos = json.find(search);
+	if (kpos == std::string::npos)
+		return std::nullopt;
+
+	std::size_t pos = json.find(':', kpos);
+	if (pos == std::string::npos)
+		return std::nullopt;
+	pos++;
+	while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t'))
+		pos++;
+	if (pos + 4 <= json.size() && json.compare(pos, 4, "null") == 0) {
+		return std::nullopt;
+	}
+	return extract_int(json, key);
+}
+
+template <typename T>
+std::vector<T> parse_portfolio_movements(std::string_view body, const std::string& array_key) {
+	const std::string response_body{body};
+	std::vector<T> out;
+	const std::vector<std::string> objs = extract_array_objects(response_body, array_key);
+	out.reserve(objs.size());
+	for (const std::string& obj : objs) {
+		T row;
+		row.id = extract_string(obj, "id");
+		row.status = extract_string(obj, "status");
+		row.type = extract_string(obj, "type");
+		row.amount_cents = extract_int(obj, "amount_cents");
+		row.fee_cents = extract_int(obj, "fee_cents");
+		row.created_ts = extract_int(obj, "created_ts");
+		row.finalized_ts = extract_nullable_int(obj, "finalized_ts");
+		out.push_back(std::move(row));
+	}
+	return out;
+}
+
+} // anonymous namespace
+
+std::vector<Deposit> parse_deposits_response(std::string_view body) {
+	return parse_portfolio_movements<Deposit>(body, "deposits");
+}
+
+std::vector<Withdrawal> parse_withdrawals_response(std::string_view body) {
+	return parse_portfolio_movements<Withdrawal>(body, "withdrawals");
+}
+
 std::string build_series_query_string(const GetSeriesParams& params) {
 	std::string query = "/series";
 	if (params.limit)
@@ -1322,6 +1376,62 @@ KalshiClient::get_settlements(const GetPositionsParams& params) {
 		result.next_cursor = Cursor{cursor};
 	}
 
+	return result;
+}
+
+Result<PaginatedResponse<Deposit>>
+KalshiClient::get_deposits(const GetPortfolioMovementParams& params) {
+	std::string path = "/portfolio/deposits";
+	if (params.limit)
+		append_query_param(path, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(path, "cursor", *params.cursor);
+
+	Result<HttpResponse> response = impl_->client.get(path);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get deposits: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	PaginatedResponse<Deposit> result;
+	result.items = api_detail::parse_deposits_response(response->body);
+	const std::string cursor = extract_cursor(response->body);
+	if (!cursor.empty()) {
+		result.next_cursor = Cursor{cursor};
+	}
+	return result;
+}
+
+Result<PaginatedResponse<Withdrawal>>
+KalshiClient::get_withdrawals(const GetPortfolioMovementParams& params) {
+	std::string path = "/portfolio/withdrawals";
+	if (params.limit)
+		append_query_param(path, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(path, "cursor", *params.cursor);
+
+	Result<HttpResponse> response = impl_->client.get(path);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get withdrawals: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	PaginatedResponse<Withdrawal> result;
+	result.items = api_detail::parse_withdrawals_response(response->body);
+	const std::string cursor = extract_cursor(response->body);
+	if (!cursor.empty()) {
+		result.next_cursor = Cursor{cursor};
+	}
 	return result;
 }
 
