@@ -6,6 +6,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.3.0] - 2026-05-14
+
 ### Added
 
 - **Models**: `kalshi::OutcomeSide` (Yes/No) and `kalshi::BookSide` (Bid/Ask)
