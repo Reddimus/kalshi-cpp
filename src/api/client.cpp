@@ -1636,6 +1636,7 @@ Result<OrderGroup> KalshiClient::create_order_group(const CreateOrderGroupParams
 	group.status = extract_string(response->body, "status");
 	group.type = extract_string(response->body, "type");
 	group.created_time = extract_int(response->body, "created_time");
+	group.subaccount_number = extract_string(response->body, "subaccount_number");
 	return group;
 }
 
@@ -1664,6 +1665,7 @@ KalshiClient::get_order_groups(const GetOrderGroupsParams& params) {
 		g.status = extract_string(obj, "status");
 		g.type = extract_string(obj, "type");
 		g.created_time = extract_int(obj, "created_time");
+		g.subaccount_number = extract_string(obj, "subaccount_number");
 		result.items.push_back(g);
 	}
 
@@ -1688,6 +1690,7 @@ Result<OrderGroup> KalshiClient::get_order_group(const std::string& group_id) {
 	group.status = extract_string(response->body, "status");
 	group.type = extract_string(response->body, "type");
 	group.created_time = extract_int(response->body, "created_time");
+	group.subaccount_number = extract_string(response->body, "subaccount_number");
 	return group;
 }
 
@@ -1726,6 +1729,7 @@ Result<OrderGroup> KalshiClient::reset_order_group(const std::string& group_id) 
 	group.status = extract_string(response->body, "status");
 	group.type = extract_string(response->body, "type");
 	group.created_time = extract_int(response->body, "created_time");
+	group.subaccount_number = extract_string(response->body, "subaccount_number");
 	return group;
 }
 

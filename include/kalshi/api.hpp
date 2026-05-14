@@ -159,6 +159,9 @@ struct OrderGroup {
 	std::string status;
 	std::string type;
 	std::int64_t created_time{0};
+	/// Subaccount that owns the group. Added to the v2 response surface on
+	/// 2026-05-07; empty when the server omits the field (back-compat).
+	std::string subaccount_number;
 };
 
 // ===== Phase 4: Order Queue Position Models =====
