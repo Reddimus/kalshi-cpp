@@ -237,8 +237,25 @@ TEST(JsonSerialize, Quote) {
 	body.count = 25;
 	body.expires_at = 1788000000;
 
+	// post_only omitted (nullopt) — Glaze drops the key entirely.
 	const std::string expected =
 		R"({"rfq_id":"rfq-xyz","price":55,"count":25,"expires_at":1788000000})";
+	EXPECT_EQ(kalshi::ser::render_body(body), expected);
+}
+
+TEST(JsonSerialize, QuotePostOnly) {
+	// 2026-05-05 upstream: opt-in flag preventing taker matches/fees.
+	// Verifies post_only renders after expires_at (the field order pinned by
+	// glz::meta<QuoteBody>) and is included when set.
+	kalshi::ser::QuoteBody body;
+	body.rfq_id = "rfq-xyz";
+	body.price = 55;
+	body.count = 25;
+	body.expires_at = 1788000000;
+	body.post_only = true;
+
+	const std::string expected =
+		R"({"rfq_id":"rfq-xyz","price":55,"count":25,"expires_at":1788000000,"post_only":true})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
 

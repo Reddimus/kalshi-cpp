@@ -88,6 +88,7 @@ struct QuoteBody {
 	std::int32_t price{0};
 	std::int32_t count{0};
 	std::optional<std::int64_t> expires_at;
+	std::optional<bool> post_only;
 };
 
 /// POST /api-keys
@@ -220,7 +221,7 @@ struct glz::meta<kalshi::ser::QuoteBody> {
 	using T = kalshi::ser::QuoteBody;
 	static constexpr auto value = // auto-ok: glz::object returns unspellable tuple
 		object("rfq_id", &T::rfq_id, "price", &T::price, "count", &T::count, "expires_at",
-			   &T::expires_at);
+			   &T::expires_at, "post_only", &T::post_only);
 };
 
 template <>
