@@ -1919,6 +1919,8 @@ std::string KalshiClient::build_quotes_query(const GetQuotesParams& params) {
 		append_query_param(query, "rfq_id", *params.rfq_id);
 	if (params.status)
 		append_query_param(query, "status", *params.status);
+	if (params.rfq_user_filter)
+		append_query_param(query, "rfq_user_filter", *params.rfq_user_filter);
 	return query;
 }
 

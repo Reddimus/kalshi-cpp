@@ -28,6 +28,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   owns the group). Parsers in `create_order_group`, `get_order_group`,
   `get_order_groups`, and `reset_order_group` now populate it. Empty
   string when the server omits the field (back-compat).
+- **API**: `GetQuotesParams::rfq_user_filter` (`std::optional<std::string>`).
+  Kalshi added the parameter on 2026-05-07 — restricts listed quotes to
+  those that responded to RFQs the authenticated user created. Appended
+  to the query string by `build_quotes_query` when set; omitted when
+  nullopt (preserves byte-equivalence with pre-filter calls).
 
 ## [0.2.1] - 2026-05-13
 
