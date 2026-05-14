@@ -137,14 +137,14 @@ private:
 		state.yes_asks.clear();
 
 		// YES bids are direct bids on the YES side
-		for (const auto& entry : snap.yes) {
+		for (const OrderBookEntry& entry : snap.yes) {
 			if (entry.quantity > 0) {
 				state.yes_bids[entry.price_cents] = entry.quantity;
 			}
 		}
 
 		// NO bids at price P translate to YES asks at price (100 - P)
-		for (const auto& entry : snap.no) {
+		for (const OrderBookEntry& entry : snap.no) {
 			if (entry.quantity > 0) {
 				std::int32_t yes_ask_price = 100 - entry.price_cents;
 				state.yes_asks[yes_ask_price] = entry.quantity;
@@ -162,7 +162,7 @@ private:
 
 		if (delta.side == Side::Yes) {
 			// Delta on YES side affects YES bids
-			auto& book = state.yes_bids;
+			std::map<std::int32_t, std::int32_t>& book = state.yes_bids;
 			book[delta.price] += delta.delta;
 			if (book[delta.price] <= 0) {
 				book.erase(delta.price);
@@ -170,7 +170,7 @@ private:
 		} else {
 			// Delta on NO side affects YES asks (100 - price)
 			std::int32_t yes_ask_price = 100 - delta.price;
-			auto& book = state.yes_asks;
+			std::map<std::int32_t, std::int32_t>& book = state.yes_asks;
 			book[yes_ask_price] += delta.delta;
 			if (book[yes_ask_price] <= 0) {
 				book.erase(yes_ask_price);

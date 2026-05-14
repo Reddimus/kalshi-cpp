@@ -30,7 +30,8 @@ size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata) {
 }
 
 size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
-	auto* headers = static_cast<std::vector<std::pair<std::string, std::string>>*>(userdata);
+	std::vector<std::pair<std::string, std::string>>* headers =
+		static_cast<std::vector<std::pair<std::string, std::string>>*>(userdata);
 	std::string line(buffer, size * nitems);
 
 	std::size_t colon = line.find(':');
