@@ -32,8 +32,8 @@ make run-get_daily_temp  # Run examples/get_daily_temp.cpp
 - Code style: `.clang-format` (LLVM base, tabs, 100 cols)
 - Namespace: `kalshi` (internal helpers in `kalshi::detail`)
 - **No `auto`** for local declarations — use explicit types. Carve-outs: structured bindings (`auto& [k, v]`), lambda closures, iterator-like results from `.find/.begin/.end`. Enforced by `tools/cpp_auto_audit.py`.
-- All model `from_json` functions use null-safe accessors, NOT `j.value("k", default)` which throws on JSON null in nlohmann/json v3.
-- Models declare `from_json` in headers, implement in `.cpp` files.
+- **JSON read path**: hand-rolled string scanners (`extract_string`, `extract_cents_or_dollars`, `find_object_start` in `src/api/client.cpp` + `detail/ws_json.hpp`) — null-safe by construction, no library runtime cost. No JSON parser is wired into the read path; the v0.0.7/v0.0.8 stripping of every runtime parser there is intentional (see `CMakeLists.txt` comment above the Glaze FetchContent block).
+- **JSON write path**: Glaze v7.6.0 with `glz::meta` specializations in `src/api/json_bodies.hpp` for outgoing request bodies (Kalshi rejects unordered subscribe payloads, so stable-key-order serialization matters). There are no `from_json` functions anywhere in this repo — every per-model parser is a `parse_<Type>(const std::string& json) -> Result<Type>` method on `KalshiClient`. Gotcha: the `extract_*` helpers return the **first** match in the buffer; when keys repeat across nested objects, scope the search via `find_object_start("market", ...)` (or similar) first.
 - Include order: project headers first, then system headers (enforced by clang-format).
 
 ## CI
