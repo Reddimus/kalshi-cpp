@@ -54,6 +54,16 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `create_order`, `amend_order`, `decrease_order`, `batch_create_orders`,
   `batch_cancel_orders`; nullopt for `get_order` / `get_orders` reads
   and pre-2026-05-05 servers.
+- **WebSocket**: `kalshi::LifecycleEventType` enum and
+  `classify_lifecycle_event(const MarketLifecycle&)` constexpr helper.
+  Kalshi's `market_lifecycle_v2` channel flat-encodes 9+ sub-events
+  (created/activated/deactivated/determined/settled/metadata_updated/
+  fractional_trading_updated/price_level_structure_updated/
+  close_date_updated) onto one frame shape with no explicit `event_type`
+  field. The helper inspects which fields are populated and returns the
+  best-fit `LifecycleEventType` (Settled > Determined > Deactivated >
+  MetadataUpdated > OpenOrCreated > Unknown). Consumers needing the
+  finer 9-way distinction can branch on the underlying fields directly.
 
 ## [0.2.1] - 2026-05-13
 

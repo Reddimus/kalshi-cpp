@@ -98,6 +98,55 @@ struct MarketLifecycle {
 	std::optional<std::string> yes_sub_title;
 };
 
+/// Kalshi's `market_lifecycle_v2` channel multiplexes several sub-event
+/// types onto one flat frame shape (no explicit `event_type` field on the
+/// wire as of 2026-05-14). This enum mirrors the documented sub-events
+/// from docs.kalshi.com/changelog so consumers can classify a frame by
+/// which fields are populated. Returned by `classify_lifecycle_event`.
+enum class LifecycleEventType : std::uint8_t {
+	/// Default / not yet classified — fields all carry their defaults.
+	Unknown,
+	/// `settled_ts` is set — positions have been finalized.
+	Settled,
+	/// `determination_ts` is set (but not yet settled).
+	Determined,
+	/// `is_deactivated` is true — market stopped accepting orders.
+	Deactivated,
+	/// `yes_sub_title` is set — yes-side subtitle changed (e.g. floor
+	/// strike rolled forward on a temperature contract). Added 2026-05-11.
+	MetadataUpdated,
+	/// `open_ts` or `close_ts` is non-zero — market created / activated.
+	/// Covers both the `created` and `activated` upstream sub-events; the
+	/// wire format doesn't distinguish them flat-encoded.
+	OpenOrCreated,
+};
+
+/// Classify a flat MarketLifecycle frame by inspecting which fields are
+/// populated. Resolves the upstream sub-event ambiguity by precedence:
+/// Settled > Determined > Deactivated > MetadataUpdated > OpenOrCreated
+/// > Unknown. The precedence reflects the lifecycle progression — once a
+/// market settles, prior fields are kept for reference but the frame is
+/// principally a settle event.
+[[nodiscard]] constexpr LifecycleEventType
+classify_lifecycle_event(const MarketLifecycle& lc) noexcept {
+	if (lc.settled_ts.has_value()) {
+		return LifecycleEventType::Settled;
+	}
+	if (lc.determination_ts.has_value()) {
+		return LifecycleEventType::Determined;
+	}
+	if (lc.is_deactivated) {
+		return LifecycleEventType::Deactivated;
+	}
+	if (lc.yes_sub_title.has_value()) {
+		return LifecycleEventType::MetadataUpdated;
+	}
+	if (lc.open_ts != 0 || lc.close_ts != 0) {
+		return LifecycleEventType::OpenOrCreated;
+	}
+	return LifecycleEventType::Unknown;
+}
+
 /// Union of all possible WebSocket data messages
 using WsMessage = std::variant<OrderbookSnapshot, OrderbookDelta, WsTrade, WsFill, MarketLifecycle>;
 
