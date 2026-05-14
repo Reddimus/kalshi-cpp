@@ -110,13 +110,13 @@ cd kalshi-cpp
 # Build (Release with -O3 and LTO by default)
 make build
 
-# Run tests (GoogleTest, 55 tests)
+# Run tests (GoogleTest, 126 tests)
 make test
 
 # Generate code coverage report (requires lcov)
 make coverage
 
-# Run benchmark (254 iterations by default)
+# Run benchmark (1000 iterations by default)
 make bench
 
 # Check formatting
