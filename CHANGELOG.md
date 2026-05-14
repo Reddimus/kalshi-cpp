@@ -14,7 +14,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `KalshiClient::get_deposits(...)` and `KalshiClient::get_withdrawals(...)`.
   Kalshi added the `GET /portfolio/deposits` and `GET /portfolio/withdrawals`
   endpoints on 2026-05-05. Schema per
-  https://docs.kalshi.com/api-reference/portfolio: id, status (pending |
+  <https://docs.kalshi.com/api-reference/portfolio>: id, status (pending |
   applied | failed | returned), type (ach | wire | crypto | debit | apm),
   amount_cents, fee_cents, created_ts, finalized_ts (nullable). Parsers
   live in `src/api/response_parsers.hpp` as
