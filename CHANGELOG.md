@@ -6,6 +6,18 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **Models**: `kalshi::OutcomeSide` (Yes/No) and `kalshi::BookSide` (Bid/Ask)
+  enums, plus `derive_outcome_side(side, action)` and
+  `derive_book_side(side, action)` constexpr helpers. Kalshi added
+  normalized `outcome_side` / `book_side` directional fields to Order /
+  Fill / Trade response objects on 2026-05-06; the upstream spec calls
+  these out as the eventual replacement for `(side, action)`. The
+  derivation helpers let consumers normalize today without waiting for
+  a response-field parse path. See `tests/test_models.cpp` for the truth
+  table.
+
 ## [0.2.1] - 2026-05-13
 
 ### Fixed
