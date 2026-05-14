@@ -6,6 +6,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.0] - 2026-05-14
+
 ### Added
 
 - **API**: `kalshi::Deposit` + `kalshi::Withdrawal` structs (same wire shape,
@@ -313,7 +315,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.3.0...v0.4.0
+[0.3.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.2.1...v0.3.0
+[0.2.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.1.1...v0.2.0
 [0.1.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.1.0...v0.1.1
 [0.1.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.0.9...v0.1.0
