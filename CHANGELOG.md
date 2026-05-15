@@ -6,6 +6,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- `.editorconfig` (fleet-standard: tabs, 4-width, LF, UTF-8, 100-col
+  max for C++; spaces, 2-width for YAML/JSON). Sibling to
+  `.clang-format`. Covers editors that don't read `.clang-format`
+  (Vim, VS Code without the extension). Matches the file already
+  shipped in `infra-cpp` (#41).
+
 ## [0.4.0] - 2026-05-14
 
 ### Added
