@@ -38,4 +38,4 @@ make run-get_daily_temp  # Run examples/get_daily_temp.cpp
 
 ## CI
 
-GitHub Actions workflow `.github/workflows/ci.yml`: build + test + lint on Ubuntu 24.04, build-only on macos-latest (clang-format brew vs apt drift makes lint unreliable on macOS), markdown-lint via DavidAnson. Release workflow auto-creates a GitHub Release on `vX.Y.Z` tag push (notes extracted from `CHANGELOG.md`).
+GitHub Actions workflow `.github/workflows/ci.yml`: build + test + lint on Ubuntu 24.04, build-only on macos-latest (clang-format brew vs apt drift makes lint unreliable on macOS), build-only on windows-latest, markdown-lint via DavidAnson. Release workflow auto-creates a GitHub Release on `vX.Y.Z` tag push (notes extracted from `CHANGELOG.md`).
