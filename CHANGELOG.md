@@ -14,6 +14,20 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (Vim, VS Code without the extension). Matches the file already
   shipped in `infra-cpp` (#41).
 
+### Fixed
+
+- **WS error frame parser**: `WsError.message` was returning the
+  literal string `"code"` for error frames that lacked an explicit
+  `message` field (e.g. code 7 = "Unknown subscription ID"). The
+  previous fallback `extract_string("msg")` returned the first quoted
+  token inside the `msg` object — the `"code"` key name — because the
+  hand-rolled scanner doesn't distinguish object-value vs nested-key
+  occurrences. Now falls back to the documented `ws_error_code_name(err.code)`
+  when no `message` field is present, so consumers see
+  `WS error: code=7 message="Unknown subscription ID"` instead of
+  `message="code"`. Caught in 2026-05-15 production logs against
+  kalshi-websocket.
+
 ## [0.4.0] - 2026-05-14
 
 ### Added
