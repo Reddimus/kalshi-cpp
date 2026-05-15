@@ -1083,8 +1083,15 @@ Result<Balance> KalshiClient::get_balance() {
 	}
 
 	Balance balance;
-	balance.balance = extract_int(response->body, "balance");
-	balance.available_balance = extract_int(response->body, "available_balance");
+	// Kalshi 2026-05-21: GET /portfolio/balance now also returns
+	// `balance_dollars` (fixed-point dollar string) alongside the
+	// integer-cent `balance`. extract_cents_or_dollars prefers the
+	// `_dollars` shape when present and falls back to raw cents —
+	// same v2 wire-format handling used across the other REST parsers
+	// (CHANGELOG v0.0.8). available_balance gets the same treatment
+	// for forward-compat with the v2 `_dollars` convention.
+	balance.balance = extract_cents_or_dollars(response->body, "balance");
+	balance.available_balance = extract_cents_or_dollars(response->body, "available_balance");
 
 	return balance;
 }
