@@ -343,7 +343,14 @@ void WsImplData::handle_message(const std::string& json) {
 			err.code = extract_int("code");
 			err.message = extract_string("message");
 			if (err.message.empty()) {
-				err.message = extract_string("msg");
+				// No explicit message field — fall back to the documented
+				// error-code name (e.g. code 7 → "Unknown subscription ID").
+				// The pre-fix fallback `extract_string("msg")` returned the
+				// first quoted token inside the `msg` object, which is the
+				// `"code"` key name itself, surfacing as message="code" in
+				// consumer logs. The find-first scanner anti-pattern caught
+				// in 2026-05-15 production logs against kalshi-websocket.
+				err.message = std::string{ws_error_code_name(err.code)};
 			}
 		}
 		invoke_error_callback(err);
