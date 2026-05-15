@@ -6,6 +6,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.1] - 2026-05-15
+
 ### Added
 
 - `.editorconfig` (fleet-standard: tabs, 4-width, LF, UTF-8, 100-col
@@ -26,7 +28,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   when no `message` field is present, so consumers see
   `WS error: code=7 message="Unknown subscription ID"` instead of
   `message="code"`. Caught in 2026-05-15 production logs against
-  kalshi-websocket.
+  kalshi-websocket (#45).
 
 ## [0.4.0] - 2026-05-14
 
@@ -337,7 +339,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.1...HEAD
+[0.4.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.2.0...v0.2.1
