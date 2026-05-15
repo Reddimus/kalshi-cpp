@@ -6,6 +6,18 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- `get_balance()` now parses `balance` / `available_balance` via
+  `extract_cents_or_dollars` instead of `extract_int`. Kalshi's
+  2026-05-21 changelog adds `balance_dollars` (fixed-point dollar
+  string) to `GET /portfolio/balance` alongside the integer-cent
+  field; this picks up the `_dollars` shape when present and falls
+  back to raw cents otherwise — same v2 wire-format handling already
+  used across the other REST response parsers (CHANGELOG v0.0.8). No
+  public API change; `Balance` struct layout is unchanged (still
+  int64 cents).
+
 ## [0.4.1] - 2026-05-15
 
 ### Added
