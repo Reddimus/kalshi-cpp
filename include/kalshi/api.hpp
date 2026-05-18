@@ -543,12 +543,23 @@ struct CreateOrderParams {
 	Action action{Action::Buy};
 	std::string type{"limit"}; // "limit" or "market"
 	std::int32_t count{0};
+	std::optional<std::string> count_fp;
 	std::optional<std::int32_t> yes_price;
 	std::optional<std::int32_t> no_price;
+	std::optional<std::string> yes_price_dollars;
+	std::optional<std::string> no_price_dollars;
 	std::optional<std::string> client_order_id;
 	std::optional<std::int64_t> expiration_ts;
+	std::optional<std::string> time_in_force;
 	std::optional<std::int32_t> sell_position_floor;
 	std::optional<std::int32_t> buy_max_cost;
+	std::optional<bool> post_only;
+	std::optional<bool> reduce_only;
+	std::optional<std::string> self_trade_prevention_type;
+	std::optional<std::string> order_group_id;
+	std::optional<bool> cancel_order_on_pause;
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::int32_t> exchange_index;
 };
 
 /// Parameters for amending an order

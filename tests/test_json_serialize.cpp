@@ -125,15 +125,26 @@ TEST(JsonSerialize, CreateOrderAllFields) {
 	body.action = "sell";
 	body.type = "limit";
 	body.count = 10;
+	body.count_fp = "10.00";
 	body.yes_price = 33;
 	body.no_price = 67;
+	body.yes_price_dollars = "0.3300";
+	body.no_price_dollars = "0.6700";
 	body.client_order_id = "client-abc-123";
 	body.expiration_ts = 1788000000;
+	body.time_in_force = "fill_or_kill";
 	body.sell_position_floor = 0;
 	body.buy_max_cost = 1000;
+	body.post_only = true;
+	body.reduce_only = true;
+	body.self_trade_prevention_type = "taker_at_cross";
+	body.order_group_id = "group-abc";
+	body.cancel_order_on_pause = true;
+	body.subaccount = 7;
+	body.exchange_index = 0;
 
 	const std::string expected =
-		R"({"ticker":"KXHIGHLAX-26MAY11-T75","side":"no","action":"sell","type":"limit","count":10,"yes_price":33,"no_price":67,"client_order_id":"client-abc-123","expiration_ts":1788000000,"sell_position_floor":0,"buy_max_cost":1000})";
+		R"({"ticker":"KXHIGHLAX-26MAY11-T75","side":"no","action":"sell","type":"limit","count":10,"count_fp":"10.00","yes_price":33,"no_price":67,"yes_price_dollars":"0.3300","no_price_dollars":"0.6700","client_order_id":"client-abc-123","expiration_ts":1788000000,"time_in_force":"fill_or_kill","sell_position_floor":0,"buy_max_cost":1000,"post_only":true,"reduce_only":true,"self_trade_prevention_type":"taker_at_cross","order_group_id":"group-abc","cancel_order_on_pause":true,"subaccount":7,"exchange_index":0})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
 

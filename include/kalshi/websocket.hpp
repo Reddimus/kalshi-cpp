@@ -232,7 +232,7 @@ using WsStateCallback = std::function<void(bool connected)>;
 
 /// WebSocket client configuration
 struct WsConfig {
-	std::string url{"wss://api.elections.kalshi.com/trade-api/ws/v2"};
+	std::string url{"wss://external-api-ws.kalshi.com/trade-api/ws/v2"};
 	std::chrono::seconds reconnect_delay{5};
 	std::uint16_t max_reconnect_attempts{10}; ///< Max reconnect attempts (0-65535, default 10)
 	bool auto_reconnect{true};

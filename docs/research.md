@@ -27,8 +27,10 @@ This document summarizes findings from analyzing the official Kalshi SDK impleme
 
 ### Production Endpoints
 
-- **REST API**: `https://api.elections.kalshi.com/trade-api/v2/`
-- **WebSocket**: `wss://api.elections.kalshi.com/trade-api/ws/v2`
+- **REST API**: `https://external-api.kalshi.com/trade-api/v2/`
+- **WebSocket**: `wss://external-api-ws.kalshi.com/trade-api/ws/v2`
+- **Also supported**: `https://api.elections.kalshi.com/trade-api/v2/`
+  and `wss://api.elections.kalshi.com/trade-api/ws/v2`
 
 ### Legacy Endpoints (deprecated)
 
@@ -333,12 +335,23 @@ interface CreateOrderRequest {
   side: "yes" | "no";
   action: "buy" | "sell";
   count: number;  // >= 1
+  count_fp?: string;
   type: "limit" | "market";
   yes_price?: number;  // 1-99
   no_price?: number;   // 1-99
+  yes_price_dollars?: string;
+  no_price_dollars?: string;
   expiration_ts?: number;
+  time_in_force?: "fill_or_kill" | "good_till_canceled" | "immediate_or_cancel";
   sell_position_floor?: number;
   buy_max_cost?: number;
+  post_only?: boolean;
+  reduce_only?: boolean;
+  self_trade_prevention_type?: "taker_at_cross" | "maker";
+  order_group_id?: string;
+  cancel_order_on_pause?: boolean;
+  subaccount?: number;
+  exchange_index?: number;
 }
 ```
 

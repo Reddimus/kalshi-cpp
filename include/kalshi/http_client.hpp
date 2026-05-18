@@ -51,7 +51,7 @@ struct HttpResponse {
 
 /// HTTP client configuration
 struct ClientConfig {
-	std::string base_url{"https://api.elections.kalshi.com/trade-api/v2"};
+	std::string base_url{"https://external-api.kalshi.com/trade-api/v2"};
 	std::chrono::seconds timeout{30};
 	bool verify_ssl{true};
 };

@@ -44,12 +44,23 @@ ser::CreateOrderBody to_create_order_body(const CreateOrderParams& params) {
 	body.action = std::string(to_json_string(params.action));
 	body.type = params.type;
 	body.count = params.count;
+	body.count_fp = params.count_fp;
 	body.yes_price = params.yes_price;
 	body.no_price = params.no_price;
+	body.yes_price_dollars = params.yes_price_dollars;
+	body.no_price_dollars = params.no_price_dollars;
 	body.client_order_id = params.client_order_id;
 	body.expiration_ts = params.expiration_ts;
+	body.time_in_force = params.time_in_force;
 	body.sell_position_floor = params.sell_position_floor;
 	body.buy_max_cost = params.buy_max_cost;
+	body.post_only = params.post_only;
+	body.reduce_only = params.reduce_only;
+	body.self_trade_prevention_type = params.self_trade_prevention_type;
+	body.order_group_id = params.order_group_id;
+	body.cancel_order_on_pause = params.cancel_order_on_pause;
+	body.subaccount = params.subaccount;
+	body.exchange_index = params.exchange_index;
 	return body;
 }
 

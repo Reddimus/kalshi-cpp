@@ -1,3 +1,4 @@
+#include "kalshi/http_client.hpp"
 #include "kalshi/pagination.hpp"
 #include "kalshi/rate_limit.hpp"
 #include "kalshi/retry.hpp"
@@ -191,7 +192,13 @@ TEST(WebSocket, WsErrorDefault) {
 
 TEST(WebSocket, WsConfigDefaults) {
 	kalshi::WsConfig config;
-	ASSERT_EQ(config.url, std::string("wss://api.elections.kalshi.com/trade-api/ws/v2"));
+	ASSERT_EQ(config.url, std::string("wss://external-api-ws.kalshi.com/trade-api/ws/v2"));
 	ASSERT_TRUE(config.auto_reconnect);
 	ASSERT_EQ(config.max_reconnect_attempts, 10);
+}
+
+TEST(HttpClient, ClientConfigDefaultsToDedicatedTradeApiHost) {
+	kalshi::ClientConfig config;
+	ASSERT_EQ(config.base_url, std::string("https://external-api.kalshi.com/trade-api/v2"));
+	ASSERT_TRUE(config.verify_ssl);
 }

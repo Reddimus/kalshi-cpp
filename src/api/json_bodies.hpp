@@ -37,12 +37,23 @@ struct CreateOrderBody {
 	std::string action;
 	std::string type;
 	std::int32_t count{0};
+	std::optional<std::string> count_fp;
 	std::optional<std::int32_t> yes_price;
 	std::optional<std::int32_t> no_price;
+	std::optional<std::string> yes_price_dollars;
+	std::optional<std::string> no_price_dollars;
 	std::optional<std::string> client_order_id;
 	std::optional<std::int64_t> expiration_ts;
+	std::optional<std::string> time_in_force;
 	std::optional<std::int32_t> sell_position_floor;
 	std::optional<std::int32_t> buy_max_cost;
+	std::optional<bool> post_only;
+	std::optional<bool> reduce_only;
+	std::optional<std::string> self_trade_prevention_type;
+	std::optional<std::string> order_group_id;
+	std::optional<bool> cancel_order_on_pause;
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::int32_t> exchange_index;
 };
 
 /// POST /portfolio/orders/{id}/amend
@@ -171,9 +182,15 @@ struct glz::meta<kalshi::ser::CreateOrderBody> {
 	using T = kalshi::ser::CreateOrderBody;
 	static constexpr auto value = // auto-ok: glz::object returns unspellable tuple
 		object("ticker", &T::ticker, "side", &T::side, "action", &T::action, "type", &T::type,
-			   "count", &T::count, "yes_price", &T::yes_price, "no_price", &T::no_price,
-			   "client_order_id", &T::client_order_id, "expiration_ts", &T::expiration_ts,
-			   "sell_position_floor", &T::sell_position_floor, "buy_max_cost", &T::buy_max_cost);
+			   "count", &T::count, "count_fp", &T::count_fp, "yes_price", &T::yes_price, "no_price",
+			   &T::no_price, "yes_price_dollars", &T::yes_price_dollars, "no_price_dollars",
+			   &T::no_price_dollars, "client_order_id", &T::client_order_id, "expiration_ts",
+			   &T::expiration_ts, "time_in_force", &T::time_in_force, "sell_position_floor",
+			   &T::sell_position_floor, "buy_max_cost", &T::buy_max_cost, "post_only",
+			   &T::post_only, "reduce_only", &T::reduce_only, "self_trade_prevention_type",
+			   &T::self_trade_prevention_type, "order_group_id", &T::order_group_id,
+			   "cancel_order_on_pause", &T::cancel_order_on_pause, "subaccount", &T::subaccount,
+			   "exchange_index", &T::exchange_index);
 };
 
 template <>

@@ -6,7 +6,23 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **API**: `CreateOrderParams` now exposes the current optional
+  create-order request fields documented by Kalshi:
+  `count_fp`, fixed-point dollar prices, `time_in_force`, `post_only`,
+  `reduce_only`, `self_trade_prevention_type`, `order_group_id`,
+  `cancel_order_on_pause`, `subaccount`, and `exchange_index`. Existing
+  integer-count / cent-price callers are unchanged.
+
 ### Changed
+
+- Default REST and WebSocket hosts now use Kalshi's dedicated external
+  Trade API endpoints:
+  `https://external-api.kalshi.com/trade-api/v2` and
+  `wss://external-api-ws.kalshi.com/trade-api/ws/v2`. The older
+  `api.elections.kalshi.com` hosts remain supported by Kalshi and can
+  still be supplied explicitly in `ClientConfig` / `WsConfig`.
 
 - `get_balance()` now parses `balance` / `available_balance` via
   `extract_cents_or_dollars` instead of `extract_int`. Kalshi's

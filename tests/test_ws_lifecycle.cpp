@@ -13,7 +13,7 @@
 /// touches impl_, mirroring the polymarket-cpp clob::WebSocketClient
 /// and polymarket::us::ws::Subscriber impls.
 ///
-/// Live WS smoke tests against api.elections.kalshi.com are out of
+/// Live WS smoke tests against the Kalshi Trade API are out of
 /// scope here (no creds, no exchange round-trip on CI). These tests
 /// don't connect, so they don't need network access.
 
