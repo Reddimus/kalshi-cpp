@@ -203,8 +203,16 @@ TEST(JsonSerialize, BatchOrders) {
 
 TEST(JsonSerialize, BatchCancel) {
 	kalshi::ser::BatchCancelBody body;
-	body.order_ids = {"oid-1", "oid-2"};
-	const std::string expected = R"({"order_ids":["oid-1","oid-2"]})";
+	body.orders = {
+		kalshi::ser::BatchCancelOrderBody{.order_id = "oid-1"},
+		kalshi::ser::BatchCancelOrderBody{
+			.order_id = "oid-2",
+			.subaccount = 7,
+			.exchange_index = 1,
+		},
+	};
+	const std::string expected =
+		R"({"orders":[{"order_id":"oid-1"},{"order_id":"oid-2","subaccount":7,"exchange_index":1}]})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
 

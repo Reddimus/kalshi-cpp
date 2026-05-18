@@ -74,8 +74,14 @@ struct BatchOrdersBody {
 };
 
 /// DELETE /portfolio/orders/batched
+struct BatchCancelOrderBody {
+	std::string order_id;
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::int32_t> exchange_index;
+};
+
 struct BatchCancelBody {
-	std::vector<std::string> order_ids;
+	std::vector<BatchCancelOrderBody> orders;
 };
 
 /// POST /portfolio/order-groups
@@ -213,9 +219,17 @@ struct glz::meta<kalshi::ser::BatchOrdersBody> {
 };
 
 template <>
+struct glz::meta<kalshi::ser::BatchCancelOrderBody> {
+	using T = kalshi::ser::BatchCancelOrderBody;
+	static constexpr auto value = // auto-ok: glz::object returns unspellable tuple
+		object("order_id", &T::order_id, "subaccount", &T::subaccount, "exchange_index",
+			   &T::exchange_index);
+};
+
+template <>
 struct glz::meta<kalshi::ser::BatchCancelBody> {
 	using T = kalshi::ser::BatchCancelBody;
-	static constexpr auto value = object("order_ids", &T::order_ids); // auto-ok: glz::object
+	static constexpr auto value = object("orders", &T::orders); // auto-ok: glz::object
 };
 
 template <>

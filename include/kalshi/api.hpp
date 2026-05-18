@@ -581,9 +581,21 @@ struct BatchOrderRequest {
 	std::vector<CreateOrderParams> orders;
 };
 
-/// Batch cancel request
+/// Order selector for batch cancellation.
+struct BatchCancelOrder {
+	std::string order_id;
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::int32_t> exchange_index;
+};
+
+/// Batch cancel request.
+///
+/// `order_ids` is kept for source compatibility. When `orders` is empty,
+/// those IDs are emitted as the current `/portfolio/orders/batched`
+/// `orders: [{order_id: ...}]` body shape.
 struct BatchCancelRequest {
 	std::vector<std::string> order_ids;
+	std::vector<BatchCancelOrder> orders;
 };
 
 // Response structures

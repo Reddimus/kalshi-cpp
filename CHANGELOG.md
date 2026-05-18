@@ -6,6 +6,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- **REST**: `batch_cancel_orders` now sends the JSON body required by
+  Kalshi's `DELETE /portfolio/orders/batched` endpoint instead of
+  dropping the serialized body. Existing `BatchCancelRequest::order_ids`
+  callers are preserved and emitted as the current `orders` selector
+  shape; callers that need subaccount-scoped cancellation can populate
+  `BatchCancelRequest::orders` directly.
+
 ## [0.4.2] - 2026-05-18
 
 ### Added

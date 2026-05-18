@@ -17,8 +17,8 @@ Result<HttpResponse> RetryingClient::put(std::string_view path, std::string_view
 	return with_retry([this, path, body]() { return client_.put(path, body); }, policy_);
 }
 
-Result<HttpResponse> RetryingClient::del(std::string_view path) {
-	return with_retry([this, path]() { return client_.del(path); }, policy_);
+Result<HttpResponse> RetryingClient::del(std::string_view path, std::string_view body) {
+	return with_retry([this, path, body]() { return client_.del(path, body); }, policy_);
 }
 
 const RetryPolicy& RetryingClient::policy() const noexcept {

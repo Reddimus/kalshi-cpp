@@ -130,7 +130,7 @@ public:
 	[[nodiscard]] Result<HttpResponse> put(std::string_view path, std::string_view body = {});
 
 	/// Make a DELETE request with retries
-	[[nodiscard]] Result<HttpResponse> del(std::string_view path);
+	[[nodiscard]] Result<HttpResponse> del(std::string_view path, std::string_view body = {});
 
 	/// Get the retry policy
 	[[nodiscard]] const RetryPolicy& policy() const noexcept;

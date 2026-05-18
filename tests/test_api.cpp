@@ -117,6 +117,21 @@ TEST(Api, AmendOrderParams) {
 	ASSERT_EQ(*params.yes_price, 55);
 }
 
+TEST(Api, BatchCancelRequestSupportsCurrentOrderSelectors) {
+	kalshi::BatchCancelRequest request;
+	request.order_ids = {"legacy-id"};
+	request.orders.push_back(kalshi::BatchCancelOrder{
+		.order_id = "order-123",
+		.subaccount = 42,
+		.exchange_index = 1,
+	});
+
+	ASSERT_EQ(request.order_ids.front(), std::string("legacy-id"));
+	ASSERT_EQ(request.orders.front().order_id, std::string("order-123"));
+	ASSERT_EQ(request.orders.front().subaccount, 42);
+	ASSERT_EQ(request.orders.front().exchange_index, 1);
+}
+
 // --- Response structures ---
 
 TEST(Api, EventDefaultConstruction) {

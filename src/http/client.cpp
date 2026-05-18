@@ -77,8 +77,8 @@ Result<HttpResponse> HttpClient::put(std::string_view path, std::string_view bod
 	return request(HttpMethod::PUT, path, body);
 }
 
-Result<HttpResponse> HttpClient::del(std::string_view path) const {
-	return request(HttpMethod::DEL, path);
+Result<HttpResponse> HttpClient::del(std::string_view path, std::string_view body) const {
+	return request(HttpMethod::DEL, path, body);
 }
 
 Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view path,

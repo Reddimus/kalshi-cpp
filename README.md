@@ -337,7 +337,8 @@ int main() {
 - `amend_order(params)` - Amend order
 - `decrease_order(params)` - Decrease order size
 - `batch_create_orders(request)` - Batch create
-- `batch_cancel_orders(request)` - Batch cancel
+- `batch_cancel_orders(request)` - Batch cancel with current `orders`
+  selectors; legacy `order_ids` callers are mapped to that body shape
 - `get_total_resting_order_value()` - Sum of all resting buy orders
 
 ### Order Groups

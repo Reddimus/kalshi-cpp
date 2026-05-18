@@ -64,6 +64,27 @@ ser::CreateOrderBody to_create_order_body(const CreateOrderParams& params) {
 	return body;
 }
 
+ser::BatchCancelOrderBody to_batch_cancel_order_body(const BatchCancelOrder& order) {
+	ser::BatchCancelOrderBody body;
+	body.order_id = order.order_id;
+	body.subaccount = order.subaccount;
+	body.exchange_index = order.exchange_index;
+	return body;
+}
+
+std::vector<std::string> batch_cancel_result_ids(const BatchCancelRequest& request) {
+	std::vector<std::string> ids;
+	if (!request.orders.empty()) {
+		ids.reserve(request.orders.size());
+		for (const BatchCancelOrder& order : request.orders) {
+			ids.push_back(order.order_id);
+		}
+		return ids;
+	}
+
+	return request.order_ids;
+}
+
 } // anonymous namespace
 
 struct KalshiClient::Impl {
@@ -1581,7 +1602,17 @@ Result<BatchResponse<Order>> KalshiClient::batch_create_orders(const BatchOrderR
 
 std::string KalshiClient::serialize_batch_cancel(const BatchCancelRequest& request) {
 	ser::BatchCancelBody body;
-	body.order_ids = request.order_ids;
+	if (!request.orders.empty()) {
+		body.orders.reserve(request.orders.size());
+		for (const BatchCancelOrder& order : request.orders) {
+			body.orders.push_back(to_batch_cancel_order_body(order));
+		}
+	} else {
+		body.orders.reserve(request.order_ids.size());
+		for (const std::string& order_id : request.order_ids) {
+			body.orders.push_back(ser::BatchCancelOrderBody{.order_id = order_id});
+		}
+	}
 	return render_body(body);
 }
 
@@ -1589,13 +1620,10 @@ Result<BatchResponse<std::string>>
 KalshiClient::batch_cancel_orders(const BatchCancelRequest& request) {
 	std::string body = serialize_batch_cancel(request);
 
-	Result<HttpResponse> response = impl_->client.del("/portfolio/orders/batched");
+	Result<HttpResponse> response = impl_->client.del("/portfolio/orders/batched", body);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
-
-	// Note: Batch cancel might use POST with body or DELETE
-	// Adjust based on actual API behavior
 
 	if (response->status_code != 200 && response->status_code != 204) {
 		return std::unexpected(Error{ErrorCode::ServerError,
@@ -1604,7 +1632,7 @@ KalshiClient::batch_cancel_orders(const BatchCancelRequest& request) {
 	}
 
 	BatchResponse<std::string> result;
-	result.results = request.order_ids; // Assume all cancelled if 200
+	result.results = batch_cancel_result_ids(request); // Assume all requested IDs cancelled if 200
 	return result;
 }
 

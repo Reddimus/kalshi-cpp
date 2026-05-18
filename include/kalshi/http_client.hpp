@@ -85,7 +85,7 @@ public:
 	[[nodiscard]] Result<HttpResponse> put(std::string_view path, std::string_view body = {}) const;
 
 	/// Perform a DELETE request
-	[[nodiscard]] Result<HttpResponse> del(std::string_view path) const;
+	[[nodiscard]] Result<HttpResponse> del(std::string_view path, std::string_view body = {}) const;
 
 	/// Perform a request with custom method
 	[[nodiscard]] Result<HttpResponse> request(HttpMethod method, std::string_view path,
