@@ -6,6 +6,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.3] - 2026-05-18
+
 ### Fixed
 
 - **REST**: `batch_cancel_orders` now sends the JSON body required by
@@ -378,7 +380,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.2...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.3...HEAD
+[0.4.3]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.0...v0.4.1
 [0.4.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.3.0...v0.4.0
