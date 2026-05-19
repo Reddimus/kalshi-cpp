@@ -37,7 +37,7 @@ enum class BookSide : std::uint8_t { Bid, Ask };
 }
 
 /// Market status
-enum class MarketStatus : std::uint8_t { Open, Closed, Settled };
+enum class MarketStatus : std::uint8_t { Unopened, Open, Paused, Closed, Settled };
 
 /// Price-quantity pair in an order book
 struct OrderBookEntry {
@@ -58,7 +58,10 @@ struct Market {
 	// 8-byte aligned fields
 	std::int64_t open_time{0};
 	std::int64_t close_time{0};
+	std::optional<std::int64_t> expected_expiration_time;
 	std::optional<std::int64_t> expiration_time;
+	std::optional<std::int64_t> latest_expiration_time;
+	std::optional<std::int64_t> settlement_ts;
 
 	// 4-byte fields grouped together
 	std::int32_t yes_bid{0};
@@ -67,6 +70,8 @@ struct Market {
 	std::int32_t no_ask{0};
 	std::int32_t volume{0};
 	std::int32_t open_interest{0};
+	std::optional<std::int32_t> settlement_timer_seconds;
+	std::optional<std::int32_t> settlement_value_cents;
 
 	// 1-byte enum
 	MarketStatus status{MarketStatus::Open};
@@ -75,6 +80,7 @@ struct Market {
 	std::string ticker;
 	std::string title;
 	std::string subtitle;
+	std::optional<std::string> expiration_value;
 	std::optional<std::string> result; // "yes", "no", or nullopt if not settled
 };
 

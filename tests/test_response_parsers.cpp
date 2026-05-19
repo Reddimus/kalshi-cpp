@@ -169,6 +169,80 @@ TEST(ResponseParsers, OrderbooksParseBatchedResponse) {
 	EXPECT_EQ(books[1].no_bids[0].quantity, 3);
 }
 
+TEST(ResponseParsers, MarketParsesCurrentLifecycleAndSettlementFields) {
+	const std::string body = R"json({
+		"market": {
+			"ticker": "KXHIGHNY-26MAY19-B70",
+			"title": "High temp in NYC",
+			"subtitle": "Above 70",
+			"status": "paused",
+			"open_time": "2023-11-07T05:31:56Z",
+			"close_time": "2023-11-08T05:31:56Z",
+			"expected_expiration_time": "2023-11-09T05:31:56Z",
+			"expiration_time": "2023-11-10T05:31:56Z",
+			"latest_expiration_time": "2023-11-11T05:31:56Z",
+			"settlement_ts": "2023-11-11T05:31:56Z",
+			"settlement_timer_seconds": 123,
+			"yes_bid_dollars": "0.4200",
+			"yes_ask_dollars": "0.4400",
+			"no_bid_dollars": "0.5600",
+			"no_ask_dollars": "0.5800",
+			"volume": 1000,
+			"open_interest": 250,
+			"expiration_value": "72.4",
+			"settlement_value_dollars": "1.0000",
+			"result": "yes"
+		}
+	})json";
+
+	const kalshi::Market market = kalshi::api_detail::parse_market_response(body);
+
+	EXPECT_EQ(market.ticker, "KXHIGHNY-26MAY19-B70");
+	EXPECT_EQ(market.status, kalshi::MarketStatus::Paused);
+	EXPECT_EQ(market.open_time, 1699335116);
+	EXPECT_EQ(market.close_time, 1699421516);
+	ASSERT_TRUE(market.expected_expiration_time.has_value());
+	EXPECT_EQ(*market.expected_expiration_time, 1699507916);
+	ASSERT_TRUE(market.expiration_time.has_value());
+	EXPECT_EQ(*market.expiration_time, 1699594316);
+	ASSERT_TRUE(market.latest_expiration_time.has_value());
+	EXPECT_EQ(*market.latest_expiration_time, 1699680716);
+	ASSERT_TRUE(market.settlement_ts.has_value());
+	EXPECT_EQ(*market.settlement_ts, 1699680716);
+	EXPECT_EQ(market.yes_bid, 42);
+	EXPECT_EQ(market.yes_ask, 44);
+	EXPECT_EQ(market.no_bid, 56);
+	EXPECT_EQ(market.no_ask, 58);
+	EXPECT_EQ(market.volume, 1000);
+	EXPECT_EQ(market.open_interest, 250);
+	ASSERT_TRUE(market.settlement_timer_seconds.has_value());
+	EXPECT_EQ(*market.settlement_timer_seconds, 123);
+	ASSERT_TRUE(market.settlement_value_cents.has_value());
+	EXPECT_EQ(*market.settlement_value_cents, 100);
+	ASSERT_TRUE(market.expiration_value.has_value());
+	EXPECT_EQ(*market.expiration_value, "72.4");
+	ASSERT_TRUE(market.result.has_value());
+	EXPECT_EQ(*market.result, "yes");
+}
+
+TEST(ResponseParsers, MarketsParseUnopenedArray) {
+	const std::string body = R"json({
+		"markets": [
+			{"ticker": "A", "status": "unopened"},
+			{"ticker": "B", "status": "open"}
+		],
+		"cursor": ""
+	})json";
+
+	const std::vector<kalshi::Market> markets = kalshi::api_detail::parse_markets_response(body);
+
+	ASSERT_EQ(markets.size(), 2U);
+	EXPECT_EQ(markets[0].ticker, "A");
+	EXPECT_EQ(markets[0].status, kalshi::MarketStatus::Unopened);
+	EXPECT_EQ(markets[1].ticker, "B");
+	EXPECT_EQ(markets[1].status, kalshi::MarketStatus::Open);
+}
+
 TEST(ResponseParsers, DepositsParseFinalizedAndPending) {
 	const std::string body = R"json({
 		"deposits": [

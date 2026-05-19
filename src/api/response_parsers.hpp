@@ -7,6 +7,13 @@
 
 namespace kalshi::api_detail {
 
+/// Parses a single market response. Accepts both ``{"market": {...}}`` and a
+/// bare market object.
+[[nodiscard]] Market parse_market_response(std::string_view body);
+
+/// Parses the ``markets`` array returned by ``GET /markets``.
+[[nodiscard]] std::vector<Market> parse_markets_response(std::string_view body);
+
 [[nodiscard]] std::vector<Candlestick> parse_candlesticks_response(std::string_view body);
 
 /// Parses a single orderbook response. Accepts both the legacy integer-cent

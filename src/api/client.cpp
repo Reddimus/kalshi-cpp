@@ -668,9 +668,108 @@ void append_query_param(std::string& query, const std::string& key, std::int64_t
 	query += key + "=" + std::to_string(value);
 }
 
+std::optional<std::int64_t> extract_optional_datetime(const std::string& json,
+													  const std::string& key) {
+	const std::int64_t value = extract_datetime(json, key);
+	if (value <= 0) {
+		return std::nullopt;
+	}
+	return value;
+}
+
+std::optional<std::int32_t> extract_optional_int32(const std::string& json,
+												   const std::string& key) {
+	if (json.find("\"" + key + "\"") == std::string::npos) {
+		return std::nullopt;
+	}
+	return static_cast<std::int32_t>(extract_int(json, key));
+}
+
+std::optional<std::int32_t> extract_optional_cents_or_dollars(const std::string& json,
+															  const std::string& key) {
+	const bool has_dollars = json.find("\"" + key + "_dollars\"") != std::string::npos;
+	const bool has_cents = json.find("\"" + key + "\"") != std::string::npos;
+	if (!has_dollars && !has_cents) {
+		return std::nullopt;
+	}
+	return static_cast<std::int32_t>(extract_cents_or_dollars(json, key));
+}
+
 } // anonymous namespace
 
 namespace api_detail {
+
+Market parse_market_response(std::string_view body) {
+	const std::string response_body{body};
+	// Find market object (may be nested under "market" key or at root)
+	size_t market_start = find_object_start(response_body, "market");
+	std::string market_json =
+		market_start != std::string::npos
+			? response_body.substr(market_start,
+								   find_object_end(response_body, market_start) - market_start)
+			: response_body;
+
+	Market market;
+	market.ticker = extract_string(market_json, "ticker");
+	market.title = extract_string(market_json, "title");
+	market.subtitle = extract_string(market_json, "subtitle");
+
+	std::string status_str = extract_string(market_json, "status");
+	market.status = parse_market_status(status_str);
+
+	// Time fields are ISO 8601 datetime strings in the Kalshi API response
+	market.open_time = extract_datetime(market_json, "open_time");
+	market.close_time = extract_datetime(market_json, "close_time");
+	market.expected_expiration_time =
+		extract_optional_datetime(market_json, "expected_expiration_time");
+	market.expiration_time = extract_optional_datetime(market_json, "expiration_time");
+	market.latest_expiration_time =
+		extract_optional_datetime(market_json, "latest_expiration_time");
+	market.settlement_ts = extract_optional_datetime(market_json, "settlement_ts");
+
+	// Kalshi's v2 REST schema uses ``yes_bid_dollars`` / ``yes_ask_dollars``
+	// etc. (string decimal dollars) in current responses but ``yes_bid`` /
+	// ``yes_ask`` (raw cent integers) in archived responses. The
+	// extract_cents_or_dollars helper accepts either shape, preferring
+	// the ``_dollars`` form when present. Without this, open-market
+	// rows land with 0s for every price field and the trader's
+	// scanner reports "0 executable markets".
+	market.yes_bid = static_cast<std::int32_t>(extract_cents_or_dollars(market_json, "yes_bid"));
+	market.yes_ask = static_cast<std::int32_t>(extract_cents_or_dollars(market_json, "yes_ask"));
+	market.no_bid = static_cast<std::int32_t>(extract_cents_or_dollars(market_json, "no_bid"));
+	market.no_ask = static_cast<std::int32_t>(extract_cents_or_dollars(market_json, "no_ask"));
+	market.volume = static_cast<std::int32_t>(extract_int(market_json, "volume"));
+	market.open_interest = static_cast<std::int32_t>(extract_int(market_json, "open_interest"));
+	market.settlement_timer_seconds =
+		extract_optional_int32(market_json, "settlement_timer_seconds");
+	market.settlement_value_cents =
+		extract_optional_cents_or_dollars(market_json, "settlement_value");
+
+	std::string expiration_value_str = extract_string(market_json, "expiration_value");
+	if (!expiration_value_str.empty()) {
+		market.expiration_value = expiration_value_str;
+	}
+
+	std::string result_str = extract_string(market_json, "result");
+	if (!result_str.empty()) {
+		market.result = result_str;
+	}
+
+	return market;
+}
+
+std::vector<Market> parse_markets_response(std::string_view body) {
+	const std::string response_body{body};
+	std::vector<Market> markets;
+	std::vector<std::string> market_objects = extract_array_objects(response_body, "markets");
+	markets.reserve(market_objects.size());
+
+	for (const std::string& obj : market_objects) {
+		markets.push_back(parse_market_response(obj));
+	}
+
+	return markets;
+}
 
 OrderBook parse_orderbook_response(std::string_view body) {
 	const std::string response_body{body};
@@ -1001,64 +1100,11 @@ Result<Market> KalshiClient::get_market(const std::string& ticker) {
 }
 
 Result<Market> KalshiClient::parse_market(const std::string& json) {
-	// Find market object (may be nested under "market" key or at root)
-	size_t market_start = find_object_start(json, "market");
-	std::string market_json =
-		market_start != std::string::npos
-			? json.substr(market_start, find_object_end(json, market_start) - market_start)
-			: json;
-
-	Market market;
-	market.ticker = extract_string(market_json, "ticker");
-	market.title = extract_string(market_json, "title");
-	market.subtitle = extract_string(market_json, "subtitle");
-
-	std::string status_str = extract_string(market_json, "status");
-	market.status = parse_market_status(status_str);
-
-	// Time fields are ISO 8601 datetime strings in the Kalshi API response
-	market.open_time = extract_datetime(market_json, "open_time");
-	market.close_time = extract_datetime(market_json, "close_time");
-
-	std::int64_t exp_time = extract_datetime(market_json, "expiration_time");
-	if (exp_time > 0) {
-		market.expiration_time = exp_time;
-	}
-
-	// Kalshi's v2 REST schema uses ``yes_bid_dollars`` / ``yes_ask_dollars``
-	// etc. (string decimal dollars) in current responses but ``yes_bid`` /
-	// ``yes_ask`` (raw cent integers) in archived responses. The
-	// extract_cents_or_dollars helper accepts either shape, preferring
-	// the ``_dollars`` form when present. Without this, open-market
-	// rows land with 0s for every price field and the trader's
-	// scanner reports "0 executable markets".
-	market.yes_bid = static_cast<std::int32_t>(extract_cents_or_dollars(market_json, "yes_bid"));
-	market.yes_ask = static_cast<std::int32_t>(extract_cents_or_dollars(market_json, "yes_ask"));
-	market.no_bid = static_cast<std::int32_t>(extract_cents_or_dollars(market_json, "no_bid"));
-	market.no_ask = static_cast<std::int32_t>(extract_cents_or_dollars(market_json, "no_ask"));
-	market.volume = static_cast<std::int32_t>(extract_int(market_json, "volume"));
-	market.open_interest = static_cast<std::int32_t>(extract_int(market_json, "open_interest"));
-
-	std::string result_str = extract_string(market_json, "result");
-	if (!result_str.empty()) {
-		market.result = result_str;
-	}
-
-	return market;
+	return api_detail::parse_market_response(json);
 }
 
 Result<std::vector<Market>> KalshiClient::parse_markets(const std::string& json) {
-	std::vector<Market> markets;
-	std::vector<std::string> market_objects = extract_array_objects(json, "markets");
-
-	for (const std::string& obj : market_objects) {
-		Result<Market> market = parse_market(obj);
-		if (market) {
-			markets.push_back(std::move(*market));
-		}
-	}
-
-	return markets;
+	return api_detail::parse_markets_response(json);
 }
 
 std::string KalshiClient::build_markets_query(const GetMarketsParams& params) {

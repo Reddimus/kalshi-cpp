@@ -1044,6 +1044,10 @@ private:
 [[nodiscard]] inline MarketStatus parse_market_status(std::string_view s) {
 	if (s == "active" || s == "open" || s == "initialized")
 		return MarketStatus::Open;
+	if (s == "unopened")
+		return MarketStatus::Unopened;
+	if (s == "paused")
+		return MarketStatus::Paused;
 	if (s == "settled" || s == "determined")
 		return MarketStatus::Settled;
 	return MarketStatus::Closed;

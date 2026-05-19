@@ -35,6 +35,14 @@ TEST(Api, ParseMarketStatusOpen) {
 	ASSERT_EQ(kalshi::parse_market_status("initialized"), kalshi::MarketStatus::Open);
 }
 
+TEST(Api, ParseMarketStatusUnopened) {
+	ASSERT_EQ(kalshi::parse_market_status("unopened"), kalshi::MarketStatus::Unopened);
+}
+
+TEST(Api, ParseMarketStatusPaused) {
+	ASSERT_EQ(kalshi::parse_market_status("paused"), kalshi::MarketStatus::Paused);
+}
+
 TEST(Api, ParseMarketStatusSettled) {
 	ASSERT_EQ(kalshi::parse_market_status("settled"), kalshi::MarketStatus::Settled);
 	ASSERT_EQ(kalshi::parse_market_status("determined"), kalshi::MarketStatus::Settled);
@@ -276,5 +284,10 @@ TEST(Api, MarketDefaultTimestamps) {
 	kalshi::Market market;
 	ASSERT_EQ(market.open_time, 0);
 	ASSERT_EQ(market.close_time, 0);
+	ASSERT_FALSE(market.expected_expiration_time.has_value());
 	ASSERT_FALSE(market.expiration_time.has_value());
+	ASSERT_FALSE(market.latest_expiration_time.has_value());
+	ASSERT_FALSE(market.settlement_ts.has_value());
+	ASSERT_FALSE(market.settlement_timer_seconds.has_value());
+	ASSERT_FALSE(market.settlement_value_cents.has_value());
 }
