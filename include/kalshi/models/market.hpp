@@ -37,7 +37,7 @@ enum class BookSide : std::uint8_t { Bid, Ask };
 }
 
 /// Market status
-enum class MarketStatus : std::uint8_t { Unopened, Open, Paused, Closed, Settled };
+enum class MarketStatus : std::uint8_t { Open, Closed, Settled, Unopened, Paused };
 
 /// Price-quantity pair in an order book
 struct OrderBookEntry {
