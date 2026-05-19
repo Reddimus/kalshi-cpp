@@ -6,6 +6,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.5] - 2026-05-19
+
 ### Added
 
 - **REST**: Added `get_market_orderbooks(tickers)` for Kalshi's documented
@@ -407,7 +409,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.4...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.5...HEAD
+[0.4.5]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.1...v0.4.2

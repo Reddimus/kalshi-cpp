@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(kalshi-cpp VERSION 0.4.4 LANGUAGES CXX)
+project(kalshi-cpp VERSION 0.4.5 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
