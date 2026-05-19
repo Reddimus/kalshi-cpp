@@ -480,6 +480,7 @@ This matrix compares feature coverage across official SDKs and this C++ implemen
 | Order Queue Position | ✅ | ✅ | ❌ | ✅ |
 | RFQ/Quotes (full lifecycle) | ✅ | ✅ | ❌ | ✅ |
 | API Keys Management (incl. generate) | ✅ | ✅ | ❌ | ✅ |
+| Account API Limits + Endpoint Costs | ✅ | ✅ | ❌ | ✅ |
 | Milestones | ✅ | ✅ | ❌ | ✅ |
 | Multivariate Collections (incl. lookup) | ✅ | ✅ | ❌ | ✅ |
 | Structured Targets | ✅ | ✅ | ❌ | ✅ |
@@ -487,6 +488,23 @@ This matrix compares feature coverage across official SDKs and this C++ implemen
 | Search API | ❌ | ✅ | ❌ | ✅ |
 | Live Data API | ❌ | ✅ | ❌ | ✅ |
 | Incentive Programs | ❌ | ✅ | ❌ | ✅ |
+
+### Account API Rate-Limit Metadata
+
+Kalshi's current API docs expose two account metadata endpoints that let
+clients adapt to tier-specific token budgets without hard-coding static
+limits:
+
+- `GET /account/limits` returns the authenticated account usage tier plus
+  separate `read` and `write` token buckets with `refill_rate` and
+  `bucket_capacity`.
+- `GET /account/endpoint_costs` returns the default endpoint token cost and
+  only the endpoint overrides whose costs differ from that default.
+
+The rate-limit guide documents separate read/write budgets and token-cost
+semantics. Kalshi's API changelog records the nested token-bucket shape for
+`/account/limits` as an April 30, 2026 breaking-change rollout and the
+`/account/endpoint_costs` endpoint as an April 22, 2026 feature rollout.
 
 ### WebSocket Channels Parity
 
@@ -520,4 +538,8 @@ The C++ SDK now provides **complete feature parity** with the official Kalshi Py
 - Python SDK (sync): `kalshi-python-sync@3.16.0` on PyPI (official, OpenAPI-generated)
 - Python SDK (async): `kalshi-python-async@3.16.0` on PyPI (official, OpenAPI-generated)
 - API Documentation: <https://docs.kalshi.com>
+- Rate Limits and Tiers: <https://docs.kalshi.com/getting_started/rate_limits>
+- Get Account API Limits: <https://docs.kalshi.com/api-reference/account/get-account-api-limits>
+- List Non-Default Endpoint Costs: <https://docs.kalshi.com/api-reference/account/list-non-default-endpoint-costs>
+- API Changelog: <https://docs.kalshi.com/changelog>
 - OpenAPI Generator: Python SDKs are auto-generated from OpenAPI spec

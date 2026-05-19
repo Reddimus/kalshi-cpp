@@ -44,6 +44,32 @@ struct ExchangeStatus {
 	bool exchange_active{false};
 };
 
+/// Token-bucket budget for one Kalshi API rate-limit bucket.
+struct AccountRateLimitBucket {
+	std::int64_t refill_rate{0};
+	std::int64_t bucket_capacity{0};
+};
+
+/// Authenticated account API usage tier and read/write token budgets.
+struct AccountApiLimits {
+	std::string usage_tier;
+	AccountRateLimitBucket read;
+	AccountRateLimitBucket write;
+};
+
+/// Non-default token cost for one API endpoint.
+struct EndpointCost {
+	std::string method;
+	std::string path;
+	std::int64_t cost{0};
+};
+
+/// Account-level endpoint cost metadata.
+struct EndpointCosts {
+	std::int64_t default_cost{0};
+	std::vector<EndpointCost> endpoint_costs;
+};
+
 /// Account balance
 struct Balance {
 	std::int64_t balance{0};		   // cents
@@ -666,6 +692,14 @@ public:
 
 	/// Get user data timestamp
 	[[nodiscard]] Result<UserDataTimestamp> get_user_data_timestamp();
+
+	// ===== Account API (Authenticated) =====
+
+	/// Get account API tier and token-bucket limits
+	[[nodiscard]] Result<AccountApiLimits> get_account_api_limits();
+
+	/// List API endpoints whose token cost differs from the default
+	[[nodiscard]] Result<EndpointCosts> get_endpoint_costs();
 
 	// ===== Markets API =====
 

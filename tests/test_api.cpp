@@ -246,6 +246,26 @@ TEST(Api, ExchangeStatusDefaultConstruction) {
 	ASSERT_FALSE(status.exchange_active);
 }
 
+TEST(Api, AccountApiLimitsDefaultConstruction) {
+	kalshi::AccountApiLimits limits;
+	ASSERT_TRUE(limits.usage_tier.empty());
+	ASSERT_EQ(limits.read.refill_rate, 0);
+	ASSERT_EQ(limits.read.bucket_capacity, 0);
+	ASSERT_EQ(limits.write.refill_rate, 0);
+	ASSERT_EQ(limits.write.bucket_capacity, 0);
+}
+
+TEST(Api, EndpointCostsDefaultConstruction) {
+	kalshi::EndpointCosts costs;
+	ASSERT_EQ(costs.default_cost, 0);
+	ASSERT_TRUE(costs.endpoint_costs.empty());
+
+	kalshi::EndpointCost row;
+	ASSERT_TRUE(row.method.empty());
+	ASSERT_TRUE(row.path.empty());
+	ASSERT_EQ(row.cost, 0);
+}
+
 TEST(Api, SeriesDefaultConstruction) {
 	kalshi::Series series;
 	ASSERT_TRUE(series.ticker.empty());

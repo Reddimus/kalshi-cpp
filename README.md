@@ -378,6 +378,8 @@ int main() {
 - `generate_api_key(params)` - Generate an API key with specific scopes
 - `delete_api_key(id)` - Delete API key
 - `get_user_data_timestamp()` - Last-modified timestamp for the authenticated user
+- `get_account_api_limits()` - Account API tier and read/write token buckets
+- `get_endpoint_costs()` - Non-default endpoint token costs
 - `get_milestones(params)` - List milestones
 - `get_milestone(id)` - Get milestone
 - `get_multivariate_collections(params)` - List collections

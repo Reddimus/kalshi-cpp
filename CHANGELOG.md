@@ -6,6 +6,13 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **REST**: Added `get_account_api_limits()` and `get_endpoint_costs()`
+  for Kalshi's authenticated account API metadata endpoints. These expose
+  account usage tier, read/write token-bucket budgets, default endpoint
+  token cost, and non-default endpoint cost overrides.
+
 ## [0.4.6] - 2026-05-19
 
 ### Fixed

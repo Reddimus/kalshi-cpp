@@ -327,4 +327,56 @@ TEST(ResponseParsers, BatchOrderCancelResultParsesV2Errors) {
 	EXPECT_EQ(results[1].error->service, "matching_engine");
 }
 
+TEST(ResponseParsers, AccountApiLimitsParseReadWriteBuckets) {
+	const std::string body = R"json({
+		"usage_tier": "advanced",
+		"read": {
+			"refill_rate": 300,
+			"bucket_capacity": 600
+		},
+		"write": {
+			"refill_rate": 100,
+			"bucket_capacity": 200
+		}
+	})json";
+
+	const kalshi::AccountApiLimits limits =
+		kalshi::api_detail::parse_account_api_limits_response(body);
+
+	EXPECT_EQ(limits.usage_tier, "advanced");
+	EXPECT_EQ(limits.read.refill_rate, 300);
+	EXPECT_EQ(limits.read.bucket_capacity, 600);
+	EXPECT_EQ(limits.write.refill_rate, 100);
+	EXPECT_EQ(limits.write.bucket_capacity, 200);
+}
+
+TEST(ResponseParsers, EndpointCostsParseDefaultAndOverrides) {
+	const std::string body = R"json({
+		"default_cost": 10,
+		"endpoint_costs": [
+			{
+				"method": "DELETE",
+				"path": "/portfolio/events/orders/{order_id}",
+				"cost": 2
+			},
+			{
+				"method": "GET",
+				"path": "/portfolio/orders/{order_id}",
+				"cost": 1
+			}
+		]
+	})json";
+
+	const kalshi::EndpointCosts costs = kalshi::api_detail::parse_endpoint_costs_response(body);
+
+	ASSERT_EQ(costs.default_cost, 10);
+	ASSERT_EQ(costs.endpoint_costs.size(), 2U);
+	EXPECT_EQ(costs.endpoint_costs[0].method, "DELETE");
+	EXPECT_EQ(costs.endpoint_costs[0].path, "/portfolio/events/orders/{order_id}");
+	EXPECT_EQ(costs.endpoint_costs[0].cost, 2);
+	EXPECT_EQ(costs.endpoint_costs[1].method, "GET");
+	EXPECT_EQ(costs.endpoint_costs[1].path, "/portfolio/orders/{order_id}");
+	EXPECT_EQ(costs.endpoint_costs[1].cost, 1);
+}
+
 } // namespace

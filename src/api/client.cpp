@@ -861,6 +861,52 @@ std::vector<OrderCancelResult> parse_batch_order_cancel_result_response(std::str
 	return results;
 }
 
+AccountApiLimits parse_account_api_limits_response(std::string_view body) {
+	const std::string response_body{body};
+	AccountApiLimits result;
+	result.usage_tier = extract_string(response_body, "usage_tier");
+
+	const size_t read_start = find_object_start(response_body, "read");
+	if (read_start != std::string::npos) {
+		const size_t read_end = find_object_end(response_body, read_start);
+		if (read_end != std::string::npos && read_end > read_start) {
+			const std::string read_json = response_body.substr(read_start, read_end - read_start);
+			result.read.refill_rate = extract_int(read_json, "refill_rate");
+			result.read.bucket_capacity = extract_int(read_json, "bucket_capacity");
+		}
+	}
+
+	const size_t write_start = find_object_start(response_body, "write");
+	if (write_start != std::string::npos) {
+		const size_t write_end = find_object_end(response_body, write_start);
+		if (write_end != std::string::npos && write_end > write_start) {
+			const std::string write_json =
+				response_body.substr(write_start, write_end - write_start);
+			result.write.refill_rate = extract_int(write_json, "refill_rate");
+			result.write.bucket_capacity = extract_int(write_json, "bucket_capacity");
+		}
+	}
+
+	return result;
+}
+
+EndpointCosts parse_endpoint_costs_response(std::string_view body) {
+	const std::string response_body{body};
+	EndpointCosts result;
+	result.default_cost = extract_int(response_body, "default_cost");
+
+	const std::vector<std::string> objs = extract_array_objects(response_body, "endpoint_costs");
+	result.endpoint_costs.reserve(objs.size());
+	for (const std::string& obj : objs) {
+		EndpointCost row;
+		row.method = extract_string(obj, "method");
+		row.path = extract_string(obj, "path");
+		row.cost = extract_int(obj, "cost");
+		result.endpoint_costs.push_back(std::move(row));
+	}
+	return result;
+}
+
 std::string build_series_query_string(const GetSeriesParams& params) {
 	std::string query = "/series";
 	if (params.limit)
@@ -902,6 +948,38 @@ Result<ExchangeStatus> KalshiClient::get_exchange_status() {
 	status.trading_active = extract_bool(response->body, "trading_active");
 	status.exchange_active = extract_bool(response->body, "exchange_active");
 	return status;
+}
+
+Result<AccountApiLimits> KalshiClient::get_account_api_limits() {
+	Result<HttpResponse> response = impl_->client.get("/account/limits");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get account API limits: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	return api_detail::parse_account_api_limits_response(response->body);
+}
+
+Result<EndpointCosts> KalshiClient::get_endpoint_costs() {
+	Result<HttpResponse> response = impl_->client.get("/account/endpoint_costs");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get endpoint costs: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	return api_detail::parse_endpoint_costs_response(response->body);
 }
 
 // ===== Markets API =====

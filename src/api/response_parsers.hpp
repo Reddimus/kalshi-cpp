@@ -33,4 +33,10 @@ namespace kalshi::api_detail {
 [[nodiscard]] std::vector<OrderCancelResult>
 parse_batch_order_cancel_result_response(std::string_view body);
 
+/// Parses ``GET /account/limits``.
+[[nodiscard]] AccountApiLimits parse_account_api_limits_response(std::string_view body);
+
+/// Parses ``GET /account/endpoint_costs``.
+[[nodiscard]] EndpointCosts parse_endpoint_costs_response(std::string_view body);
+
 } // namespace kalshi::api_detail
