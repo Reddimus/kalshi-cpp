@@ -13,4 +13,8 @@ namespace kalshi::api_detail {
 // the access modifier is part of the mangled symbol name on Windows).
 [[nodiscard]] std::string build_series_query_string(const GetSeriesParams& params);
 
+/// Builds the event-market cancel-order V2 path including optional
+/// subaccount and exchange-index query parameters.
+[[nodiscard]] std::string build_cancel_order_v2_path(const CancelOrderV2Params& params);
+
 } // namespace kalshi::api_detail

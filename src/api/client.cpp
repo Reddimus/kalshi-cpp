@@ -642,6 +642,45 @@ std::vector<Withdrawal> parse_withdrawals_response(std::string_view body) {
 	return parse_portfolio_movements<Withdrawal>(body, "withdrawals");
 }
 
+OrderCancelResult parse_order_cancel_result_response(std::string_view body) {
+	const std::string obj{body};
+	OrderCancelResult result;
+	result.order_id = extract_string(obj, "order_id");
+	result.reduced_by = extract_string(obj, "reduced_by");
+	result.ts_ms = extract_int(obj, "ts_ms");
+	result.client_order_id = extract_string(obj, "client_order_id");
+
+	const size_t error_start = find_object_start(obj, "error");
+	if (error_start != std::string::npos) {
+		const size_t error_end = find_object_end(obj, error_start);
+		if (error_end != std::string::npos && error_end > error_start) {
+			const std::string error_obj = obj.substr(error_start, error_end - error_start);
+			OrderCancelError error;
+			error.code = extract_string(error_obj, "code");
+			error.message = extract_string(error_obj, "message");
+			error.details = extract_string(error_obj, "details");
+			error.service = extract_string(error_obj, "service");
+			if (!error.code.empty() || !error.message.empty() || !error.details.empty() ||
+				!error.service.empty()) {
+				result.error = std::move(error);
+			}
+		}
+	}
+
+	return result;
+}
+
+std::vector<OrderCancelResult> parse_batch_order_cancel_result_response(std::string_view body) {
+	const std::string response_body{body};
+	std::vector<OrderCancelResult> results;
+	const std::vector<std::string> objs = extract_array_objects(response_body, "orders");
+	results.reserve(objs.size());
+	for (const std::string& obj : objs) {
+		results.push_back(parse_order_cancel_result_response(obj));
+	}
+	return results;
+}
+
 std::string build_series_query_string(const GetSeriesParams& params) {
 	std::string query = "/series";
 	if (params.limit)
@@ -651,6 +690,15 @@ std::string build_series_query_string(const GetSeriesParams& params) {
 	if (params.category)
 		append_query_param(query, "category", *params.category);
 	return query;
+}
+
+std::string build_cancel_order_v2_path(const CancelOrderV2Params& params) {
+	std::string path = "/portfolio/events/orders/" + params.order_id;
+	if (params.subaccount)
+		append_query_param(path, "subaccount", *params.subaccount);
+	if (params.exchange_index)
+		append_query_param(path, "exchange_index", *params.exchange_index);
+	return path;
 }
 
 } // namespace api_detail
@@ -1513,6 +1561,22 @@ Result<void> KalshiClient::cancel_order(const std::string& order_id) {
 	return {};
 }
 
+Result<OrderCancelResult> KalshiClient::cancel_order_v2(const CancelOrderV2Params& params) {
+	Result<HttpResponse> response =
+		impl_->client.del(api_detail::build_cancel_order_v2_path(params));
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to cancel event order: " + response->body,
+									 response->status_code});
+	}
+
+	return api_detail::parse_order_cancel_result_response(response->body);
+}
+
 std::string KalshiClient::serialize_amend_order(const AmendOrderParams& params) {
 	// API requires stable key order — pinned by `glz::meta<ser::AmendOrderBody>`.
 	ser::AmendOrderBody body;
@@ -1633,6 +1697,31 @@ KalshiClient::batch_cancel_orders(const BatchCancelRequest& request) {
 
 	BatchResponse<std::string> result;
 	result.results = batch_cancel_result_ids(request); // Assume all requested IDs cancelled if 200
+	return result;
+}
+
+Result<BatchResponse<OrderCancelResult>>
+KalshiClient::batch_cancel_orders_v2(const BatchCancelRequest& request) {
+	std::string body = serialize_batch_cancel(request);
+
+	Result<HttpResponse> response = impl_->client.del("/portfolio/events/orders/batched", body);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to batch cancel event orders: " + response->body,
+									 response->status_code});
+	}
+
+	BatchResponse<OrderCancelResult> result;
+	result.results = api_detail::parse_batch_order_cancel_result_response(response->body);
+	for (const OrderCancelResult& order : result.results) {
+		if (order.error && !order.error->message.empty()) {
+			result.errors.push_back(order.error->message);
+		}
+	}
 	return result;
 }
 

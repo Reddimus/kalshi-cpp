@@ -293,10 +293,12 @@ Based on the Python SDK kalshi-python@2.1.4 analysis:
 
 - `POST /portfolio/orders` - Create order
 - `DELETE /portfolio/orders/{order_id}` - Cancel order
+- `DELETE /portfolio/events/orders/{order_id}` - Cancel event-market order (V2)
 - `POST /portfolio/orders/{order_id}/amend` - Amend order
 - `POST /portfolio/orders/{order_id}/decrease` - Decrease order
 - `POST /portfolio/orders/batched` - Batch create orders
 - `DELETE /portfolio/orders/batched` - Batch cancel orders
+- `DELETE /portfolio/events/orders/batched` - Batch cancel event-market orders (V2)
 
 ## Data Models
 
@@ -456,10 +458,12 @@ This matrix compares feature coverage across official SDKs and this C++ implemen
 | -------- | ----------- | ------------ | ---------- | --- |
 | `POST /portfolio/orders` | ✅ | ✅ | ❌ | ✅ |
 | `DELETE /portfolio/orders/{id}` | ✅ | ✅ | ❌ | ✅ |
+| `DELETE /portfolio/events/orders/{id}` | ✅ | ✅ | ❌ | ✅ |
 | `POST /portfolio/orders/{id}/amend` | ✅ | ✅ | ❌ | ✅ |
 | `POST /portfolio/orders/{id}/decrease` | ✅ | ✅ | ❌ | ✅ |
 | `POST /portfolio/orders/batched` | ✅ | ✅ | ❌ | ✅ |
 | `DELETE /portfolio/orders/batched` | ✅ | ✅ | ❌ | ✅ |
+| `DELETE /portfolio/events/orders/batched` | ✅ | ✅ | ❌ | ✅ |
 
 ### REST API - Additional Features
 

@@ -18,4 +18,11 @@ namespace kalshi::api_detail {
 /// Symmetric to ``parse_deposits_response`` with a different array key.
 [[nodiscard]] std::vector<Withdrawal> parse_withdrawals_response(std::string_view body);
 
+/// Parses the direct response from ``DELETE /portfolio/events/orders/{id}``.
+[[nodiscard]] OrderCancelResult parse_order_cancel_result_response(std::string_view body);
+
+/// Parses the ``orders`` array from ``DELETE /portfolio/events/orders/batched``.
+[[nodiscard]] std::vector<OrderCancelResult>
+parse_batch_order_cancel_result_response(std::string_view body);
+
 } // namespace kalshi::api_detail

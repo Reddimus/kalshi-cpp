@@ -6,6 +6,18 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.4] - 2026-05-18
+
+### Added
+
+- **REST**: Added typed event-market order-cancel V2 support:
+  `CancelOrderV2Params`, `OrderCancelResult`, `cancel_order_v2(params)`,
+  and `batch_cancel_orders_v2(request)`. These call Kalshi's
+  `/portfolio/events/orders/{order_id}` and
+  `/portfolio/events/orders/batched` endpoints and preserve V2 response
+  fields including `reduced_by`, `ts_ms`, `client_order_id`, and
+  per-order error payloads.
+
 ## [0.4.3] - 2026-05-18
 
 ### Fixed
@@ -380,7 +392,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.3...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.4...HEAD
+[0.4.4]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.2...v0.4.3
 [0.4.2]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.1...v0.4.2
 [0.4.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.0...v0.4.1

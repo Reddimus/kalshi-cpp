@@ -22,3 +22,21 @@ TEST(QueryBuilders, SeriesListEncodesStringParameters) {
 	EXPECT_EQ(kalshi::api_detail::build_series_query_string(params),
 			  "/series?limit=200&cursor=abc%2B%2F%3D&category=Climate%20and%20Weather");
 }
+
+TEST(QueryBuilders, CancelOrderV2AddsOptionalSelectors) {
+	kalshi::CancelOrderV2Params params;
+	params.order_id = "order-123";
+	params.subaccount = 9;
+	params.exchange_index = 0;
+
+	EXPECT_EQ(kalshi::api_detail::build_cancel_order_v2_path(params),
+			  "/portfolio/events/orders/order-123?subaccount=9&exchange_index=0");
+}
+
+TEST(QueryBuilders, CancelOrderV2OmitsUnsetSelectors) {
+	kalshi::CancelOrderV2Params params;
+	params.order_id = "order-123";
+
+	EXPECT_EQ(kalshi::api_detail::build_cancel_order_v2_path(params),
+			  "/portfolio/events/orders/order-123");
+}

@@ -132,6 +132,32 @@ TEST(Api, BatchCancelRequestSupportsCurrentOrderSelectors) {
 	ASSERT_EQ(request.orders.front().exchange_index, 1);
 }
 
+TEST(Api, CancelOrderV2ParamsSupportSubaccountSelectors) {
+	kalshi::CancelOrderV2Params params;
+	params.order_id = "order-123";
+	params.subaccount = 7;
+	params.exchange_index = 0;
+
+	ASSERT_EQ(params.order_id, std::string("order-123"));
+	ASSERT_EQ(params.subaccount, 7);
+	ASSERT_EQ(params.exchange_index, 0);
+}
+
+TEST(Api, OrderCancelResultCapturesPerOrderError) {
+	kalshi::OrderCancelResult result;
+	result.order_id = "order-123";
+	result.reduced_by = "10.00";
+	result.ts_ms = 1779148800123;
+	result.error = kalshi::OrderCancelError{.code = "not_found", .message = "missing"};
+
+	ASSERT_EQ(result.order_id, std::string("order-123"));
+	ASSERT_EQ(result.reduced_by, std::string("10.00"));
+	ASSERT_EQ(result.ts_ms, 1779148800123);
+	ASSERT_TRUE(result.error.has_value());
+	ASSERT_EQ(result.error->code, std::string("not_found"));
+	ASSERT_EQ(result.error->message, std::string("missing"));
+}
+
 // --- Response structures ---
 
 TEST(Api, EventDefaultConstruction) {

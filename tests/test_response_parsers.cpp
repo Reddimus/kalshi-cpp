@@ -188,4 +188,62 @@ TEST(ResponseParsers, WithdrawalsEmptyArrayWhenKeyMissing) {
 	EXPECT_TRUE(withdrawals.empty());
 }
 
+TEST(ResponseParsers, OrderCancelResultParsesV2Response) {
+	const std::string body = R"json({
+		"order_id": "order-1",
+		"reduced_by": "10.00",
+		"ts_ms": 1779148800123,
+		"client_order_id": "client-1"
+	})json";
+
+	const kalshi::OrderCancelResult result =
+		kalshi::api_detail::parse_order_cancel_result_response(body);
+
+	EXPECT_EQ(result.order_id, "order-1");
+	EXPECT_EQ(result.reduced_by, "10.00");
+	EXPECT_EQ(result.ts_ms, 1779148800123);
+	EXPECT_EQ(result.client_order_id, "client-1");
+	EXPECT_FALSE(result.error.has_value());
+}
+
+TEST(ResponseParsers, BatchOrderCancelResultParsesV2Errors) {
+	const std::string body = R"json({
+		"orders": [
+			{
+				"order_id": "order-1",
+				"reduced_by": "10.00",
+				"client_order_id": "client-1",
+				"ts_ms": 1779148800123
+			},
+			{
+				"order_id": "order-2",
+				"reduced_by": "0.00",
+				"client_order_id": "client-2",
+				"ts_ms": 1779148800456,
+				"error": {
+					"code": "not_found",
+					"message": "order not found",
+					"details": "missing order",
+					"service": "matching_engine"
+				}
+			}
+		]
+	})json";
+
+	const std::vector<kalshi::OrderCancelResult> results =
+		kalshi::api_detail::parse_batch_order_cancel_result_response(body);
+
+	ASSERT_EQ(results.size(), 2U);
+	EXPECT_EQ(results[0].order_id, "order-1");
+	EXPECT_EQ(results[0].reduced_by, "10.00");
+	EXPECT_FALSE(results[0].error.has_value());
+	EXPECT_EQ(results[1].order_id, "order-2");
+	EXPECT_EQ(results[1].ts_ms, 1779148800456);
+	ASSERT_TRUE(results[1].error.has_value());
+	EXPECT_EQ(results[1].error->code, "not_found");
+	EXPECT_EQ(results[1].error->message, "order not found");
+	EXPECT_EQ(results[1].error->details, "missing order");
+	EXPECT_EQ(results[1].error->service, "matching_engine");
+}
+
 } // namespace

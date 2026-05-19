@@ -598,6 +598,30 @@ struct BatchCancelRequest {
 	std::vector<BatchCancelOrder> orders;
 };
 
+/// Parameters for Kalshi's event-market cancel-order V2 endpoint.
+struct CancelOrderV2Params {
+	std::string order_id;
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::int32_t> exchange_index;
+};
+
+/// Per-order error payload returned by event-market batch cancel V2.
+struct OrderCancelError {
+	std::string code;
+	std::string message;
+	std::string details;
+	std::string service;
+};
+
+/// Cancel result returned by Kalshi's event-market order-cancel V2 endpoints.
+struct OrderCancelResult {
+	std::string order_id;
+	std::string reduced_by;
+	std::int64_t ts_ms{0};
+	std::string client_order_id;
+	std::optional<OrderCancelError> error;
+};
+
 // Response structures
 
 /// Response for creating an order
@@ -754,6 +778,9 @@ public:
 	/// Cancel an order
 	[[nodiscard]] Result<void> cancel_order(const std::string& order_id);
 
+	/// Cancel an event-market order using Kalshi's V2 response shape.
+	[[nodiscard]] Result<OrderCancelResult> cancel_order_v2(const CancelOrderV2Params& params);
+
 	/// Amend an existing order (change price/count)
 	[[nodiscard]] Result<Order> amend_order(const AmendOrderParams& params);
 
@@ -767,6 +794,10 @@ public:
 	/// Cancel multiple orders in a batch
 	[[nodiscard]] Result<BatchResponse<std::string>>
 	batch_cancel_orders(const BatchCancelRequest& request);
+
+	/// Cancel multiple event-market orders using Kalshi's V2 response shape.
+	[[nodiscard]] Result<BatchResponse<OrderCancelResult>>
+	batch_cancel_orders_v2(const BatchCancelRequest& request);
 
 	// ===== Order Groups (Authenticated) =====
 

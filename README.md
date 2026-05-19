@@ -159,7 +159,7 @@ include(FetchContent)
 FetchContent_Declare(
     kalshi
     GIT_REPOSITORY https://github.com/Reddimus/kalshi-cpp.git
-    GIT_TAG v0.4.3  # pin a tagged release
+    GIT_TAG v0.4.4  # pin a tagged release
 )
 # Suppress upstream tests + examples in your service builds
 set(KALSHI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -334,11 +334,14 @@ int main() {
 
 - `create_order(params)` - Create order
 - `cancel_order(id)` - Cancel order
+- `cancel_order_v2(params)` - Cancel event-market order with V2 result metadata
 - `amend_order(params)` - Amend order
 - `decrease_order(params)` - Decrease order size
 - `batch_create_orders(request)` - Batch create
 - `batch_cancel_orders(request)` - Batch cancel with current `orders`
   selectors; legacy `order_ids` callers are mapped to that body shape
+- `batch_cancel_orders_v2(request)` - Batch cancel event-market orders with V2
+  per-order results and errors
 - `get_total_resting_order_value()` - Sum of all resting buy orders
 
 ### Order Groups
