@@ -240,6 +240,7 @@ Based on the Python SDK kalshi-python@2.1.4 analysis:
 - `GET /markets` - List markets (paginated)
 - `GET /markets/{ticker}` - Get market details
 - `GET /markets/{ticker}/orderbook` - Get order book
+- `GET /markets/orderbooks` - Get multiple market order books
 - `GET /series/{event_ticker}/markets/{ticker}/candlesticks` - Get candlestick (OHLC) data
 - `GET /trades` - Get public trades (paginated)
 
@@ -427,6 +428,7 @@ This matrix compares feature coverage across official SDKs and this C++ implemen
 | `GET /markets` | ✅ | ✅ | ❌ | ✅ |
 | `GET /markets/{ticker}` | ✅ | ✅ | ❌ | ✅ |
 | `GET /markets/{ticker}/orderbook` | ✅ | ✅ | ❌ | ✅ |
+| `GET /markets/orderbooks` | ✅ | ✅ | ❌ | ✅ |
 | `GET /series/{event}/markets/{ticker}/candlesticks` | ✅ | ✅ | ❌ | ✅ |
 | `GET /trades` | ✅ | ✅ | ❌ | ✅ |
 

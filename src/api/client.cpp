@@ -4,7 +4,9 @@
 #include <charconv>
 #include <cstdint>
 #include <cstring>
+#include <limits>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "json_bodies.hpp"
@@ -458,15 +460,147 @@ std::vector<std::string> extract_array_objects(const std::string& json, const st
 	return result;
 }
 
-// Safe integer parsing that returns 0 on error instead of throwing
-std::int32_t safe_stoi(const std::string& str) {
-	if (str.empty())
+std::string_view trim_json_scalar(std::string_view value) {
+	while (!value.empty() && std::isspace(static_cast<unsigned char>(value.front())) != 0) {
+		value.remove_prefix(1);
+	}
+	while (!value.empty() && std::isspace(static_cast<unsigned char>(value.back())) != 0) {
+		value.remove_suffix(1);
+	}
+	if (value.size() >= 2 && value.front() == '"' && value.back() == '"') {
+		value.remove_prefix(1);
+		value.remove_suffix(1);
+	}
+	return value;
+}
+
+std::int32_t parse_int_literal(std::string_view raw) {
+	const std::string_view value = trim_json_scalar(raw);
+	if (value.empty())
 		return 0;
 	std::int32_t result = 0;
-	auto [ptr, ec] = std::from_chars(str.data(), str.data() + str.size(), result);
-	if (ec != std::errc())
+	auto [ptr, ec] = std::from_chars(value.data(), value.data() + value.size(), result);
+	if (ec != std::errc() || ptr != value.data() + value.size())
 		return 0;
 	return result;
+}
+
+std::int32_t parse_dollar_cents_literal(std::string_view raw) {
+	const std::string_view value = trim_json_scalar(raw);
+	std::size_t i = 0;
+	bool negative = false;
+	if (i < value.size() && value[i] == '-') {
+		negative = true;
+		i++;
+	}
+
+	std::int64_t whole = 0;
+	while (i < value.size() && value[i] >= '0' && value[i] <= '9') {
+		if (whole > (std::numeric_limits<std::int64_t>::max() / 10)) {
+			return negative ? std::numeric_limits<std::int32_t>::min()
+							: std::numeric_limits<std::int32_t>::max();
+		}
+		whole = whole * 10 + (value[i] - '0');
+		i++;
+	}
+
+	std::int64_t cents_frac = 0;
+	if (i < value.size() && value[i] == '.') {
+		i++;
+		for (int d = 0; d < 2; d++) {
+			cents_frac *= 10;
+			if (i < value.size() && value[i] >= '0' && value[i] <= '9') {
+				cents_frac += value[i] - '0';
+				i++;
+			}
+		}
+		if (i < value.size() && value[i] >= '5' && value[i] <= '9') {
+			cents_frac++;
+		}
+	}
+
+	const std::int64_t total = whole * 100 + cents_frac;
+	const std::int64_t signed_total = negative ? -total : total;
+	if (signed_total > std::numeric_limits<std::int32_t>::max())
+		return std::numeric_limits<std::int32_t>::max();
+	if (signed_total < std::numeric_limits<std::int32_t>::min())
+		return std::numeric_limits<std::int32_t>::min();
+	return static_cast<std::int32_t>(signed_total);
+}
+
+std::int32_t parse_fixed_point_int_literal(std::string_view raw) {
+	const std::string_view value = trim_json_scalar(raw);
+	std::size_t i = 0;
+	bool negative = false;
+	if (i < value.size() && value[i] == '-') {
+		negative = true;
+		i++;
+	}
+
+	std::int64_t whole = 0;
+	while (i < value.size() && value[i] >= '0' && value[i] <= '9') {
+		if (whole > (std::numeric_limits<std::int64_t>::max() / 10)) {
+			return negative ? std::numeric_limits<std::int32_t>::min()
+							: std::numeric_limits<std::int32_t>::max();
+		}
+		whole = whole * 10 + (value[i] - '0');
+		i++;
+	}
+
+	if (i < value.size() && value[i] == '.') {
+		i++;
+		if (i < value.size() && value[i] >= '5' && value[i] <= '9') {
+			whole++;
+		}
+	}
+
+	const std::int64_t signed_total = negative ? -whole : whole;
+	if (signed_total > std::numeric_limits<std::int32_t>::max())
+		return std::numeric_limits<std::int32_t>::max();
+	if (signed_total < std::numeric_limits<std::int32_t>::min())
+		return std::numeric_limits<std::int32_t>::min();
+	return static_cast<std::int32_t>(signed_total);
+}
+
+std::vector<OrderBookEntry> parse_orderbook_entries(const std::string& json, const std::string& key,
+													bool price_is_dollars,
+													bool quantity_is_fixed_point) {
+	std::vector<OrderBookEntry> entries;
+	const size_t array_start = find_array_start(json, key);
+	if (array_start == std::string::npos)
+		return entries;
+
+	const size_t array_end = find_array_end(json, array_start);
+	if (array_end == std::string::npos || array_end <= array_start + 1)
+		return entries;
+
+	const std::string array = json.substr(array_start, array_end - array_start);
+	size_t pos = 1;
+	while (pos < array.size()) {
+		const size_t inner_start = array.find('[', pos);
+		if (inner_start == std::string::npos)
+			break;
+
+		const size_t comma = array.find(',', inner_start + 1);
+		const size_t inner_end =
+			comma == std::string::npos ? std::string::npos : array.find(']', comma + 1);
+		if (comma == std::string::npos || inner_end == std::string::npos)
+			break;
+
+		const std::string_view price_raw{array.data() + inner_start + 1, comma - inner_start - 1};
+		const std::string_view quantity_raw{array.data() + comma + 1, inner_end - comma - 1};
+
+		OrderBookEntry entry;
+		entry.price_cents =
+			price_is_dollars ? parse_dollar_cents_literal(price_raw) : parse_int_literal(price_raw);
+		entry.quantity = quantity_is_fixed_point ? parse_fixed_point_int_literal(quantity_raw)
+												 : parse_int_literal(quantity_raw);
+		entries.push_back(entry);
+
+		pos = inner_end + 1;
+	}
+
+	return entries;
 }
 
 std::string escape_json_string(const std::string& s) {
@@ -537,6 +671,52 @@ void append_query_param(std::string& query, const std::string& key, std::int64_t
 } // anonymous namespace
 
 namespace api_detail {
+
+OrderBook parse_orderbook_response(std::string_view body) {
+	const std::string response_body{body};
+	OrderBook book;
+
+	const size_t orderbook_start = find_object_start(response_body, "orderbook");
+	const std::string orderbook_json =
+		orderbook_start != std::string::npos
+			? response_body.substr(orderbook_start,
+								   find_object_end(response_body, orderbook_start) -
+									   orderbook_start)
+			: response_body;
+
+	book.market_ticker = extract_string(orderbook_json, "market_ticker");
+	if (book.market_ticker.empty()) {
+		book.market_ticker = extract_string(response_body, "ticker");
+	}
+
+	const size_t fp_start = find_object_start(orderbook_json, "orderbook_fp");
+	const std::string fp_json =
+		fp_start != std::string::npos
+			? orderbook_json.substr(fp_start, find_object_end(orderbook_json, fp_start) - fp_start)
+			: orderbook_json;
+
+	if (fp_json.find("\"yes_dollars\"") != std::string::npos ||
+		fp_json.find("\"no_dollars\"") != std::string::npos) {
+		book.yes_bids = parse_orderbook_entries(fp_json, "yes_dollars", true, true);
+		book.no_bids = parse_orderbook_entries(fp_json, "no_dollars", true, true);
+		return book;
+	}
+
+	book.yes_bids = parse_orderbook_entries(orderbook_json, "yes", false, false);
+	book.no_bids = parse_orderbook_entries(orderbook_json, "no", false, false);
+	return book;
+}
+
+std::vector<OrderBook> parse_orderbooks_response(std::string_view body) {
+	const std::string response_body{body};
+	std::vector<OrderBook> books;
+	const std::vector<std::string> objs = extract_array_objects(response_body, "orderbooks");
+	books.reserve(objs.size());
+	for (const std::string& obj : objs) {
+		books.push_back(parse_orderbook_response(obj));
+	}
+	return books;
+}
 
 std::vector<Candlestick> parse_candlesticks_response(std::string_view body) {
 	const std::string response_body{body};
@@ -875,76 +1055,42 @@ Result<OrderBook> KalshiClient::get_market_orderbook(const std::string& ticker,
 }
 
 Result<OrderBook> KalshiClient::parse_orderbook(const std::string& json) {
-	OrderBook book;
+	return api_detail::parse_orderbook_response(json);
+}
 
-	// Find orderbook object
-	size_t ob_start = find_object_start(json, "orderbook");
-	std::string ob_json = ob_start != std::string::npos
-							  ? json.substr(ob_start, find_object_end(json, ob_start) - ob_start)
-							  : json;
-
-	book.market_ticker = extract_string(ob_json, "market_ticker");
-
-	// Parse yes array [[price, qty], ...]
-	size_t yes_start = find_array_start(ob_json, "yes");
-	if (yes_start != std::string::npos) {
-		size_t yes_end = find_array_end(ob_json, yes_start);
-		std::string yes_content = ob_json.substr(yes_start, yes_end - yes_start);
-
-		// Simple parser for [[p,q], [p,q], ...]
-		size_t pos = 0;
-		while (pos < yes_content.size()) {
-			size_t inner_start = yes_content.find('[', pos);
-			if (inner_start == std::string::npos || inner_start == 0)
-				break;
-
-			size_t comma = yes_content.find(',', inner_start);
-			size_t inner_end = yes_content.find(']', comma);
-			if (comma == std::string::npos || inner_end == std::string::npos)
-				break;
-
-			std::string price_str = yes_content.substr(inner_start + 1, comma - inner_start - 1);
-			std::string qty_str = yes_content.substr(comma + 1, inner_end - comma - 1);
-
-			OrderBookEntry entry;
-			entry.price_cents = safe_stoi(price_str);
-			entry.quantity = safe_stoi(qty_str);
-			book.yes_bids.push_back(entry);
-
-			pos = inner_end + 1;
-		}
+Result<std::vector<OrderBook>>
+KalshiClient::get_market_orderbooks(const std::vector<std::string>& tickers) {
+	if (tickers.empty()) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest, "get_market_orderbooks requires at least one ticker"});
+	}
+	if (tickers.size() > 100) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest, "get_market_orderbooks accepts at most 100 tickers"});
 	}
 
-	// Parse no array
-	size_t no_start = find_array_start(ob_json, "no");
-	if (no_start != std::string::npos) {
-		size_t no_end = find_array_end(ob_json, no_start);
-		std::string no_content = ob_json.substr(no_start, no_end - no_start);
-
-		size_t pos = 0;
-		while (pos < no_content.size()) {
-			size_t inner_start = no_content.find('[', pos);
-			if (inner_start == std::string::npos || inner_start == 0)
-				break;
-
-			size_t comma = no_content.find(',', inner_start);
-			size_t inner_end = no_content.find(']', comma);
-			if (comma == std::string::npos || inner_end == std::string::npos)
-				break;
-
-			std::string price_str = no_content.substr(inner_start + 1, comma - inner_start - 1);
-			std::string qty_str = no_content.substr(comma + 1, inner_end - comma - 1);
-
-			OrderBookEntry entry;
-			entry.price_cents = safe_stoi(price_str);
-			entry.quantity = safe_stoi(qty_str);
-			book.no_bids.push_back(entry);
-
-			pos = inner_end + 1;
-		}
+	std::string path = "/markets/orderbooks";
+	for (const std::string& ticker : tickers) {
+		append_query_param(path, "tickers", ticker);
 	}
 
-	return book;
+	Result<HttpResponse> response = impl_->client.get(path);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+
+	if (response->status_code != 200) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to get orderbooks: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+
+	return parse_orderbooks(response->body);
+}
+
+Result<std::vector<OrderBook>> KalshiClient::parse_orderbooks(const std::string& json) {
+	return api_detail::parse_orderbooks_response(json);
 }
 
 Result<std::vector<Candlestick>>

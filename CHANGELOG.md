@@ -6,6 +6,21 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **REST**: Added `get_market_orderbooks(tickers)` for Kalshi's documented
+  `GET /markets/orderbooks` endpoint. The SDK sends repeated `tickers`
+  query params, matching the live API shape, and enforces the documented
+  1-100 ticker request size.
+
+### Fixed
+
+- **REST**: Orderbook parsing now accepts the current `orderbook_fp`
+  fixed-point-dollar response shape (`yes_dollars` / `no_dollars`) while
+  preserving the legacy integer-cent `yes` / `no` arrays. This also fixes
+  a single-orderbook parser bug that skipped the first nested `[price, qty]`
+  pair in legacy payloads.
+
 ## [0.4.4] - 2026-05-18
 
 ### Added

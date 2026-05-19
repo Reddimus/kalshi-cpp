@@ -299,6 +299,7 @@ int main() {
 - `get_market(ticker)` - Get single market
 - `get_markets(params)` - List markets with filters
 - `get_market_orderbook(ticker)` - Get order book
+- `get_market_orderbooks(tickers)` - Get up to 100 order books in one request
 - `get_market_candlesticks(params)` - Get historical OHLC data (requires series_ticker + ticker)
 - `get_trades(params)` - Get public trades
 

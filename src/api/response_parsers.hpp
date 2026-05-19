@@ -9,6 +9,14 @@ namespace kalshi::api_detail {
 
 [[nodiscard]] std::vector<Candlestick> parse_candlesticks_response(std::string_view body);
 
+/// Parses a single orderbook response. Accepts both the legacy integer-cent
+/// ``orderbook.yes`` / ``orderbook.no`` arrays and Kalshi's current
+/// fixed-point-dollar ``orderbook_fp.yes_dollars`` / ``no_dollars`` arrays.
+[[nodiscard]] OrderBook parse_orderbook_response(std::string_view body);
+
+/// Parses the ``orderbooks`` array returned by ``GET /markets/orderbooks``.
+[[nodiscard]] std::vector<OrderBook> parse_orderbooks_response(std::string_view body);
+
 /// Parses the ``deposits`` array from ``GET /portfolio/deposits``. Returns
 /// an empty vector when the array is missing or empty. The cursor field
 /// is read separately by the client method.

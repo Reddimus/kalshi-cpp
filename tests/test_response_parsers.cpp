@@ -88,6 +88,87 @@ TEST(ResponseParsers, CandlesticksAcceptAlternateArrayKey) {
 	EXPECT_EQ(candles[0].volume, 7);
 }
 
+TEST(ResponseParsers, OrderbookParsesLegacyCentSchema) {
+	const std::string body = R"json({
+		"orderbook": {
+			"market_ticker": "KXRAINNYC-26MAY18-T0",
+			"yes": [[47, 100], [46, 25]],
+			"no": [[53, 200]]
+		}
+	})json";
+
+	const kalshi::OrderBook book = kalshi::api_detail::parse_orderbook_response(body);
+
+	EXPECT_EQ(book.market_ticker, "KXRAINNYC-26MAY18-T0");
+	ASSERT_EQ(book.yes_bids.size(), 2U);
+	EXPECT_EQ(book.yes_bids[0].price_cents, 47);
+	EXPECT_EQ(book.yes_bids[0].quantity, 100);
+	EXPECT_EQ(book.yes_bids[1].price_cents, 46);
+	EXPECT_EQ(book.yes_bids[1].quantity, 25);
+	ASSERT_EQ(book.no_bids.size(), 1U);
+	EXPECT_EQ(book.no_bids[0].price_cents, 53);
+	EXPECT_EQ(book.no_bids[0].quantity, 200);
+}
+
+TEST(ResponseParsers, OrderbookParsesCurrentFixedPointDollarSchema) {
+	const std::string body = R"json({
+		"ticker": "KXRAINSEAM-26MAY",
+		"orderbook_fp": {
+			"yes_dollars": [["0.0100", "788.03"], ["0.1250", "3.50"]],
+			"no_dollars": [["0.9900", "10.00"]]
+		}
+	})json";
+
+	const kalshi::OrderBook book = kalshi::api_detail::parse_orderbook_response(body);
+
+	EXPECT_EQ(book.market_ticker, "KXRAINSEAM-26MAY");
+	ASSERT_EQ(book.yes_bids.size(), 2U);
+	EXPECT_EQ(book.yes_bids[0].price_cents, 1);
+	EXPECT_EQ(book.yes_bids[0].quantity, 788);
+	EXPECT_EQ(book.yes_bids[1].price_cents, 13);
+	EXPECT_EQ(book.yes_bids[1].quantity, 4);
+	ASSERT_EQ(book.no_bids.size(), 1U);
+	EXPECT_EQ(book.no_bids[0].price_cents, 99);
+	EXPECT_EQ(book.no_bids[0].quantity, 10);
+}
+
+TEST(ResponseParsers, OrderbooksParseBatchedResponse) {
+	const std::string body = R"json({
+		"orderbooks": [
+			{
+				"ticker": "KXRAINNYC-26MAY18-T0",
+				"orderbook_fp": {
+					"yes_dollars": [["0.2200", "12.00"]],
+					"no_dollars": [["0.7800", "8.00"]]
+				}
+			},
+			{
+				"ticker": "KXHIGHAUS-26MAY18-B75",
+				"orderbook_fp": {
+					"yes_dollars": [],
+					"no_dollars": [["0.5100", "3.00"]]
+				}
+			}
+		]
+	})json";
+
+	const std::vector<kalshi::OrderBook> books =
+		kalshi::api_detail::parse_orderbooks_response(body);
+
+	ASSERT_EQ(books.size(), 2U);
+	EXPECT_EQ(books[0].market_ticker, "KXRAINNYC-26MAY18-T0");
+	ASSERT_EQ(books[0].yes_bids.size(), 1U);
+	EXPECT_EQ(books[0].yes_bids[0].price_cents, 22);
+	EXPECT_EQ(books[0].yes_bids[0].quantity, 12);
+	ASSERT_EQ(books[0].no_bids.size(), 1U);
+	EXPECT_EQ(books[0].no_bids[0].price_cents, 78);
+	EXPECT_EQ(books[1].market_ticker, "KXHIGHAUS-26MAY18-B75");
+	EXPECT_TRUE(books[1].yes_bids.empty());
+	ASSERT_EQ(books[1].no_bids.size(), 1U);
+	EXPECT_EQ(books[1].no_bids[0].price_cents, 51);
+	EXPECT_EQ(books[1].no_bids[0].quantity, 3);
+}
+
 TEST(ResponseParsers, DepositsParseFinalizedAndPending) {
 	const std::string body = R"json({
 		"deposits": [

@@ -681,6 +681,10 @@ public:
 	get_market_orderbook(const std::string& ticker,
 						 std::optional<std::int32_t> depth = std::nullopt);
 
+	/// Get orderbooks for up to 100 markets in one request
+	[[nodiscard]] Result<std::vector<OrderBook>>
+	get_market_orderbooks(const std::vector<std::string>& tickers);
+
 	/// Get market candlesticks (price history)
 	[[nodiscard]] Result<std::vector<Candlestick>>
 	get_market_candlesticks(const GetCandlesticksParams& params);
@@ -946,6 +950,7 @@ private:
 	[[nodiscard]] Result<Order> parse_order(const std::string& json);
 	[[nodiscard]] Result<std::vector<Order>> parse_orders(const std::string& json);
 	[[nodiscard]] Result<OrderBook> parse_orderbook(const std::string& json);
+	[[nodiscard]] Result<std::vector<OrderBook>> parse_orderbooks(const std::string& json);
 
 	// Query string builders
 	[[nodiscard]] std::string build_markets_query(const GetMarketsParams& params);
