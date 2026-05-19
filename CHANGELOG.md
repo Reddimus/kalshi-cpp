@@ -6,6 +6,16 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.6] - 2026-05-19
+
+### Fixed
+
+- **WebSocket**: `unsubscribe`, `add_markets`, and `remove_markets` now
+  translate the SDK's client command id to Kalshi's server-assigned
+  subscription id after a `subscribed` acknowledgement. This prevents
+  hourly resubscribe flows from sending stale client ids and receiving
+  `Unknown subscription ID` errors from the live WebSocket API.
+
 ## [0.4.5] - 2026-05-19
 
 ### Added
@@ -409,7 +419,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.5...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.6...HEAD
+[0.4.6]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.3...v0.4.4
 [0.4.3]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.2...v0.4.3

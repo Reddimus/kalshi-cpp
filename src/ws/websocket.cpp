@@ -2,6 +2,8 @@
 
 #include "kalshi/detail/ws_json.hpp"
 
+#include "subscription_registry.hpp"
+
 // IMPORTANT: include order below is load-bearing on Windows.
 //
 // ``ws_cmd_bodies.hpp`` pulls in ``<glaze/glaze.hpp>``, whose templated
@@ -134,9 +136,8 @@ struct WsImplData {
 	// Receive buffer
 	std::string recv_buffer;
 
-	// Track server-assigned subscription IDs: client_id -> server_sid
-	std::mutex subs_mutex;
-	std::map<std::int32_t, std::int32_t> subscription_sids;
+	// Track server-assigned subscription IDs: client command id -> server sid.
+	ws_detail::SubscriptionRegistry subscriptions;
 
 	// Auth headers for handshake
 	AuthHeaders auth_headers;
@@ -157,17 +158,6 @@ struct WsImplData {
 		if (wsi) {
 			lws_callback_on_writable(wsi);
 		}
-	}
-
-	void register_subscription(std::int32_t client_id, std::int32_t server_sid) {
-		std::lock_guard lock(subs_mutex);
-		subscription_sids[client_id] = server_sid;
-	}
-
-	std::optional<std::int32_t> get_server_sid(std::int32_t client_id) {
-		std::lock_guard lock(subs_mutex);
-		auto it = subscription_sids.find(client_id);
-		return it != subscription_sids.end() ? std::optional{it->second} : std::nullopt;
 	}
 
 	void invoke_message_callback(const WsMessage& msg) {
@@ -213,6 +203,7 @@ static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason, void* 
 		case LWS_CALLBACK_CLIENT_ESTABLISHED:
 			impl->connected = true;
 			impl->reconnect_attempts = 0;
+			impl->subscriptions.clear();
 			impl->invoke_state_callback(true);
 			break;
 
@@ -226,6 +217,7 @@ static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason, void* 
 
 		case LWS_CALLBACK_CLIENT_CLOSED:
 			impl->connected = false;
+			impl->subscriptions.clear();
 			impl->invoke_state_callback(false);
 			break;
 
@@ -359,7 +351,7 @@ void WsImplData::handle_message(const std::string& json) {
 		std::int32_t client_id = extract_int("id");
 		std::int32_t server_sid = extract_int("sid");
 		if (client_id > 0 && server_sid > 0) {
-			register_subscription(client_id, server_sid);
+			subscriptions.register_ack(client_id, server_sid);
 		}
 	} else if (msg_type == "orderbook_snapshot") {
 		OrderbookSnapshot snap;
@@ -603,6 +595,7 @@ void WebSocketClient::disconnect() {
 
 	data->should_stop = true;
 	data->connected = false;
+	data->subscriptions.clear();
 
 	if (data->service_thread.joinable()) {
 		data->service_thread.join();
@@ -710,7 +703,8 @@ Result<void> WebSocketClient::unsubscribe(SubscriptionId sub_id) {
 	}
 
 	std::int32_t id = data->get_next_id();
-	std::string cmd = build_unsubscribe_command(id, sub_id.sid);
+	std::string cmd = build_unsubscribe_command(id, data->subscriptions.resolve(sub_id.sid));
+	data->subscriptions.erase(sub_id.sid);
 	data->queue_send(cmd);
 
 	return {};
@@ -732,8 +726,8 @@ Result<void> WebSocketClient::add_markets(SubscriptionId sub_id,
 	}
 
 	std::int32_t id = data->get_next_id();
-	std::string cmd =
-		build_update_command(id, sub_id.sid, "add_markets", sub_id.channel, market_tickers);
+	std::string cmd = build_update_command(id, data->subscriptions.resolve(sub_id.sid),
+										   "add_markets", sub_id.channel, market_tickers);
 	data->queue_send(cmd);
 
 	return {};
@@ -755,8 +749,8 @@ Result<void> WebSocketClient::remove_markets(SubscriptionId sub_id,
 	}
 
 	std::int32_t id = data->get_next_id();
-	std::string cmd =
-		build_update_command(id, sub_id.sid, "delete_markets", sub_id.channel, market_tickers);
+	std::string cmd = build_update_command(id, data->subscriptions.resolve(sub_id.sid),
+										   "delete_markets", sub_id.channel, market_tickers);
 	data->queue_send(cmd);
 
 	return {};

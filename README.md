@@ -110,7 +110,7 @@ cd kalshi-cpp
 # Build (Release with -O3 and LTO by default)
 make build
 
-# Run tests (GoogleTest, 136 tests)
+# Run tests (GoogleTest, 155 tests)
 make test
 
 # Generate code coverage report (requires lcov)
@@ -159,7 +159,7 @@ include(FetchContent)
 FetchContent_Declare(
     kalshi
     GIT_REPOSITORY https://github.com/Reddimus/kalshi-cpp.git
-    GIT_TAG v0.4.5  # pin a tagged release
+    GIT_TAG v0.4.6  # pin a tagged release
 )
 # Suppress upstream tests + examples in your service builds
 set(KALSHI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
@@ -283,7 +283,7 @@ int main() {
 | `kalshi_api` | REST API client with typed methods |
 | `kalshi_ws` | WebSocket streaming client |
 | `kalshi_models` | Data models |
-| `kalshi_tests` | Test executable (GoogleTest, 136 tests) |
+| `kalshi_tests` | Test executable (GoogleTest, 155 tests) |
 | `kalshi_parse_benchmark` | JSON parse-throughput regression guard (1000 iters; ctest-invoked) |
 
 ## API Coverage
