@@ -8,20 +8,25 @@ This document summarizes findings from analyzing the official Kalshi SDK impleme
 
 | SDK | Package | Version | Maintainer | Status |
 | --- | ------- | ------- | ---------- | ------ |
-| **TypeScript** | [`kalshi`](https://www.npmjs.com/package/kalshi) on npm | 0.0.5 | Ashwin Mahadevan (community) | WebSocket-only |
-| **Python Sync** | [`kalshi-python`](https://pypi.org/project/kalshi-python/) on PyPI | 2.1.4 | Kalshi (official) | Full REST API |
-| **Python Async** | [`kalshi-python-async`](https://pypi.org/project/kalshi-python-async/) on PyPI | 3.2.0+ | Kalshi (official) | Full REST API (async) |
+| **TypeScript** | [`kalshi-typescript`](https://docs.kalshi.com/typescript-sdk) on npm | Current docs | Kalshi (official) | Full REST API |
+| **Python Sync** | [`kalshi-python-sync`](https://pypi.org/project/kalshi-python-sync/) on PyPI | 3.16.0 | Kalshi (official) | Full REST API |
+| **Python Async** | [`kalshi-python-async`](https://pypi.org/project/kalshi-python-async/) on PyPI | 3.16.0 | Kalshi (official) | Full REST API (async) |
 
-> **Note**: The prompt file mentioned `kalshi-typescript`, `kalshi_python_sync`, and `kalshi_python_async` as package names. After verification:
+> **Note**: Re-verified on 2026-05-19. Kalshi now documents official Python
+> sync/async and TypeScript SDKs. The old `kalshi-python` package is deprecated
+> in favor of `kalshi-python-sync` or `kalshi-python-async`; current PyPI
+> sync/async package versions are 3.16.0, released on 2026-05-12.
 >
-> - `kalshi-typescript` does not exist; the npm package is simply `kalshi`
-> - `kalshi_python_sync` does not exist; the sync package is `kalshi-python`
-> - `kalshi-python-async` is the correct async package name
+> The older community npm package named `kalshi` is no longer the correct
+> parity target for this SDK.
 
 ### SDK Ownership
 
-- **Python SDKs** (`kalshi-python`, `kalshi-python-async`): Official Kalshi packages. Author: `Kalshi Support <support@kalshi.com>`. Repository: `https://github.com/Kalshi/exchange-infra`. Auto-generated via OpenAPI Generator.
-- **TypeScript SDK** (`kalshi`): Community package by Ashwin Mahadevan. WebSocket streaming only, no REST API.
+- **Python SDKs** (`kalshi-python-sync`, `kalshi-python-async`): Official
+  Kalshi packages. Maintainer: `KalshiDevs`. Repository provenance points to
+  `Kalshi/exchange-infra`. Auto-generated via OpenAPI Generator.
+- **TypeScript SDK** (`kalshi-typescript`): Official Kalshi package documented
+  by Kalshi with full REST API classes.
 
 ## API Endpoints
 
@@ -510,8 +515,9 @@ The C++ SDK now provides **complete feature parity** with the official Kalshi Py
 
 ## References
 
-- TypeScript SDK: `kalshi@0.0.5` on npm (community, WebSocket-only)
-- Python SDK (sync): `kalshi-python@2.1.4` on PyPI (official, OpenAPI-generated)
-- Python SDK (async): `kalshi-python-async@3.2.0` on PyPI (official, OpenAPI-generated)
+- Official SDK overview: <https://docs.kalshi.com/sdks/overview>
+- TypeScript SDK: `kalshi-typescript` (official, OpenAPI-aligned)
+- Python SDK (sync): `kalshi-python-sync@3.16.0` on PyPI (official, OpenAPI-generated)
+- Python SDK (async): `kalshi-python-async@3.16.0` on PyPI (official, OpenAPI-generated)
 - API Documentation: <https://docs.kalshi.com>
 - OpenAPI Generator: Python SDKs are auto-generated from OpenAPI spec
