@@ -6,12 +6,28 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.8] - 2026-05-19
+
+### Fixed
+
+- **Market**: `Market::status` now preserves unknown / future Kalshi
+  status strings in the parsed model instead of silently mapping them
+  to a default enum. Consumers that introspect `status_raw` can keep
+  trading against new states the SDK hasn't yet enumerated; the
+  bracket vs tail routing on the trader side is unaffected.
+
+## [0.4.7] - 2026-05-19
+
 ### Added
 
 - **REST**: Added `get_account_api_limits()` and `get_endpoint_costs()`
   for Kalshi's authenticated account API metadata endpoints. These expose
   account usage tier, read/write token-bucket budgets, default endpoint
   token cost, and non-default endpoint cost overrides.
+- **Market**: Parsed the new `current` lifecycle fields on `Market`
+  (`current_open_ts`, `current_close_ts`, `current_settle_ts`,
+  `current_expire_ts`) so consumers can read the in-flight contract's
+  effective lifecycle timestamps without re-deriving them.
 
 ## [0.4.6] - 2026-05-19
 
@@ -426,7 +442,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.6...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.8...HEAD
+[0.4.8]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.7...v0.4.8
+[0.4.7]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.5...v0.4.6
 [0.4.5]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.4...v0.4.5
 [0.4.4]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.3...v0.4.4
