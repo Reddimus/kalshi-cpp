@@ -921,6 +921,26 @@ std::vector<Withdrawal> parse_withdrawals_response(std::string_view body) {
 	return parse_portfolio_movements<Withdrawal>(body, "withdrawals");
 }
 
+std::vector<PublicTrade> parse_trades_response(std::string_view body) {
+	const std::string buf{body};
+	const std::vector<std::string> trade_objects = extract_array_objects(buf, "trades");
+	std::vector<PublicTrade> trades;
+	trades.reserve(trade_objects.size());
+	for (const std::string& obj : trade_objects) {
+		PublicTrade t;
+		t.trade_id = extract_string(obj, "trade_id");
+		t.market_ticker = extract_string(obj, "ticker");
+		t.yes_price = static_cast<std::int32_t>(extract_int(obj, "yes_price"));
+		t.no_price = static_cast<std::int32_t>(extract_int(obj, "no_price"));
+		t.count = static_cast<std::int32_t>(extract_int(obj, "count"));
+		t.taker_side = parse_side(extract_string(obj, "taker_side"));
+		t.created_time = extract_int(obj, "created_time");
+		t.is_block_trade = extract_bool(obj, "is_block_trade");
+		trades.push_back(t);
+	}
+	return trades;
+}
+
 OrderCancelResult parse_order_cancel_result_response(std::string_view body) {
 	const std::string obj{body};
 	OrderCancelResult result;
@@ -1276,23 +1296,8 @@ Result<PaginatedResponse<PublicTrade>> KalshiClient::get_trades(const GetTradesP
 				  response->status_code});
 	}
 
-	std::vector<PublicTrade> trades;
-	std::vector<std::string> trade_objects = extract_array_objects(response->body, "trades");
-
-	for (const std::string& obj : trade_objects) {
-		PublicTrade t;
-		t.trade_id = extract_string(obj, "trade_id");
-		t.market_ticker = extract_string(obj, "ticker");
-		t.yes_price = static_cast<std::int32_t>(extract_int(obj, "yes_price"));
-		t.no_price = static_cast<std::int32_t>(extract_int(obj, "no_price"));
-		t.count = static_cast<std::int32_t>(extract_int(obj, "count"));
-		t.taker_side = parse_side(extract_string(obj, "taker_side"));
-		t.created_time = extract_int(obj, "created_time");
-		trades.push_back(t);
-	}
-
 	PaginatedResponse<PublicTrade> result;
-	result.items = std::move(trades);
+	result.items = api_detail::parse_trades_response(response->body);
 
 	std::string cursor = extract_cursor(response->body);
 	if (!cursor.empty()) {
