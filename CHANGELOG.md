@@ -6,6 +6,24 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- **REST**: `PublicTrade::is_block_trade` — parsed from `GET /markets/trades`
+  (Kalshi changelog 2026-05-29: public trade responses now flag block
+  trades and support filtering by block status). Block trades are large
+  negotiated prints routed off the central order book; exposing the flag
+  lets trade-flow / microstructure consumers exclude them. The field is
+  absent on older payloads and defaults to `false` (forward/backward
+  compatible — no behavioural change for existing consumers).
+
+### Changed
+
+- **Internal**: extracted the inline `GET /markets/trades` body parser out
+  of `KalshiClient::get_trades` into a testable
+  `api_detail::parse_trades_response`, matching the existing
+  `parse_deposits_response` / `parse_withdrawals_response` convention. Adds
+  unit coverage for trade parsing (incl. the new `is_block_trade` flag).
+
 ## [0.4.8] - 2026-05-19
 
 ### Fixed

@@ -24,6 +24,11 @@ namespace kalshi::api_detail {
 /// Parses the ``orderbooks`` array returned by ``GET /markets/orderbooks``.
 [[nodiscard]] std::vector<OrderBook> parse_orderbooks_response(std::string_view body);
 
+/// Parses the ``trades`` array from ``GET /markets/trades``. Returns an empty
+/// vector when the array is missing or empty. The cursor field is read
+/// separately by the client method.
+[[nodiscard]] std::vector<PublicTrade> parse_trades_response(std::string_view body);
+
 /// Parses the ``deposits`` array from ``GET /portfolio/deposits``. Returns
 /// an empty vector when the array is missing or empty. The cursor field
 /// is read separately by the client method.

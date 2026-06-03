@@ -165,6 +165,10 @@ struct PublicTrade {
 	std::int32_t count{0};
 	Side taker_side{Side::Yes};
 	std::int64_t created_time{0};
+	/// True when the trade was executed as a block trade (large negotiated
+	/// print routed off the central order book). Kalshi added this field on
+	/// 2026-05-29; absent on older payloads → defaults to false.
+	bool is_block_trade{false};
 };
 
 // ===== Phase 1: Exchange API Models =====

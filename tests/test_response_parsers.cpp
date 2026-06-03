@@ -243,6 +243,33 @@ TEST(ResponseParsers, MarketsParseUnopenedArray) {
 	EXPECT_EQ(markets[1].status, kalshi::MarketStatus::Open);
 }
 
+TEST(ResponseParsers, TradesParseBlockTradeFlag) {
+	// Kalshi 2026-05-29: public trade responses flag block trades via the
+	// new boolean ``is_block_trade``. First row carries it true; second row
+	// omits it (older/non-block print) and must default to false.
+	const std::string body = R"json({
+		"trades": [
+			{"trade_id": "t1", "ticker": "KXHIGHDEN-26JUN03-B80", "yes_price": 42,
+			 "no_price": 58, "count": 10, "taker_side": "yes",
+			 "created_time": 1780000000, "is_block_trade": true},
+			{"trade_id": "t2", "ticker": "KXHIGHDEN-26JUN03-B80", "yes_price": 40,
+			 "no_price": 60, "count": 5, "taker_side": "no",
+			 "created_time": 1780000100}
+		],
+		"cursor": ""
+	})json";
+
+	const std::vector<kalshi::PublicTrade> trades = kalshi::api_detail::parse_trades_response(body);
+
+	ASSERT_EQ(trades.size(), 2U);
+	EXPECT_EQ(trades[0].trade_id, "t1");
+	EXPECT_EQ(trades[0].count, 10);
+	EXPECT_EQ(trades[0].taker_side, kalshi::Side::Yes);
+	EXPECT_TRUE(trades[0].is_block_trade);
+	EXPECT_EQ(trades[1].trade_id, "t2");
+	EXPECT_FALSE(trades[1].is_block_trade);
+}
+
 TEST(ResponseParsers, DepositsParseFinalizedAndPending) {
 	const std::string body = R"json({
 		"deposits": [
