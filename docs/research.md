@@ -20,6 +20,29 @@ This document summarizes findings from analyzing the official Kalshi SDK impleme
 > The older community npm package named `kalshi` is no longer the correct
 > parity target for this SDK.
 
+### Reproducing the artifact audit
+
+The version and ownership facts above were derived by fetching each published
+SDK artifact directly; re-run these commands to re-audit upstream after a
+release.
+
+```bash
+# TypeScript SDK (npm) - official, see https://docs.kalshi.com/typescript-sdk
+npm view kalshi-typescript name version repository homepage dist.tarball
+
+# Python SDK sync (PyPI) - official
+pip download --no-deps kalshi-python-sync
+# or a specific version: pip download --no-deps kalshi-python-sync==3.16.0
+
+# Python SDK async (PyPI) - official
+pip download --no-deps kalshi-python-async
+# or a specific version: pip download --no-deps kalshi-python-async==3.16.0
+```
+
+After downloading, unpack each artifact (e.g. `tar -xzf <tarball>` for npm,
+`unzip <wheel>` for PyPI) and diff the generated endpoint/model surface
+against the [SDK Parity Matrix](#sdk-parity-matrix) below.
+
 ### SDK Ownership
 
 - **Python SDKs** (`kalshi-python-sync`, `kalshi-python-async`): Official
