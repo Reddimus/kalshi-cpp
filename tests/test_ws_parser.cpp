@@ -39,6 +39,15 @@ TEST(ExtractInt, RawNegative) {
 	EXPECT_EQ(extract_int(R"({"delta":-5})", "delta"), -5);
 }
 
+TEST(ExtractInt, OutOfRangeClampsInsteadOfOverflowing) {
+	// Regression: a bare int32 accumulator silently overflowed (UB) on an
+	// out-of-range numeric field. Values beyond int32 must saturate to the
+	// nearest bound, not wrap.
+	EXPECT_EQ(extract_int(R"({"seq":9999999999})", "seq"), INT32_MAX);
+	EXPECT_EQ(extract_int(R"({"seq":-9999999999})", "seq"), INT32_MIN);
+	EXPECT_EQ(extract_int(R"({"seq":2147483647})", "seq"), 2147483647); // exact max, unchanged
+}
+
 TEST(ExtractInt, MissingKeyReturnsZero) {
 	EXPECT_EQ(extract_int(R"({"a":1})", "b"), 0);
 }

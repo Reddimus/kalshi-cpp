@@ -45,12 +45,26 @@ inline std::int32_t extract_int(const std::string& json, const std::string& key)
 		negative = true;
 		pos++;
 	}
-	std::int32_t val = 0;
+	// Accumulate in int64 and clamp, mirroring extract_dollar_cents: a bare
+	// int32 accumulator silently overflows (UB) on an out-of-range numeric
+	// field from a malformed/hostile WS frame. Saturate the magnitude so int64
+	// itself never overflows, then clamp to the int32 range.
+	std::int64_t val = 0;
 	while (pos < json.size() && json[pos] >= '0' && json[pos] <= '9') {
 		val = val * 10 + (json[pos] - '0');
+		if (val > 2147483648LL) { // |INT32_MIN| — largest magnitude we keep
+			val = 2147483648LL;
+		}
 		pos++;
 	}
-	return negative ? -val : val;
+	const std::int64_t result = negative ? -val : val;
+	if (result < INT32_MIN) {
+		return INT32_MIN;
+	}
+	if (result > INT32_MAX) {
+		return INT32_MAX;
+	}
+	return static_cast<std::int32_t>(result);
 }
 
 /// Extract a string value for ``key`` from ``json``. Returns "" when
@@ -257,14 +271,20 @@ inline std::vector<PriceQty> extract_orderbook_entries(const std::string& json,
 		const bool quoted = pos < json.size() && json[pos] == '"';
 		if (quoted)
 			pos++;
-		std::int32_t val = 0;
+		// int64 accumulate + saturate: orderbook price/size fields are
+		// non-negative, but a malformed frame could carry an out-of-int32 value
+		// that would overflow a bare int32 accumulator (UB).
+		std::int64_t val = 0;
 		while (pos < json.size() && json[pos] >= '0' && json[pos] <= '9') {
 			val = val * 10 + (json[pos] - '0');
+			if (val > INT32_MAX) {
+				val = INT32_MAX;
+			}
 			pos++;
 		}
 		if (quoted && pos < json.size() && json[pos] == '"')
 			pos++;
-		return val;
+		return static_cast<std::int32_t>(val);
 	};
 
 	while (pos < json.size()) {
