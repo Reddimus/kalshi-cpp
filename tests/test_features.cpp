@@ -195,6 +195,7 @@ TEST(WebSocket, WsConfigDefaults) {
 	ASSERT_EQ(config.url, std::string("wss://external-api-ws.kalshi.com/trade-api/ws/v2"));
 	ASSERT_TRUE(config.auto_reconnect);
 	ASSERT_EQ(config.max_reconnect_attempts, 10);
+	ASSERT_TRUE(config.verify_ssl);
 }
 
 TEST(HttpClient, ClientConfigDefaultsToDedicatedTradeApiHost) {

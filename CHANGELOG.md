@@ -8,6 +8,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- **WebSocket**: `WsConfig::verify_ssl` (default `true`) mirroring
+  `ClientConfig::verify_ssl`. When left at the default the libwebsockets
+  client now validates the server's TLS certificate against the system
+  trust store and enforces hostname-vs-SAN matching for every `wss://`
+  handshake. Set it to `false` to opt back into the legacy permissive
+  behaviour for test rigs that terminate WSS with a self-signed cert.
 - **REST**: `PublicTrade::is_block_trade` — parsed from `GET /markets/trades`
   (Kalshi changelog 2026-05-29: public trade responses now flag block
   trades and support filtering by block status). Block trades are large
@@ -23,6 +29,27 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `api_detail::parse_trades_response`, matching the existing
   `parse_deposits_response` / `parse_withdrawals_response` convention. Adds
   unit coverage for trade parsing (incl. the new `is_block_trade` flag).
+
+### Fixed
+
+- **WebSocket (security, breaking default)**: TLS server verification is
+  now enabled by default on every `wss://` connection. Previous releases
+  unconditionally set `LCCSCF_ALLOW_SELFSIGNED |
+  LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK` on the libwebsockets
+  `lws_client_connect_info::ssl_connection` mask, which let any on-path
+  attacker (hostile Wi-Fi, compromised egress proxy, BGP hijack of
+  `external-api-ws.kalshi.com`) transparently MITM the live WebSocket
+  stream — including authenticated `fill` / `market_lifecycle_v2` frames
+  — and harvest the live `KALSHI-ACCESS-KEY` /
+  `KALSHI-ACCESS-SIGNATURE` / `KALSHI-ACCESS-TIMESTAMP` headers sent on
+  the upgrade for replay against the REST trade-api host. The two
+  permissive libwebsockets flags are now only set when consumers
+  explicitly opt out via `WsConfig::verify_ssl = false`. **Action
+  required:** consumers that intentionally point a `WebSocketClient` at
+  a local fake server terminating WSS with a self-signed cert must set
+  `WsConfig::verify_ssl = false` to keep the existing behaviour.
+  Consumers connecting to the documented Kalshi production endpoint
+  need no changes.
 
 ## [0.4.8] - 2026-05-19
 

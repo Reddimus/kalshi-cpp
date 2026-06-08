@@ -233,6 +233,9 @@ using WsStateCallback = std::function<void(bool connected)>;
 /// WebSocket client configuration
 struct WsConfig {
 	std::string url{"wss://external-api-ws.kalshi.com/trade-api/ws/v2"};
+	/// Verify WSS server certificates and hostnames. Defaults to ``true``;
+	/// set to ``false`` only for self-signed test servers.
+	bool verify_ssl{true};
 	std::chrono::seconds reconnect_delay{5};
 	std::uint16_t max_reconnect_attempts{10}; ///< Max reconnect attempts (0-65535, default 10)
 	bool auto_reconnect{true};

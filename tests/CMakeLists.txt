@@ -8,6 +8,7 @@ add_executable(kalshi_tests
     test_ws_parser.cpp
     test_ws_subscription_registry.cpp
     test_ws_lifecycle.cpp
+    test_ws_tls.cpp
     test_json_serialize.cpp
     test_response_parsers.cpp
     test_query_builders.cpp

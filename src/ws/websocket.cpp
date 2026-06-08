@@ -3,6 +3,7 @@
 #include "kalshi/detail/ws_json.hpp"
 
 #include "subscription_registry.hpp"
+#include "ws_ssl_flags.hpp"
 
 // IMPORTANT: include order below is load-bearing on Windows.
 //
@@ -518,7 +519,7 @@ Result<void> WebSocketClient::connect() {
 	data->auth_headers = *auth_result;
 
 	// Create context
-	struct lws_context_creation_info ctx_info {};
+	struct lws_context_creation_info ctx_info{};
 	std::memset(&ctx_info, 0, sizeof(ctx_info));
 	ctx_info.port = CONTEXT_PORT_NO_LISTEN;
 	ctx_info.protocols = protocols;
@@ -531,7 +532,7 @@ Result<void> WebSocketClient::connect() {
 	}
 
 	// Create connection
-	struct lws_client_connect_info conn_info {};
+	struct lws_client_connect_info conn_info{};
 	std::memset(&conn_info, 0, sizeof(conn_info));
 	conn_info.context = data->context;
 	conn_info.address = host.c_str();
@@ -544,8 +545,7 @@ Result<void> WebSocketClient::connect() {
 	conn_info.origin = nullptr;
 
 	if (use_ssl) {
-		conn_info.ssl_connection =
-			LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+		conn_info.ssl_connection = ws_detail::compute_ws_ssl_flags(data->config.verify_ssl);
 	}
 
 	data->wsi = lws_client_connect_via_info(&conn_info);
