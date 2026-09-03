@@ -6,6 +6,13 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.1] - 2026-09-03
+
+### Fixed
+
+- Made the documented `kalshi::kalshi` target available to FetchContent
+  consumers, matching the installed package interface.
+
 ## [0.5.0] - 2026-09-03
 
 ### Changed
@@ -537,7 +544,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.9...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.1...HEAD
+[0.5.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.0...v0.5.1
+[0.5.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.9...v0.5.0
 [0.4.9]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.6...v0.4.7

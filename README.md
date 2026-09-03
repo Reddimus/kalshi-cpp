@@ -32,7 +32,7 @@ include(FetchContent)
 FetchContent_Declare(
   kalshi
   GIT_REPOSITORY https://github.com/Reddimus/kalshi-cpp.git
-  GIT_TAG v0.5.0
+  GIT_TAG v0.5.1
 )
 set(KALSHI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
 set(KALSHI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
