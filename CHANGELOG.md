@@ -6,6 +6,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.4.9] - 2026-09-02
+
 ### Added
 
 - **REST**: `PublicTrade::is_block_trade` — parsed from `GET /markets/trades`
@@ -23,6 +25,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `api_detail::parse_trades_response`, matching the existing
   `parse_deposits_response` / `parse_withdrawals_response` convention. Adds
   unit coverage for trade parsing (incl. the new `is_block_trade` flag).
+
+### Fixed
+
+- **WebSocket**: scalar integer fields now clamp below `INT32_MIN` or above
+  `INT32_MAX`, and oversized non-negative order-book price and quantity entries
+  clamp at `INT32_MAX`. Both scanners previously accumulated directly into
+  `int32_t`, so malformed or hostile values could trigger signed-overflow
+  undefined behaviour; all in-range values continue to parse unchanged.
 
 ## [0.4.8] - 2026-05-19
 
@@ -460,7 +470,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.8...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.9...HEAD
+[0.4.9]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.8...v0.4.9
 [0.4.8]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.7...v0.4.8
 [0.4.7]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.6...v0.4.7
 [0.4.6]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.5...v0.4.6

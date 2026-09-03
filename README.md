@@ -41,7 +41,7 @@ include(FetchContent)
 FetchContent_Declare(
     kalshi
     GIT_REPOSITORY https://github.com/Reddimus/kalshi-cpp.git
-    GIT_TAG v0.4.8  # pin a tagged release; bump per "Versioning" below
+    GIT_TAG v0.4.9  # pin a tagged release; bump per "Versioning" below
 )
 # Consumers don't need the SDK's own tests or example binaries:
 set(KALSHI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
