@@ -61,6 +61,8 @@ struct Series {
 	std::string last_updated_ts;
 	std::string volume_fp;
 	std::int32_t exchange_index{0};
+	/// Exact JSON object returned when product metadata is requested; empty for null or omitted.
+	std::string product_metadata_json;
 };
 
 /// Exchange status
@@ -434,6 +436,13 @@ struct Milestone {
 	std::string last_updated_ts;
 	std::vector<std::string> related_event_tickers;
 	std::vector<std::string> primary_event_tickers;
+};
+
+/// Expanded event-list response, including milestones when requested.
+struct EventsResponse {
+	std::vector<Event> events;
+	std::vector<Milestone> milestones;
+	std::optional<Cursor> next_cursor;
 };
 
 /// Multivariate collection
@@ -1054,6 +1063,8 @@ public:
 
 	/// List events with optional filters
 	[[nodiscard]] Result<PaginatedResponse<Event>> get_events(const GetEventsParams& params = {});
+	/// List events and preserve optional top-level milestone expansions.
+	[[nodiscard]] Result<EventsResponse> get_events_response(const GetEventsParams& params = {});
 
 	/// Get event metadata
 	[[nodiscard]] Result<EventMetadata> get_event_metadata(const std::string& event_ticker);

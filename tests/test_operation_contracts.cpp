@@ -358,28 +358,93 @@ TEST(OperationContracts, CurrentSeriesAndEventFiltersAreEncoded) {
 	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
 	kalshi::KalshiClient client(transport);
 
-	transport->response_body = R"({"series":[]})";
+	transport->response_body =
+		R"({"series":[{"ticker":"S1","tags":null,"settlement_sources":null,"additional_prohibitions":["employees"],"product_metadata":{"sport":"football","nested":{"level":1}}}]})";
 	kalshi::GetSeriesParams series;
 	series.category = "Sports & games";
 	series.tags = "football,nfl";
 	series.include_product_metadata = true;
 	series.include_volume = true;
 	series.min_updated_ts = 1770000000;
-	ASSERT_TRUE(client.get_series_list(series).has_value());
+	const kalshi::Result<kalshi::PaginatedResponse<kalshi::Series>> series_result =
+		client.get_series_list(series);
+	ASSERT_TRUE(series_result.has_value());
+	ASSERT_EQ(series_result->items.size(), 1U);
+	EXPECT_TRUE(series_result->items[0].tags.empty());
+	EXPECT_TRUE(series_result->items[0].settlement_source_details.empty());
+	EXPECT_EQ(series_result->items[0].additional_prohibitions,
+			  (std::vector<std::string>{"employees"}));
+	EXPECT_EQ(series_result->items[0].product_metadata_json,
+			  R"({"sport":"football","nested":{"level":1}})");
 	EXPECT_EQ(transport->path,
 			  "/series?category=Sports%20%26%20games&tags=football%2Cnfl&include_product_metadata="
 			  "true&include_volume=true&min_updated_ts=1770000000");
 
-	transport->response_body = R"({"events":[],"cursor":""})";
+	transport->response_body =
+		R"({"events":[],"milestones":[{"id":"m1","category":"Sports","type":"game","start_date":"2026-09-03T00:00:00Z","related_event_tickers":["E1"],"title":"Kickoff","notification_message":"Starts","primary_event_tickers":["E1"],"last_updated_ts":"2026-09-03T01:00:00Z"}],"cursor":""})";
 	kalshi::GetEventsParams events;
 	events.with_nested_markets = true;
 	events.with_milestones = true;
 	events.event_tickers = "E1,E2";
 	events.min_close_ts = 1760000000;
 	events.min_updated_ts = 1770000000;
-	ASSERT_TRUE(client.get_events(events).has_value());
+	const kalshi::Result<kalshi::EventsResponse> event_result = client.get_events_response(events);
+	ASSERT_TRUE(event_result.has_value());
+	ASSERT_EQ(event_result->milestones.size(), 1U);
+	EXPECT_EQ(event_result->milestones[0].id, "m1");
 	EXPECT_EQ(transport->path, "/events?with_nested_markets=true&with_milestones=true&tickers="
 							   "E1%2CE2&min_close_ts=1760000000&min_updated_ts=1770000000");
+	transport->path.clear();
+	EXPECT_FALSE(client.get_events(events).has_value());
+	EXPECT_TRUE(transport->path.empty());
+}
+
+TEST(OperationContracts, LegacyFieldsNeverSilentlyChangeCurrentRequests) {
+	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+
+	kalshi::CreateOrderParams order;
+	order.ticker = "KXTEST";
+	order.book_side = kalshi::BookSide::Bid;
+	order.count_fp = "1.00";
+	order.price_dollars = "0.5000";
+	order.time_in_force = "good_till_canceled";
+	order.self_trade_prevention_type = "taker_at_cross";
+	order.count = 10;
+	EXPECT_FALSE(client.create_order(order).has_value());
+	EXPECT_TRUE(transport->path.empty());
+
+	kalshi::CreateRfqParams rfq;
+	rfq.market_ticker = "KXTEST";
+	rfq.contracts_fp = "1.00";
+	rfq.side = kalshi::Side::No;
+	EXPECT_FALSE(client.create_rfq(rfq).has_value());
+	EXPECT_TRUE(transport->path.empty());
+
+	kalshi::GetPositionsParams positions;
+	positions.settlement_status = "settled";
+	EXPECT_FALSE(client.get_positions(positions).has_value());
+	EXPECT_TRUE(transport->path.empty());
+}
+
+TEST(OperationContracts, SubaccountTransferHonorsLegacyAmountAlias) {
+	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
+	transport->response_body = R"({"transfer_id":"transfer-1"})";
+	kalshi::KalshiClient client(transport);
+
+	kalshi::SubaccountTransfer request;
+	request.client_transfer_id = "client-1";
+	request.from_subaccount = 1;
+	request.to_subaccount = 2;
+	request.amount = 500;
+	const kalshi::Result<kalshi::SubaccountTransfer> result = client.transfer_subaccount(request);
+	ASSERT_TRUE(result.has_value());
+	EXPECT_EQ(
+		transport->body,
+		R"({"client_transfer_id":"client-1","from_subaccount":1,"to_subaccount":2,"amount_cents":500,"exchange_index":0})");
+	EXPECT_EQ(result->amount, 500);
+	EXPECT_EQ(result->amount_cents, 500);
+	EXPECT_EQ(result->transfer_id, "transfer-1");
 }
 
 TEST(OperationContracts, CurrentMarketPortfolioAndDiscoveryFiltersAreEncoded) {

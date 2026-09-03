@@ -72,6 +72,14 @@ Result<void> validate_create_order_v2(const CreateOrderParams& params) {
 		return std::unexpected(
 			Error{ErrorCode::InvalidRequest, "V2 order count or price is not fixed-point"});
 	}
+	if (params.side != Side::Yes || params.action != Action::Buy || params.type != "limit" ||
+		params.count != 0 || params.yes_price || params.no_price || params.yes_price_dollars ||
+		params.no_price_dollars || params.expiration_ts || params.sell_position_floor ||
+		params.buy_max_cost) {
+		return std::unexpected(Error{
+			ErrorCode::InvalidRequest,
+			"V2 order cannot be combined with legacy direction, count, price, or type fields"});
+	}
 	return {};
 }
 
@@ -426,8 +434,26 @@ size_t find_array_start(const std::string& json, const std::string& key) {
 	if (pos == std::string::npos)
 		return std::string::npos;
 
-	pos = json.find('[', pos);
-	return pos;
+	pos = json.find(':', pos + search.size());
+	if (pos == std::string::npos)
+		return std::string::npos;
+	pos = json.find_first_not_of(" \t\r\n", pos + 1);
+	return pos < json.size() && json[pos] == '[' ? pos : std::string::npos;
+}
+
+std::string extract_object_json(const std::string& json, const std::string& key) {
+	const std::string search = "\"" + key + "\"";
+	std::size_t pos = json.find(search);
+	if (pos == std::string::npos)
+		return {};
+	pos = json.find(':', pos + search.size());
+	if (pos == std::string::npos)
+		return {};
+	pos = json.find_first_not_of(" \t\r\n", pos + 1);
+	if (pos == std::string::npos || json[pos] != '{')
+		return {};
+	const std::size_t end = find_object_end(json, pos);
+	return end == std::string::npos ? std::string{} : json.substr(pos, end - pos);
 }
 
 // Find matching closing bracket
@@ -1030,6 +1056,7 @@ Series parse_series_response(std::string_view body) {
 	series.fee_multiplier = extract_double(series_json, "fee_multiplier");
 	series.additional_prohibitions = extract_string_array(series_json, "additional_prohibitions");
 	series.volume_fp = extract_string(series_json, "volume_fp");
+	series.product_metadata_json = extract_object_json(series_json, "product_metadata");
 	series.last_updated_ts = extract_string(series_json, "last_updated_ts");
 	series.exchange_index = static_cast<std::int32_t>(extract_int(series_json, "exchange_index"));
 	for (const std::string& source : extract_array_objects(series_json, "settlement_sources")) {
@@ -1037,6 +1064,23 @@ Series parse_series_response(std::string_view body) {
 			.name = extract_string(source, "name"), .url = extract_string(source, "url")});
 	}
 	return series;
+}
+
+Milestone parse_milestone_response(std::string_view body) {
+	const std::string json{body};
+	Milestone milestone;
+	milestone.id = extract_string(json, "id");
+	milestone.category = extract_string(json, "category");
+	milestone.type = extract_string(json, "type");
+	milestone.start_date = extract_string(json, "start_date");
+	milestone.end_date = extract_string(json, "end_date");
+	milestone.title = extract_string(json, "title");
+	milestone.notification_message = extract_string(json, "notification_message");
+	milestone.source_id = extract_string(json, "source_id");
+	milestone.last_updated_ts = extract_string(json, "last_updated_ts");
+	milestone.related_event_tickers = extract_string_array(json, "related_event_tickers");
+	milestone.primary_event_tickers = extract_string_array(json, "primary_event_tickers");
+	return milestone;
 }
 
 OrderBook parse_orderbook_response(std::string_view body) {
@@ -1690,6 +1734,22 @@ Result<Event> KalshiClient::get_event(const std::string& event_ticker, bool with
 }
 
 Result<PaginatedResponse<Event>> KalshiClient::get_events(const GetEventsParams& params) {
+	if (params.with_milestones.value_or(false)) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest,
+				  "get_events cannot represent milestones; use get_events_response instead"});
+	}
+	Result<EventsResponse> expanded = get_events_response(params);
+	if (!expanded) {
+		return std::unexpected(expanded.error());
+	}
+	PaginatedResponse<Event> result;
+	result.items = std::move(expanded->events);
+	result.next_cursor = std::move(expanded->next_cursor);
+	return result;
+}
+
+Result<EventsResponse> KalshiClient::get_events_response(const GetEventsParams& params) {
 	std::string path = build_events_query(params);
 	Result<HttpResponse> response = impl_->transport->get(path);
 	if (!response) {
@@ -1703,15 +1763,17 @@ Result<PaginatedResponse<Event>> KalshiClient::get_events(const GetEventsParams&
 				  response->status_code});
 	}
 
-	std::vector<Event> events;
+	EventsResponse result;
 	std::vector<std::string> event_objects = extract_array_objects(response->body, "events");
-	events.reserve(event_objects.size());
+	result.events.reserve(event_objects.size());
 
 	for (const std::string& obj : event_objects)
-		events.push_back(api_detail::parse_event_response(obj));
-
-	PaginatedResponse<Event> result;
-	result.items = std::move(events);
+		result.events.push_back(api_detail::parse_event_response(obj));
+	const std::vector<std::string> milestone_objects =
+		extract_array_objects(response->body, "milestones");
+	result.milestones.reserve(milestone_objects.size());
+	for (const std::string& obj : milestone_objects)
+		result.milestones.push_back(api_detail::parse_milestone_response(obj));
 
 	std::string cursor = extract_cursor(response->body);
 	if (!cursor.empty()) {
@@ -1808,6 +1870,11 @@ std::string KalshiClient::build_positions_query(const GetPositionsParams& params
 }
 
 Result<PaginatedResponse<Position>> KalshiClient::get_positions(const GetPositionsParams& params) {
+	if (params.settlement_status) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest,
+				  "settlement_status was removed from the current positions contract"});
+	}
 	std::string path = build_positions_query(params);
 	Result<HttpResponse> response = impl_->transport->get(path);
 	if (!response) {
@@ -2992,7 +3059,8 @@ std::string KalshiClient::build_rfqs_query(const GetRfqsParams& params) {
 }
 
 Result<Rfq> KalshiClient::create_rfq(const CreateRfqParams& params) {
-	if (params.market_ticker.empty() || params.expires_at ||
+	if (params.market_ticker.empty() || params.expires_at || params.side != Side::Yes ||
+		params.action != Action::Buy ||
 		(params.contracts_fp && !FixedPoint::parse(*params.contracts_fp)) ||
 		(params.target_cost_dollars && !FixedPoint::parse(*params.target_cost_dollars))) {
 		return std::unexpected(
@@ -3345,20 +3413,9 @@ KalshiClient::get_milestones(const GetMilestonesParams& params) {
 	result.next_cursor = Cursor{extract_cursor(response->body)};
 
 	std::vector<std::string> objects = extract_array_objects(response->body, "milestones");
+	result.items.reserve(objects.size());
 	for (const std::string& obj : objects) {
-		Milestone m;
-		m.id = extract_string(obj, "id");
-		m.category = extract_string(obj, "category");
-		m.type = extract_string(obj, "type");
-		m.start_date = extract_string(obj, "start_date");
-		m.end_date = extract_string(obj, "end_date");
-		m.title = extract_string(obj, "title");
-		m.notification_message = extract_string(obj, "notification_message");
-		m.source_id = extract_string(obj, "source_id");
-		m.last_updated_ts = extract_string(obj, "last_updated_ts");
-		m.related_event_tickers = extract_string_array(obj, "related_event_tickers");
-		m.primary_event_tickers = extract_string_array(obj, "primary_event_tickers");
-		result.items.push_back(m);
+		result.items.push_back(api_detail::parse_milestone_response(obj));
 	}
 
 	return result;
@@ -3377,19 +3434,7 @@ Result<Milestone> KalshiClient::get_milestone(const std::string& milestone_id) {
 				  response->status_code});
 	}
 
-	Milestone m;
-	m.id = extract_string(response->body, "id");
-	m.category = extract_string(response->body, "category");
-	m.type = extract_string(response->body, "type");
-	m.start_date = extract_string(response->body, "start_date");
-	m.end_date = extract_string(response->body, "end_date");
-	m.title = extract_string(response->body, "title");
-	m.notification_message = extract_string(response->body, "notification_message");
-	m.source_id = extract_string(response->body, "source_id");
-	m.last_updated_ts = extract_string(response->body, "last_updated_ts");
-	m.related_event_tickers = extract_string_array(response->body, "related_event_tickers");
-	m.primary_event_tickers = extract_string_array(response->body, "primary_event_tickers");
-	return m;
+	return api_detail::parse_milestone_response(response->body);
 }
 
 std::string KalshiClient::build_multivariate_query(const GetMultivariateCollectionsParams& params) {
@@ -3734,7 +3779,13 @@ Result<Subaccount> KalshiClient::create_subaccount(std::int32_t exchange_index) 
 }
 
 Result<SubaccountTransfer> KalshiClient::transfer_subaccount(const SubaccountTransfer& request) {
-	if (request.client_transfer_id.empty() || request.amount_cents <= 0) {
+	if (request.amount_cents > 0 && request.amount > 0 && request.amount_cents != request.amount) {
+		return std::unexpected(Error{ErrorCode::InvalidRequest,
+									 "amount and amount_cents must match when both are set"});
+	}
+	const std::int64_t amount_cents =
+		request.amount_cents > 0 ? request.amount_cents : request.amount;
+	if (request.client_transfer_id.empty() || amount_cents <= 0) {
 		return std::unexpected(
 			Error{ErrorCode::InvalidRequest,
 				  "subaccount transfer requires client_transfer_id and positive amount_cents"});
@@ -3743,7 +3794,7 @@ Result<SubaccountTransfer> KalshiClient::transfer_subaccount(const SubaccountTra
 	body.client_transfer_id = request.client_transfer_id;
 	body.from_subaccount = request.from_subaccount;
 	body.to_subaccount = request.to_subaccount;
-	body.amount_cents = request.amount_cents;
+	body.amount_cents = amount_cents;
 	body.exchange_index = request.exchange_index;
 	Result<HttpResponse> response =
 		impl_->transport->post("/portfolio/subaccounts/transfer", render_body(body));
@@ -3757,11 +3808,13 @@ Result<SubaccountTransfer> KalshiClient::transfer_subaccount(const SubaccountTra
 	}
 	SubaccountTransfer t;
 	t.client_transfer_id = request.client_transfer_id;
+	t.transfer_id = extract_string(response->body, "transfer_id");
 	t.from_subaccount = request.from_subaccount;
 	t.to_subaccount = request.to_subaccount;
-	t.amount_cents = request.amount_cents;
-	t.amount = request.amount_cents;
+	t.amount_cents = amount_cents;
+	t.amount = amount_cents;
 	t.exchange_index = request.exchange_index;
+	t.created_ts = extract_int(response->body, "created_ts");
 	return t;
 }
 

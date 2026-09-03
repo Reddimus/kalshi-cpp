@@ -29,6 +29,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Added current filters for nested event markets, Series volume, structured
   targets, incentives, milestones, and block trades. Array query parameters
   now use the repeated-key encoding required by the published contract.
+- Added `get_events_response()` for event-list milestone expansions and
+  preserved arbitrary Series product metadata as exact JSON.
 - Preserved API-key scopes and location-attestation expiry, Series tags and
   prohibitions, milestone ticker lists, and order-group order IDs.
 - Preserved compact order-mutation fields, including average fill price and
@@ -37,6 +39,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   absent instead of presenting a guessed direction as authoritative.
 - Matched exact success statuses for order batches and subaccount creation,
   and separated successful batch items from per-item errors.
+- Rejected removed filters and conflicting legacy request fields before
+  transport so migrations cannot silently broaden queries or change orders.
+- Kept the legacy subaccount-transfer amount as an exact cents alias and
+  rejected conflicting dual values.
 - Removed network calls to deleted announcement and generic search operations.
   Legacy generic communications, collection lookup, and ticker-based live-data
   methods now return `InvalidRequest` instead of calling stale routes.
