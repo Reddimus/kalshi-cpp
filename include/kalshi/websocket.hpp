@@ -202,6 +202,18 @@ classify_lifecycle_event(const MarketLifecycle& lc) noexcept {
 	if (lc.event_type == "price_level_structure_updated") {
 		return LifecycleEventType::PriceLevelStructureUpdated;
 	}
+	if (lc.event_type == "metadata_updated") {
+		return LifecycleEventType::MetadataUpdated;
+	}
+	if (lc.event_type == "deactivated") {
+		return LifecycleEventType::Deactivated;
+	}
+	if (lc.event_type == "determined") {
+		return LifecycleEventType::Determined;
+	}
+	if (lc.event_type == "settled") {
+		return LifecycleEventType::Settled;
+	}
 	if (lc.settled_ts.has_value()) {
 		return LifecycleEventType::Settled;
 	}

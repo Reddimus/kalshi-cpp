@@ -80,3 +80,9 @@ TEST(HttpSigningPath, UsesFullApiPathAndOmitsQuery) {
 												   "portfolio/balance?subaccount=7"),
 			  "/custom/root/portfolio/balance");
 }
+
+TEST(HttpSigningPath, RequestUrlUsesTheSameNormalizedJoin) {
+	EXPECT_EQ(kalshi::detail::request_url("https://example.test/trade-api/v2/",
+										  "/portfolio/orders?limit=5"),
+			  "https://example.test/trade-api/v2/portfolio/orders?limit=5");
+}

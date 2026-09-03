@@ -5,6 +5,19 @@
 
 namespace kalshi::detail {
 
+/// Join a configured API base URL and an endpoint with exactly one slash.
+[[nodiscard]] inline std::string request_url(std::string_view base_url, std::string_view endpoint) {
+	std::string result{base_url};
+	if (!result.empty() && result.back() == '/' && !endpoint.empty() && endpoint.front() == '/') {
+		result.pop_back();
+	} else if (!result.empty() && result.back() != '/' && !endpoint.empty() &&
+			   endpoint.front() != '/') {
+		result.push_back('/');
+	}
+	result.append(endpoint);
+	return result;
+}
+
 /// Build the URL path covered by Kalshi's RSA-PSS signature.
 ///
 /// Kalshi signs the full path from the host root, including the base URL's

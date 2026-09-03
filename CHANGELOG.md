@@ -26,8 +26,17 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   positions, settlements, and lifecycle events.
 - Updated Predictions routes and filters for trades, series, events,
   orderbooks, queue positions, communications, API keys, and user timestamps.
+- Added current filters for nested event markets, Series volume, structured
+  targets, incentives, milestones, and block trades. Array query parameters
+  now use the repeated-key encoding required by the published contract.
 - Preserved API-key scopes and location-attestation expiry, Series tags and
   prohibitions, milestone ticker lists, and order-group order IDs.
+- Preserved compact order-mutation fields, including average fill price and
+  average fee paid. Create, amend, and batch-create results recover canonical
+  direction from their requests; decrease results report when direction was
+  absent instead of presenting a guessed direction as authoritative.
+- Matched exact success statuses for order batches and subaccount creation,
+  and separated successful batch items from per-item errors.
 - Removed network calls to deleted announcement and generic search operations.
   Legacy generic communications, collection lookup, and ticker-based live-data
   methods now return `InvalidRequest` instead of calling stale routes.

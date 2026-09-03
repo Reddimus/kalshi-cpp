@@ -129,7 +129,7 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 	const AuthHeaders& auth = *headers_result;
 
 	// Build URL
-	std::string url = impl_->config.base_url + std::string(path);
+	const std::string url = detail::request_url(impl_->config.base_url, path);
 
 	// Reset curl handle
 	curl_easy_reset(impl_->curl);

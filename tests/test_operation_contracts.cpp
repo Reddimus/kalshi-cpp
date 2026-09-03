@@ -10,6 +10,7 @@ namespace {
 class RecordingTransport final : public kalshi::HttpTransport {
 public:
 	std::string response_body{"{}"};
+	std::int16_t response_status{200};
 	kalshi::HttpMethod method{kalshi::HttpMethod::GET};
 	std::string path;
 	std::string body;
@@ -21,7 +22,7 @@ public:
 		self->method = request_method;
 		self->path = request_path;
 		self->body = request_body;
-		return kalshi::HttpResponse{200, response_body, {}};
+		return kalshi::HttpResponse{response_status, response_body, {}};
 	}
 };
 
@@ -81,6 +82,17 @@ TEST(OperationContracts, MarketPreservesCurrentFixedPointAndShardFields) {
 	EXPECT_EQ(result->open_interest_fp, "8.75");
 	EXPECT_EQ(result->price_level_structure, "center_deci_edge_centi_cent");
 	EXPECT_EQ(result->exchange_index, 3);
+}
+
+TEST(OperationContracts, NullableMarketStringsRemainEmpty) {
+	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
+	transport->response_body =
+		R"({"market":{"ticker":"KXTEST","settlement_value_dollars":null,"settlement_ts":"2026-09-03T00:00:00Z"}})";
+	kalshi::KalshiClient client(transport);
+
+	const kalshi::Result<kalshi::Market> market = client.get_market("KXTEST");
+	ASSERT_TRUE(market.has_value());
+	EXPECT_TRUE(market->settlement_value_dollars.empty());
 }
 
 TEST(OperationContracts, PortfolioFiltersIncludeShardAndSubaccount) {
@@ -298,13 +310,25 @@ TEST(OperationContracts, PortfolioReadFiltersUseCurrentNames) {
 	EXPECT_EQ(transport->path, "/portfolio/fills?ticker=KXTEST&subaccount=7&exchange_index=3");
 }
 
-TEST(OperationContracts, BatchOrderbooksUseOneCommaSeparatedTickerParameter) {
+TEST(OperationContracts, BatchOrderbooksRepeatExplodedTickerParameters) {
 	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
 	transport->response_body = R"({"orderbooks":[]})";
 	kalshi::KalshiClient client(transport);
 
 	ASSERT_TRUE(client.get_market_orderbooks({"KX A", "KX/B"}).has_value());
-	EXPECT_EQ(transport->path, "/markets/orderbooks?tickers=KX%20A%2CKX%2FB");
+	EXPECT_EQ(transport->path, "/markets/orderbooks?tickers=KX%20A&tickers=KX%2FB");
+}
+
+TEST(OperationContracts, PublicTradesExposeTheBlockTradeFilter) {
+	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
+	transport->response_body = R"({"trades":[],"cursor":""})";
+	kalshi::KalshiClient client(transport);
+
+	kalshi::GetTradesParams params;
+	params.market_ticker = "KXTEST";
+	params.is_block_trade = true;
+	ASSERT_TRUE(client.get_trades(params).has_value());
+	EXPECT_EQ(transport->path, "/markets/trades?ticker=KXTEST&is_block_trade=true");
 }
 
 TEST(OperationContracts, CandlesticksRequireCurrentRangeAndSeriesContract) {
@@ -354,8 +378,8 @@ TEST(OperationContracts, CurrentSeriesAndEventFiltersAreEncoded) {
 	events.min_close_ts = 1760000000;
 	events.min_updated_ts = 1770000000;
 	ASSERT_TRUE(client.get_events(events).has_value());
-	EXPECT_EQ(transport->path, "/events?with_nested_markets=true&with_milestones=true&event_"
-							   "tickers=E1%2CE2&min_close_ts=1760000000&min_updated_ts=1770000000");
+	EXPECT_EQ(transport->path, "/events?with_nested_markets=true&with_milestones=true&tickers="
+							   "E1%2CE2&min_close_ts=1760000000&min_updated_ts=1770000000");
 }
 
 TEST(OperationContracts, CurrentMarketPortfolioAndDiscoveryFiltersAreEncoded) {
@@ -396,15 +420,16 @@ TEST(OperationContracts, CurrentMarketPortfolioAndDiscoveryFiltersAreEncoded) {
 	ASSERT_TRUE(client.get_milestones(milestones).has_value());
 	EXPECT_EQ(
 		transport->path,
-		"/milestones?minimum_start_date=2026-09-03&related_event_ticker=E1&min_updated_ts=30");
+		"/milestones?limit=100&minimum_start_date=2026-09-03&related_event_ticker=E1&min_updated_"
+		"ts=30");
 
 	transport->response_body = R"({"structured_targets":[],"cursor":""})";
 	kalshi::GetStructuredTargetsParams targets;
 	targets.page_size = 25;
-	targets.ids = "one,two";
+	targets.ids = {"one", "two"};
 	targets.type = "team";
 	ASSERT_TRUE(client.get_structured_targets(targets).has_value());
-	EXPECT_EQ(transport->path, "/structured_targets?page_size=25&ids=one%2Ctwo&type=team");
+	EXPECT_EQ(transport->path, "/structured_targets?page_size=25&ids=one&ids=two&type=team");
 }
 
 TEST(OperationContracts, UserTimestampQueuePositionsAndCancelAllUseCurrentContracts) {
@@ -521,9 +546,12 @@ TEST(OperationContracts, OrderMutationsUseExactV2Bodies) {
 	EXPECT_EQ(created->fill_count_fp, "0.25");
 	EXPECT_EQ(created->remaining_count_fp, "1.00");
 	EXPECT_EQ(created->mutation_ts_ms, 1770000000000);
+	EXPECT_EQ(created->book_side, kalshi::BookSide::Bid);
+	EXPECT_EQ(created->outcome_side, kalshi::OutcomeSide::Yes);
+	EXPECT_TRUE(created->has_canonical_direction);
 
 	transport->response_body =
-		R"({"order_id":"o1","remaining_count":"0.75","fill_count":"0.50","ts_ms":1770000000001})";
+		R"({"order_id":"o1","remaining_count":"0.75","fill_count":"0.50","average_fill_price":"0.875000","average_fee_paid":"0.002500","ts_ms":1770000000001})";
 	kalshi::AmendOrderParams amend;
 	amend.order_id = "o1";
 	amend.ticker = "KXTEST";
@@ -531,7 +559,13 @@ TEST(OperationContracts, OrderMutationsUseExactV2Bodies) {
 	amend.price_dollars = "0.875000";
 	amend.count_fp = "1.25";
 	amend.exchange_index = 3;
-	ASSERT_TRUE(client.amend_order(amend).has_value());
+	const kalshi::Result<kalshi::Order> amended = client.amend_order(amend);
+	ASSERT_TRUE(amended.has_value());
+	EXPECT_EQ(amended->book_side, kalshi::BookSide::Ask);
+	EXPECT_EQ(amended->outcome_side, kalshi::OutcomeSide::No);
+	EXPECT_TRUE(amended->has_canonical_direction);
+	EXPECT_EQ(amended->average_fill_price, "0.875000");
+	EXPECT_EQ(amended->average_fee_paid, "0.002500");
 	EXPECT_EQ(
 		transport->body,
 		R"({"ticker":"KXTEST","side":"ask","price":"0.875000","count":"1.25","exchange_index":3})");
@@ -543,9 +577,49 @@ TEST(OperationContracts, OrderMutationsUseExactV2Bodies) {
 	decrease.reduce_by_fp = "0.25";
 	decrease.market_ticker = "KXTEST";
 	decrease.exchange_index = -1;
-	ASSERT_TRUE(client.decrease_order(decrease).has_value());
+	const kalshi::Result<kalshi::Order> decreased = client.decrease_order(decrease);
+	ASSERT_TRUE(decreased.has_value());
+	EXPECT_FALSE(decreased->has_canonical_direction);
 	EXPECT_EQ(transport->body,
 			  R"({"reduce_by":"0.25","exchange_index":-1,"market_ticker":"KXTEST"})");
+}
+
+TEST(OperationContracts, BatchMutationsSeparatePerItemErrorsFromSuccessfulOrders) {
+	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+
+	kalshi::CreateOrderParams order;
+	order.ticker = "KXTEST";
+	order.book_side = kalshi::BookSide::Bid;
+	order.count_fp = "1.00";
+	order.price_dollars = "0.5000";
+	order.time_in_force = "good_till_canceled";
+	order.self_trade_prevention_type = "taker_at_cross";
+	transport->response_body =
+		R"({"orders":[{"order_id":"ok","fill_count":"0.00","remaining_count":"1.00","ts_ms":1770000000000},{"error":{"code":"invalid_order","message":"bad order"}}]})";
+	const kalshi::Result<kalshi::BatchResponse<kalshi::Order>> created =
+		client.batch_create_orders({.orders = {order}});
+	ASSERT_TRUE(created.has_value());
+	ASSERT_EQ(created->results.size(), 1U);
+	EXPECT_EQ(created->results[0].order_id, "ok");
+	EXPECT_EQ(created->results[0].book_side, kalshi::BookSide::Bid);
+	EXPECT_EQ(created->results[0].outcome_side, kalshi::OutcomeSide::Yes);
+	EXPECT_TRUE(created->results[0].has_canonical_direction);
+	EXPECT_EQ(created->errors, (std::vector<std::string>{"bad order"}));
+
+	kalshi::BatchCancelRequest cancel;
+	cancel.order_ids = {"ok", "bad"};
+	transport->response_body =
+		R"({"orders":[{"order_id":"ok","reduced_by":"1.00","ts_ms":1770000000001},{"order_id":"bad","reduced_by":"0.00","error":{"code":"not_found","message":"missing order"}}]})";
+	const kalshi::Result<kalshi::BatchResponse<std::string>> cancelled =
+		client.batch_cancel_orders(cancel);
+	ASSERT_TRUE(cancelled.has_value());
+	EXPECT_EQ(cancelled->results, (std::vector<std::string>{"ok"}));
+	EXPECT_EQ(cancelled->errors, (std::vector<std::string>{"missing order"}));
+
+	transport->response_status = 204;
+	transport->response_body.clear();
+	EXPECT_FALSE(client.batch_cancel_orders(cancel).has_value());
 }
 
 TEST(OperationContracts, LegacyAmbiguousOrderBodyIsRejectedBeforeTransport) {
@@ -584,7 +658,15 @@ TEST(OperationContracts, NamedResourcesUseCurrentPathsAndVerbs) {
 	EXPECT_EQ(transport->path, "/multivariate_event_collections");
 	EXPECT_TRUE(client.get_incentive_programs().has_value());
 	EXPECT_EQ(transport->path, "/incentive_programs");
-	EXPECT_TRUE(client.get_total_resting_order_value().has_value());
+	transport->response_body =
+		R"({"total_resting_order_value":4200,"resting_order_value_breakdown":[{"exchange_index":3,"balance":"42.0000"}]})";
+	const kalshi::Result<kalshi::TotalRestingOrderValue> resting_value =
+		client.get_total_resting_order_value();
+	ASSERT_TRUE(resting_value.has_value());
+	EXPECT_EQ(resting_value->total_value, 4200);
+	ASSERT_EQ(resting_value->resting_order_value_breakdown.size(), 1U);
+	EXPECT_EQ(resting_value->resting_order_value_breakdown[0].exchange_index, 3);
+	EXPECT_EQ(resting_value->resting_order_value_breakdown[0].balance_dollars, "42.0000");
 	EXPECT_EQ(transport->path, "/portfolio/summary/total_resting_order_value");
 }
 
@@ -661,11 +743,35 @@ TEST(OperationContracts, CurrentStringArrayFieldsAreParsedWithoutJsonFragments) 
 	EXPECT_DOUBLE_EQ(series->fee_multiplier, 0.75);
 
 	transport->response_body =
+		R"({"series":{"ticker":"SERIES","frequency":"weekly","title":"Title","category":"Sports","volume_fp":"123.45"}})";
+	const kalshi::Result<kalshi::Series> series_with_volume = client.get_series("SERIES", true);
+	ASSERT_TRUE(series_with_volume.has_value());
+	EXPECT_EQ(transport->path, "/series/SERIES?include_volume=true");
+	EXPECT_EQ(series_with_volume->volume_fp, "123.45");
+
+	transport->response_body =
+		R"({"event":{"event_ticker":"EVENT","series_ticker":"SERIES","title":"Event","sub_title":"Subtitle","collateral_return_type":"binary","mutually_exclusive":true,"markets":[{"ticker":"KXTEST","event_ticker":"EVENT","status":"active"}]},"markets":[{"ticker":"KXTEST","event_ticker":"EVENT","status":"active"}]})";
+	const kalshi::Result<kalshi::Event> event = client.get_event("EVENT", true);
+	ASSERT_TRUE(event.has_value());
+	EXPECT_EQ(transport->path, "/events/EVENT?with_nested_markets=true");
+	ASSERT_EQ(event->markets.size(), 1U);
+	EXPECT_EQ(event->markets[0].ticker, "KXTEST");
+
+	transport->response_body =
 		R"({"is_auto_cancel_enabled":true,"contracts_limit_fp":"10.00","orders":["order-1","order-2"],"exchange_index":3})";
 	const kalshi::Result<kalshi::OrderGroup> group =
 		client.get_order_group("group-1", {.subaccount = 0});
 	ASSERT_TRUE(group.has_value());
 	EXPECT_EQ(group->order_ids, (std::vector<std::string>{"order-1", "order-2"}));
+#if defined(__clang__)
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wdeprecated-declarations"
+#endif
+	ASSERT_TRUE(client.get_order_group("group-1").has_value());
+#if defined(__clang__)
+#pragma clang diagnostic pop
+#endif
+	EXPECT_EQ(transport->path, "/portfolio/order_groups/group-1");
 
 	transport->response_body =
 		R"({"milestone":{"id":"m1","category":"Sports","type":"football_game","start_date":"2026-09-03T00:00:00Z","related_event_tickers":["E1","E2"],"title":"Game","notification_message":"Starts soon","details":{},"primary_event_tickers":["E1"],"last_updated_ts":"2026-09-03T01:00:00Z"}})";
@@ -788,6 +894,39 @@ TEST(OperationContracts, DiscoveryResponsesUseCurrentCollectionKeysAndFields) {
 	ASSERT_EQ(programs->size(), 1U);
 	EXPECT_EQ((*programs)[0].market_ticker, "KXTEST");
 	EXPECT_EQ((*programs)[0].target_size_fp, "10.00");
+
+	transport->response_body =
+		R"({"incentive_programs":[{"id":"i2","market_id":"m2","market_ticker":"KXOTHER","incentive_type":"volume","incentive_description":"trade","start_date":"2026-09-01T00:00:00Z","end_date":"2026-09-30T00:00:00Z","period_reward":2000,"paid_out":true,"discount_factor_bps":null,"target_size_fp":"20.00","max_reward_per_account":5000}],"next_cursor":"next-page"})";
+	kalshi::GetIncentiveProgramsParams incentive_params;
+	incentive_params.status = "active";
+	incentive_params.type = "volume";
+	incentive_params.incentive_description = "trade";
+	incentive_params.limit = 25;
+	incentive_params.cursor = "current-page";
+	const kalshi::Result<kalshi::PaginatedResponse<kalshi::IncentiveProgram>> page =
+		client.get_incentive_programs(incentive_params);
+	ASSERT_TRUE(page.has_value());
+	EXPECT_EQ(transport->path, "/incentive_programs?status=active&type=volume&incentive_"
+							   "description=trade&limit=25&cursor=current-page");
+	ASSERT_EQ(page->items.size(), 1U);
+	ASSERT_TRUE(page->next_cursor.has_value());
+	EXPECT_EQ(page->next_cursor->value, "next-page");
+	EXPECT_FALSE(page->items[0].discount_factor_bps.has_value());
+	EXPECT_EQ(page->items[0].max_reward_per_account, 5000);
+}
+
+TEST(OperationContracts, CreateSubaccountCanSelectAnExchangeShard) {
+	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
+	transport->response_status = 201;
+	transport->response_body = R"({"subaccount_number":7})";
+	kalshi::KalshiClient client(transport);
+
+	const kalshi::Result<kalshi::Subaccount> subaccount = client.create_subaccount(3);
+	ASSERT_TRUE(subaccount.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::POST);
+	EXPECT_EQ(transport->path, "/portfolio/subaccounts");
+	EXPECT_EQ(transport->body, R"({"exchange_index":3})");
+	EXPECT_EQ(subaccount->subaccount_number, 7);
 }
 
 } // namespace

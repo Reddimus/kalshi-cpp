@@ -164,6 +164,10 @@ struct SubaccountTransferBody {
 	std::int32_t exchange_index{0};
 };
 
+struct CreateSubaccountBody {
+	std::int32_t exchange_index{0};
+};
+
 /// PUT /portfolio/subaccounts/netting
 struct SubaccountNettingBody {
 	std::int64_t subaccount_number{0};
@@ -320,6 +324,12 @@ struct glz::meta<kalshi::ser::SubaccountTransferBody> {
 		object("client_transfer_id", &T::client_transfer_id, "from_subaccount", &T::from_subaccount,
 			   "to_subaccount", &T::to_subaccount, "amount_cents", &T::amount_cents,
 			   "exchange_index", &T::exchange_index);
+};
+
+template <>
+struct glz::meta<kalshi::ser::CreateSubaccountBody> {
+	using T = kalshi::ser::CreateSubaccountBody;
+	static constexpr auto value = object("exchange_index", &T::exchange_index); // auto-ok
 };
 
 template <>

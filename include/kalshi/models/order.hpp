@@ -81,6 +81,10 @@ struct Order {
 	std::string last_update_time;
 	std::string self_trade_prevention_type;
 	std::string order_group_id;
+	std::string average_fill_price;
+	std::string average_fee_paid;
+	/// True when the canonical direction came from the response or mutation request.
+	bool has_canonical_direction{false};
 };
 
 /// Trade execution

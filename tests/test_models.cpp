@@ -200,6 +200,19 @@ TEST(Models, ClassifyLifecycleEvent) {
 	EXPECT_EQ(kalshi::classify_lifecycle_event(opened), kalshi::LifecycleEventType::OpenOrCreated);
 }
 
+TEST(Models, ClassifyEveryExplicitLifecycleEventType) {
+	kalshi::MarketLifecycle lifecycle;
+	lifecycle.event_type = "metadata_updated";
+	EXPECT_EQ(kalshi::classify_lifecycle_event(lifecycle),
+			  kalshi::LifecycleEventType::MetadataUpdated);
+	lifecycle.event_type = "deactivated";
+	EXPECT_EQ(kalshi::classify_lifecycle_event(lifecycle), kalshi::LifecycleEventType::Deactivated);
+	lifecycle.event_type = "determined";
+	EXPECT_EQ(kalshi::classify_lifecycle_event(lifecycle), kalshi::LifecycleEventType::Determined);
+	lifecycle.event_type = "settled";
+	EXPECT_EQ(kalshi::classify_lifecycle_event(lifecycle), kalshi::LifecycleEventType::Settled);
+}
+
 TEST(Models, OrderMutationTsMsDefault) {
 	// 2026-05-05 upstream: V2 order-mutating endpoints now include a top-
 	// level `ts_ms` matching-engine timestamp. parse_order surfaces it as

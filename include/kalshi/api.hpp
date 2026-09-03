@@ -566,6 +566,7 @@ struct GetSubaccountTransfersParams {
 /// Total resting order value response
 struct TotalRestingOrderValue {
 	std::int64_t total_value{0}; // in cents
+	std::vector<IndexedBalance> resting_order_value_breakdown;
 };
 
 /// User data timestamp response
@@ -761,9 +762,18 @@ struct GetStructuredTargetsParams {
 	std::optional<std::int32_t> limit; // legacy alias for page_size
 	std::optional<std::string> cursor;
 	std::optional<std::int32_t> page_size;
-	std::optional<std::string> ids;
+	std::vector<std::string> ids;
 	std::optional<std::string> type;
 	std::optional<std::string> competition;
+};
+
+/// Parameters for listing incentive programs.
+struct GetIncentiveProgramsParams {
+	std::optional<std::string> status;
+	std::optional<std::string> type;
+	std::optional<std::string> incentive_description;
+	std::optional<std::int32_t> limit;
+	std::optional<std::string> cursor;
 };
 
 /// Parameters for searching events/markets
@@ -827,14 +837,13 @@ struct GetTradesParams {
 	std::optional<std::string> market_ticker;
 	std::optional<std::int64_t> min_ts;
 	std::optional<std::int64_t> max_ts;
+	std::optional<bool> is_block_trade;
 };
 
 /// Parameters for market candlesticks
-/// Note: Requires both event_ticker and market ticker because the endpoint is
-/// GET /series/{event_ticker}/markets/{ticker}/candlesticks
-/// Despite the path saying "series", the first parameter is the EVENT ticker.
+/// Requires a series ticker, market ticker, and time range.
 struct GetCandlesticksParams {
-	std::string event_ticker;			  ///< Event ticker (e.g., "KXHIGHLAX-26JAN18")
+	std::string event_ticker;			  ///< Legacy alias for series_ticker.
 	std::string ticker;					  ///< Market ticker (e.g., "KXHIGHLAX-26JAN18-T50")
 	std::int32_t period_interval{1};	  ///< Period in MINUTES: 1 (1m), 60 (1h), 1440 (1d)
 	std::optional<std::int64_t> start_ts; ///< Start timestamp (unix seconds)
@@ -1040,6 +1049,8 @@ public:
 
 	/// Get a single event by ticker
 	[[nodiscard]] Result<Event> get_event(const std::string& event_ticker);
+	[[nodiscard]] Result<Event> get_event(const std::string& event_ticker,
+										  bool with_nested_markets);
 
 	/// List events with optional filters
 	[[nodiscard]] Result<PaginatedResponse<Event>> get_events(const GetEventsParams& params = {});
@@ -1051,6 +1062,7 @@ public:
 
 	/// Get a single series by ticker
 	[[nodiscard]] Result<Series> get_series(const std::string& series_ticker);
+	[[nodiscard]] Result<Series> get_series(const std::string& series_ticker, bool include_volume);
 
 	/// List all series
 	[[nodiscard]] Result<PaginatedResponse<Series>>
@@ -1098,9 +1110,9 @@ public:
 	// ===== Subaccounts (Authenticated) =====
 
 	/// Create a new subaccount under the primary account holder.
-	/// The Kalshi API takes no body; the new subaccount's
-	/// ``subaccount_number`` is returned for use in subsequent calls.
+	/// Pass an exchange shard when the subaccount should be created there.
 	[[nodiscard]] Result<Subaccount> create_subaccount();
+	[[nodiscard]] Result<Subaccount> create_subaccount(std::int32_t exchange_index);
 
 	/// Transfer ``amount`` cents from one subaccount to another.
 	[[nodiscard]] Result<SubaccountTransfer> transfer_subaccount(const SubaccountTransfer& request);
@@ -1315,6 +1327,8 @@ public:
 
 	/// List incentive programs
 	[[nodiscard]] Result<std::vector<IncentiveProgram>> get_incentive_programs();
+	[[nodiscard]] Result<PaginatedResponse<IncentiveProgram>>
+	get_incentive_programs(const GetIncentiveProgramsParams& params);
 
 	/// Access the underlying HTTP client
 	[[nodiscard]] HttpClient& http_client();

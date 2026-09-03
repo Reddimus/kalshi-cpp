@@ -84,19 +84,6 @@ ser::BatchCancelOrderBody to_batch_cancel_order_body(const BatchCancelOrder& ord
 	return body;
 }
 
-std::vector<std::string> batch_cancel_result_ids(const BatchCancelRequest& request) {
-	std::vector<std::string> ids;
-	if (!request.orders.empty()) {
-		ids.reserve(request.orders.size());
-		for (const BatchCancelOrder& order : request.orders) {
-			ids.push_back(order.order_id);
-		}
-		return ids;
-	}
-
-	return request.order_ids;
-}
-
 } // anonymous namespace
 
 struct KalshiClient::Impl {
@@ -157,8 +144,8 @@ std::string extract_string(const std::string& json, const std::string& key) {
 	if (pos == std::string::npos)
 		return "";
 
-	pos = json.find('"', pos);
-	if (pos == std::string::npos)
+	pos = json.find_first_not_of(" \t\r\n", pos + 1);
+	if (pos == std::string::npos || json[pos] != '"')
 		return "";
 
 	size_t start = pos + 1;
@@ -842,7 +829,19 @@ std::optional<std::int64_t> extract_optional_datetime(const std::string& json,
 
 std::optional<std::int32_t> extract_optional_int32(const std::string& json,
 												   const std::string& key) {
-	if (json.find("\"" + key + "\"") == std::string::npos) {
+	const std::string search = "\"" + key + "\"";
+	const std::size_t key_position = json.find(search);
+	if (key_position == std::string::npos) {
+		return std::nullopt;
+	}
+	const std::size_t colon = json.find(':', key_position + search.size());
+	if (colon == std::string::npos) {
+		return std::nullopt;
+	}
+	const std::size_t value = json.find_first_not_of(" \t\r\n", colon + 1);
+	if (value == std::string::npos || (json.compare(value, 4, "null") == 0 &&
+									   (value + 4 == json.size() || json[value + 4] == ',' ||
+										json[value + 4] == '}' || json[value + 4] == ']'))) {
 		return std::nullopt;
 	}
 	return static_cast<std::int32_t>(extract_int(json, key));
@@ -971,6 +970,67 @@ std::vector<Market> parse_markets_response(std::string_view body) {
 	}
 
 	return markets;
+}
+
+Event parse_event_response(std::string_view body) {
+	const std::string response_body{body};
+	const std::size_t event_start = find_object_start(response_body, "event");
+	const std::string event_json =
+		event_start == std::string::npos
+			? response_body
+			: response_body.substr(event_start,
+								   find_object_end(response_body, event_start) - event_start);
+
+	Event event;
+	event.event_ticker = extract_string(event_json, "event_ticker");
+	event.series_ticker = extract_string(event_json, "series_ticker");
+	event.title = extract_string(event_json, "title");
+	event.category = extract_string(event_json, "category");
+	event.sub_title = extract_string(event_json, "sub_title");
+	event.collateral_return_type = extract_string(event_json, "collateral_return_type");
+	event.mutually_exclusive = extract_bool(event_json, "mutually_exclusive");
+	event.last_updated_ts = extract_string(event_json, "last_updated_ts");
+	event.fee_type_override = extract_string(event_json, "fee_type_override");
+	event.exchange_index = static_cast<std::int32_t>(extract_int(event_json, "exchange_index"));
+	for (const std::string& source : extract_array_objects(event_json, "settlement_sources")) {
+		event.settlement_source_details.push_back(SettlementSource{
+			.name = extract_string(source, "name"), .url = extract_string(source, "url")});
+	}
+	event.markets = parse_markets_response(event_json);
+	if (event.markets.empty() && event_start != std::string::npos) {
+		event.markets = parse_markets_response(response_body);
+	}
+	return event;
+}
+
+Series parse_series_response(std::string_view body) {
+	const std::string response_body{body};
+	const std::size_t series_start = find_object_start(response_body, "series");
+	const std::string series_json =
+		series_start == std::string::npos
+			? response_body
+			: response_body.substr(series_start,
+								   find_object_end(response_body, series_start) - series_start);
+
+	Series series;
+	series.ticker = extract_string(series_json, "ticker");
+	series.title = extract_string(series_json, "title");
+	series.category = extract_string(series_json, "category");
+	series.frequency = extract_string(series_json, "frequency");
+	series.tags = extract_string_array(series_json, "tags");
+	series.contract_url = extract_string(series_json, "contract_url");
+	series.contract_terms_url = extract_string(series_json, "contract_terms_url");
+	series.fee_type = extract_string(series_json, "fee_type");
+	series.fee_multiplier = extract_double(series_json, "fee_multiplier");
+	series.additional_prohibitions = extract_string_array(series_json, "additional_prohibitions");
+	series.volume_fp = extract_string(series_json, "volume_fp");
+	series.last_updated_ts = extract_string(series_json, "last_updated_ts");
+	series.exchange_index = static_cast<std::int32_t>(extract_int(series_json, "exchange_index"));
+	for (const std::string& source : extract_array_objects(series_json, "settlement_sources")) {
+		series.settlement_source_details.push_back(SettlementSource{
+			.name = extract_string(source, "name"), .url = extract_string(source, "url")});
+	}
+	return series;
 }
 
 OrderBook parse_orderbook_response(std::string_view body) {
@@ -1471,14 +1531,9 @@ KalshiClient::get_market_orderbooks(const std::vector<std::string>& tickers) {
 	}
 
 	std::string path = "/markets/orderbooks";
-	std::string joined;
 	for (const std::string& ticker : tickers) {
-		if (!joined.empty()) {
-			joined.push_back(',');
-		}
-		joined += ticker;
+		append_query_param(path, "tickers", ticker);
 	}
-	append_query_param(path, "tickers", joined);
 
 	Result<HttpResponse> response = impl_->transport->get(path);
 	if (!response) {
@@ -1547,6 +1602,8 @@ std::string KalshiClient::build_trades_query(const GetTradesParams& params) {
 		append_query_param(query, "min_ts", *params.min_ts);
 	if (params.max_ts)
 		append_query_param(query, "max_ts", *params.max_ts);
+	if (params.is_block_trade)
+		append_query_param(query, "is_block_trade", *params.is_block_trade);
 
 	return query;
 }
@@ -1594,7 +1651,7 @@ std::string KalshiClient::build_events_query(const GetEventsParams& params) {
 	if (params.with_milestones)
 		append_query_param(query, "with_milestones", *params.with_milestones);
 	if (params.event_tickers)
-		append_query_param(query, "event_tickers", *params.event_tickers);
+		append_query_param(query, "tickers", *params.event_tickers);
 	if (params.min_close_ts)
 		append_query_param(query, "min_close_ts", *params.min_close_ts);
 	if (params.min_updated_ts)
@@ -1604,7 +1661,15 @@ std::string KalshiClient::build_events_query(const GetEventsParams& params) {
 }
 
 Result<Event> KalshiClient::get_event(const std::string& event_ticker) {
-	Result<HttpResponse> response = impl_->transport->get("/events/" + event_ticker);
+	return get_event(event_ticker, false);
+}
+
+Result<Event> KalshiClient::get_event(const std::string& event_ticker, bool with_nested_markets) {
+	std::string path = "/events/" + event_ticker;
+	if (with_nested_markets) {
+		append_query_param(path, "with_nested_markets", true);
+	}
+	Result<HttpResponse> response = impl_->transport->get(path);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1615,31 +1680,7 @@ Result<Event> KalshiClient::get_event(const std::string& event_ticker) {
 			response->status_code});
 	}
 
-	// Find event object
-	size_t evt_start = find_object_start(response->body, "event");
-	std::string evt_json =
-		evt_start != std::string::npos
-			? response->body.substr(evt_start,
-									find_object_end(response->body, evt_start) - evt_start)
-			: response->body;
-
-	Event event;
-	event.event_ticker = extract_string(evt_json, "event_ticker");
-	event.series_ticker = extract_string(evt_json, "series_ticker");
-	event.title = extract_string(evt_json, "title");
-	event.category = extract_string(evt_json, "category");
-	event.sub_title = extract_string(evt_json, "sub_title");
-	event.collateral_return_type = extract_string(evt_json, "collateral_return_type");
-	event.mutually_exclusive = extract_bool(evt_json, "mutually_exclusive");
-	event.last_updated_ts = extract_string(evt_json, "last_updated_ts");
-	event.fee_type_override = extract_string(evt_json, "fee_type_override");
-	event.exchange_index = static_cast<std::int32_t>(extract_int(evt_json, "exchange_index"));
-	for (const std::string& obj : extract_array_objects(evt_json, "settlement_sources")) {
-		event.settlement_source_details.push_back(SettlementSource{
-			.name = extract_string(obj, "name"), .url = extract_string(obj, "url")});
-	}
-
-	return event;
+	return api_detail::parse_event_response(response->body);
 }
 
 Result<PaginatedResponse<Event>> KalshiClient::get_events(const GetEventsParams& params) {
@@ -1659,25 +1700,8 @@ Result<PaginatedResponse<Event>> KalshiClient::get_events(const GetEventsParams&
 	std::vector<Event> events;
 	std::vector<std::string> event_objects = extract_array_objects(response->body, "events");
 
-	for (const std::string& obj : event_objects) {
-		Event e;
-		e.event_ticker = extract_string(obj, "event_ticker");
-		e.series_ticker = extract_string(obj, "series_ticker");
-		e.title = extract_string(obj, "title");
-		e.category = extract_string(obj, "category");
-		e.sub_title = extract_string(obj, "sub_title");
-		e.collateral_return_type = extract_string(obj, "collateral_return_type");
-		e.mutually_exclusive = extract_bool(obj, "mutually_exclusive");
-		e.last_updated_ts = extract_string(obj, "last_updated_ts");
-		e.fee_type_override = extract_string(obj, "fee_type_override");
-		e.exchange_index = static_cast<std::int32_t>(extract_int(obj, "exchange_index"));
-		for (const std::string& source : extract_array_objects(obj, "settlement_sources")) {
-			e.settlement_source_details.push_back(SettlementSource{
-				.name = extract_string(source, "name"), .url = extract_string(source, "url")});
-		}
-		e.markets = api_detail::parse_markets_response(obj);
-		events.push_back(e);
-	}
+	for (const std::string& obj : event_objects)
+		events.push_back(api_detail::parse_event_response(obj));
 
 	PaginatedResponse<Event> result;
 	result.items = std::move(events);
@@ -1693,7 +1717,15 @@ Result<PaginatedResponse<Event>> KalshiClient::get_events(const GetEventsParams&
 // ===== Series API =====
 
 Result<Series> KalshiClient::get_series(const std::string& series_ticker) {
-	Result<HttpResponse> response = impl_->transport->get("/series/" + series_ticker);
+	return get_series(series_ticker, false);
+}
+
+Result<Series> KalshiClient::get_series(const std::string& series_ticker, bool include_volume) {
+	std::string path = "/series/" + series_ticker;
+	if (include_volume) {
+		append_query_param(path, "include_volume", true);
+	}
+	Result<HttpResponse> response = impl_->transport->get(path);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -1705,33 +1737,7 @@ Result<Series> KalshiClient::get_series(const std::string& series_ticker) {
 				  response->status_code});
 	}
 
-	size_t series_start = find_object_start(response->body, "series");
-	std::string series_json =
-		series_start != std::string::npos
-			? response->body.substr(series_start,
-									find_object_end(response->body, series_start) - series_start)
-			: response->body;
-
-	Series series;
-	series.ticker = extract_string(series_json, "ticker");
-	series.title = extract_string(series_json, "title");
-	series.category = extract_string(series_json, "category");
-	series.frequency = extract_string(series_json, "frequency");
-	series.tags = extract_string_array(series_json, "tags");
-	series.contract_url = extract_string(series_json, "contract_url");
-	series.contract_terms_url = extract_string(series_json, "contract_terms_url");
-	series.fee_type = extract_string(series_json, "fee_type");
-	series.fee_multiplier = extract_double(series_json, "fee_multiplier");
-	series.additional_prohibitions = extract_string_array(series_json, "additional_prohibitions");
-	series.volume_fp = extract_string(series_json, "volume_fp");
-	series.last_updated_ts = extract_string(series_json, "last_updated_ts");
-	series.exchange_index = static_cast<std::int32_t>(extract_int(series_json, "exchange_index"));
-	for (const std::string& obj : extract_array_objects(series_json, "settlement_sources")) {
-		series.settlement_source_details.push_back(SettlementSource{
-			.name = extract_string(obj, "name"), .url = extract_string(obj, "url")});
-	}
-
-	return series;
+	return api_detail::parse_series_response(response->body);
 }
 
 // ===== Portfolio API =====
@@ -1875,15 +1881,20 @@ Result<Order> KalshiClient::parse_order(const std::string& json) {
 	order.user_id = extract_string(order_json, "user_id");
 	order.market_ticker = extract_string(order_json, "ticker");
 	order.client_order_id = extract_string(order_json, "client_order_id");
-	order.side = parse_side(extract_string(order_json, "side"));
-	order.action = parse_action(extract_string(order_json, "action"));
+	const std::string side = extract_string(order_json, "side");
+	const std::string action = extract_string(order_json, "action");
+	order.side = parse_side(side);
+	order.action = parse_action(action);
 	const std::string outcome_side = extract_string(order_json, "outcome_side");
+	const bool has_legacy_direction = !side.empty() && !action.empty();
 	order.outcome_side = outcome_side.empty()
 							 ? derive_outcome_side(order.side, order.action)
 							 : (outcome_side == "no" ? OutcomeSide::No : OutcomeSide::Yes);
 	const std::string book_side = extract_string(order_json, "book_side");
 	order.book_side = book_side.empty() ? derive_book_side(order.side, order.action)
 										: (book_side == "ask" ? BookSide::Ask : BookSide::Bid);
+	order.has_canonical_direction =
+		!outcome_side.empty() || !book_side.empty() || has_legacy_direction;
 	order.exchange_index = static_cast<std::int32_t>(extract_int(order_json, "exchange_index"));
 
 	std::string type_str = extract_string(order_json, "type");
@@ -1927,6 +1938,8 @@ Result<Order> KalshiClient::parse_order(const std::string& json) {
 	order.maker_fill_cost_dollars = extract_string(order_json, "maker_fill_cost_dollars");
 	order.taker_fees_dollars = extract_string(order_json, "taker_fees_dollars");
 	order.maker_fees_dollars = extract_string(order_json, "maker_fees_dollars");
+	order.average_fill_price = extract_string(order_json, "average_fill_price");
+	order.average_fee_paid = extract_string(order_json, "average_fee_paid");
 	order.price = exact_scaled_int_or_zero(order.yes_price_dollars, 2);
 	if (order.yes_price_dollars.empty()) {
 		order.price = static_cast<std::int32_t>(extract_int(order_json, "yes_price"));
@@ -2281,7 +2294,15 @@ Result<Order> KalshiClient::create_order(const CreateOrderParams& params) {
 									 response->status_code});
 	}
 
-	return parse_order(response->body);
+	Result<Order> result = parse_order(response->body);
+	if (result) {
+		result->market_ticker = params.ticker;
+		result->book_side = *params.book_side;
+		result->outcome_side =
+			*params.book_side == BookSide::Ask ? OutcomeSide::No : OutcomeSide::Yes;
+		result->has_canonical_direction = true;
+	}
+	return result;
 }
 
 Result<void> KalshiClient::cancel_order(const std::string& order_id) {
@@ -2370,7 +2391,15 @@ Result<Order> KalshiClient::amend_order(const AmendOrderParams& params) {
 									 response->status_code});
 	}
 
-	return parse_order(response->body);
+	Result<Order> result = parse_order(response->body);
+	if (result) {
+		result->market_ticker = params.ticker;
+		result->book_side = *params.book_side;
+		result->outcome_side =
+			*params.book_side == BookSide::Ask ? OutcomeSide::No : OutcomeSide::Yes;
+		result->has_canonical_direction = true;
+	}
+	return result;
 }
 
 std::string KalshiClient::serialize_decrease_order(const DecreaseOrderParams& params) {
@@ -2449,9 +2478,30 @@ Result<BatchResponse<Order>> KalshiClient::batch_create_orders(const BatchOrderR
 	}
 
 	BatchResponse<Order> result;
-	Result<std::vector<Order>> orders = parse_orders(response->body);
-	if (orders) {
-		result.results = std::move(*orders);
+	const std::vector<std::string> objects = extract_array_objects(response->body, "orders");
+	result.results.reserve(objects.size());
+	for (std::size_t index = 0; index < objects.size(); ++index) {
+		const std::string& object = objects[index];
+		const std::size_t error_start = find_object_start(object, "error");
+		if (error_start != std::string::npos) {
+			const std::size_t error_end = find_object_end(object, error_start);
+			const std::string error = error_end == std::string::npos
+										  ? object
+										  : object.substr(error_start, error_end - error_start);
+			const std::string message = extract_string(error, "message");
+			result.errors.push_back(message.empty() ? extract_string(error, "code") : message);
+			continue;
+		}
+		Result<Order> order = parse_order(object);
+		if (order && index < request.orders.size()) {
+			const CreateOrderParams& request_order = request.orders[index];
+			order->market_ticker = request_order.ticker;
+			order->book_side = *request_order.book_side;
+			order->outcome_side =
+				*request_order.book_side == BookSide::Ask ? OutcomeSide::No : OutcomeSide::Yes;
+			order->has_canonical_direction = true;
+			result.results.push_back(std::move(*order));
+		}
 	}
 
 	return result;
@@ -2482,14 +2532,24 @@ KalshiClient::batch_cancel_orders(const BatchCancelRequest& request) {
 		return std::unexpected(response.error());
 	}
 
-	if (response->status_code != 200 && response->status_code != 204) {
+	if (response->status_code != 200) {
 		return std::unexpected(Error{ErrorCode::ServerError,
 									 "Failed to batch cancel orders: " + response->body,
 									 response->status_code});
 	}
 
 	BatchResponse<std::string> result;
-	result.results = batch_cancel_result_ids(request); // Assume all requested IDs cancelled if 200
+	const std::vector<OrderCancelResult> orders =
+		api_detail::parse_batch_order_cancel_result_response(response->body);
+	result.results.reserve(orders.size());
+	for (const OrderCancelResult& order : orders) {
+		if (order.error) {
+			result.errors.push_back(order.error->message.empty() ? order.error->code
+																 : order.error->message);
+		} else {
+			result.results.push_back(order.order_id);
+		}
+	}
 	return result;
 }
 
@@ -2643,27 +2703,8 @@ Result<PaginatedResponse<Series>> KalshiClient::get_series_list(const GetSeriesP
 	result.next_cursor = Cursor{extract_cursor(response->body)};
 
 	std::vector<std::string> objects = extract_array_objects(response->body, "series");
-	for (const std::string& obj : objects) {
-		Series s;
-		s.ticker = extract_string(obj, "ticker");
-		s.title = extract_string(obj, "title");
-		s.category = extract_string(obj, "category");
-		s.frequency = extract_string(obj, "frequency");
-		s.tags = extract_string_array(obj, "tags");
-		s.contract_url = extract_string(obj, "contract_url");
-		s.contract_terms_url = extract_string(obj, "contract_terms_url");
-		s.fee_type = extract_string(obj, "fee_type");
-		s.fee_multiplier = extract_double(obj, "fee_multiplier");
-		s.additional_prohibitions = extract_string_array(obj, "additional_prohibitions");
-		s.volume_fp = extract_string(obj, "volume_fp");
-		s.last_updated_ts = extract_string(obj, "last_updated_ts");
-		s.exchange_index = static_cast<std::int32_t>(extract_int(obj, "exchange_index"));
-		for (const std::string& source : extract_array_objects(obj, "settlement_sources")) {
-			s.settlement_source_details.push_back(SettlementSource{
-				.name = extract_string(source, "name"), .url = extract_string(source, "url")});
-		}
-		result.items.push_back(s);
-	}
+	for (const std::string& obj : objects)
+		result.items.push_back(api_detail::parse_series_response(obj));
 
 	return result;
 }
@@ -2749,7 +2790,7 @@ KalshiClient::get_order_groups(const GetOrderGroupsParams& params) {
 }
 
 Result<OrderGroup> KalshiClient::get_order_group(const std::string& group_id) {
-	return get_order_group(group_id, OrderGroupSelector{.subaccount = 0});
+	return get_order_group(group_id, OrderGroupSelector{});
 }
 
 Result<OrderGroup> KalshiClient::get_order_group(const std::string& group_id,
@@ -3264,6 +3305,8 @@ std::string KalshiClient::build_milestones_query(const GetMilestonesParams& para
 	std::string query = "/milestones";
 	if (params.limit)
 		append_query_param(query, "limit", *params.limit);
+	else
+		append_query_param(query, "limit", 100);
 	if (params.cursor)
 		append_query_param(query, "cursor", *params.cursor);
 	if (params.minimum_start_date)
@@ -3449,8 +3492,8 @@ std::string KalshiClient::build_structured_targets_query(const GetStructuredTarg
 		append_query_param(query, "page_size", *params.limit);
 	if (params.cursor)
 		append_query_param(query, "cursor", *params.cursor);
-	if (params.ids)
-		append_query_param(query, "ids", *params.ids);
+	for (const std::string& id : params.ids)
+		append_query_param(query, "ids", id);
 	if (params.type)
 		append_query_param(query, "type", *params.type);
 	if (params.competition)
@@ -3565,7 +3608,29 @@ KalshiClient::get_live_datas(const std::vector<std::string>& tickers) {
 }
 
 Result<std::vector<IncentiveProgram>> KalshiClient::get_incentive_programs() {
-	Result<HttpResponse> response = impl_->transport->get("/incentive_programs");
+	Result<PaginatedResponse<IncentiveProgram>> response =
+		get_incentive_programs(GetIncentiveProgramsParams{});
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+	return std::move(response->items);
+}
+
+Result<PaginatedResponse<IncentiveProgram>>
+KalshiClient::get_incentive_programs(const GetIncentiveProgramsParams& params) {
+	std::string path = "/incentive_programs";
+	if (params.status)
+		append_query_param(path, "status", *params.status);
+	if (params.type)
+		append_query_param(path, "type", *params.type);
+	if (params.incentive_description)
+		append_query_param(path, "incentive_description", *params.incentive_description);
+	if (params.limit)
+		append_query_param(path, "limit", *params.limit);
+	if (params.cursor)
+		append_query_param(path, "cursor", *params.cursor);
+
+	Result<HttpResponse> response = impl_->transport->get(path);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -3577,8 +3642,9 @@ Result<std::vector<IncentiveProgram>> KalshiClient::get_incentive_programs() {
 				  response->status_code});
 	}
 
-	std::vector<IncentiveProgram> programs;
+	PaginatedResponse<IncentiveProgram> result;
 	std::vector<std::string> objects = extract_array_objects(response->body, "incentive_programs");
+	result.items.reserve(objects.size());
 	for (const std::string& obj : objects) {
 		IncentiveProgram p;
 		p.id = extract_string(obj, "id");
@@ -3590,13 +3656,18 @@ Result<std::vector<IncentiveProgram>> KalshiClient::get_incentive_programs() {
 		p.end_date = extract_string(obj, "end_date");
 		p.period_reward = extract_int(obj, "period_reward");
 		p.paid_out = extract_bool(obj, "paid_out");
+		p.discount_factor_bps = extract_optional_int32(obj, "discount_factor_bps");
 		p.target_size_fp = extract_string(obj, "target_size_fp");
+		p.max_reward_per_account = extract_optional_int64(obj, "max_reward_per_account");
 		p.title = p.market_ticker;
 		p.description = p.incentive_description;
-		programs.push_back(p);
+		result.items.push_back(std::move(p));
 	}
-
-	return programs;
+	const std::string next_cursor = extract_string(response->body, "next_cursor");
+	if (!next_cursor.empty()) {
+		result.next_cursor = Cursor{next_cursor};
+	}
+	return result;
 }
 
 // ===== Additional endpoints for full SDK parity =====
@@ -3616,28 +3687,51 @@ Result<TotalRestingOrderValue> KalshiClient::get_total_resting_order_value() {
 	}
 
 	TotalRestingOrderValue result;
-	result.total_value = extract_int(response->body, "total_value");
+	result.total_value = extract_int(response->body, "total_resting_order_value");
+	for (const std::string& object :
+		 extract_array_objects(response->body, "resting_order_value_breakdown")) {
+		result.resting_order_value_breakdown.push_back(IndexedBalance{
+			.exchange_index = static_cast<std::int32_t>(extract_int(object, "exchange_index")),
+			.balance_dollars = extract_string(object, "balance")});
+	}
 	return result;
 }
 
 // ===== Subaccounts =====
 
 Result<Subaccount> KalshiClient::create_subaccount() {
-	// Kalshi's create-subaccount endpoint takes no body — POST with
-	// an empty payload returns the new subaccount_number + initial
-	// balance (always 0 on creation).
 	Result<HttpResponse> response = impl_->transport->post("/portfolio/subaccounts", "");
 	if (!response) {
 		return std::unexpected(response.error());
 	}
-	if (response->status_code != 200 && response->status_code != 201) {
+	if (response->status_code != 201) {
 		return std::unexpected(Error{ErrorCode::ServerError,
 									 "Failed to create subaccount: " + response->body,
 									 response->status_code});
 	}
 	Subaccount sub;
 	sub.subaccount_number = extract_int(response->body, "subaccount_number");
-	sub.balance = extract_int(response->body, "balance");
+	return sub;
+}
+
+Result<Subaccount> KalshiClient::create_subaccount(std::int32_t exchange_index) {
+	if (exchange_index < 0) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest, "exchange_index must be non-negative"});
+	}
+	const ser::CreateSubaccountBody body{.exchange_index = exchange_index};
+	Result<HttpResponse> response =
+		impl_->transport->post("/portfolio/subaccounts", render_body(body));
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+	if (response->status_code != 201) {
+		return std::unexpected(Error{ErrorCode::ServerError,
+									 "Failed to create subaccount: " + response->body,
+									 response->status_code});
+	}
+	Subaccount sub;
+	sub.subaccount_number = extract_int(response->body, "subaccount_number");
 	return sub;
 }
 
