@@ -75,6 +75,12 @@ struct Order {
 	std::string maker_fees_dollars;
 	OutcomeSide outcome_side{OutcomeSide::Yes};
 	BookSide book_side{BookSide::Bid};
+	std::string user_id;
+	std::string created_time_iso;
+	std::string expiration_time;
+	std::string last_update_time;
+	std::string self_trade_prevention_type;
+	std::string order_group_id;
 };
 
 /// Trade execution

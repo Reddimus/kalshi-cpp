@@ -157,6 +157,122 @@ TEST(OperationContracts, PortfolioResponsesPreserveExactFixedPointFields) {
 	EXPECT_EQ(settlements->items[0].exchange_index, 3);
 }
 
+TEST(OperationContracts, OrdersPreferCanonicalDirectionAndIsoTimestamps) {
+	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
+	transport->response_body =
+		R"({"order":{"order_id":"order-1","user_id":"user-1","client_order_id":"client-1","ticker":"KXTEST","outcome_side":"no","book_side":"ask","type":"limit","status":"resting","yes_price_dollars":"0.2500","no_price_dollars":"0.7500","fill_count_fp":"0.00","remaining_count_fp":"1.50","initial_count_fp":"1.50","taker_fees_dollars":"0.0000","maker_fees_dollars":"0.0000","taker_fill_cost_dollars":"0.0000","maker_fill_cost_dollars":"0.0000","created_time":"2026-09-03T00:00:00Z","expiration_time":"2026-09-04T00:00:00Z","last_update_time":"2026-09-03T00:01:00Z","self_trade_prevention_type":"maker","order_group_id":"group-1","exchange_index":3}})";
+	kalshi::KalshiClient client(transport);
+
+	const kalshi::Result<kalshi::Order> result = client.get_order("order-1");
+
+	ASSERT_TRUE(result.has_value());
+	EXPECT_EQ(result->outcome_side, kalshi::OutcomeSide::No);
+	EXPECT_EQ(result->book_side, kalshi::BookSide::Ask);
+	EXPECT_EQ(result->user_id, "user-1");
+	EXPECT_EQ(result->created_time_iso, "2026-09-03T00:00:00Z");
+	EXPECT_EQ(result->expiration_time, "2026-09-04T00:00:00Z");
+	EXPECT_EQ(result->last_update_time, "2026-09-03T00:01:00Z");
+	EXPECT_EQ(result->self_trade_prevention_type, "maker");
+	EXPECT_EQ(result->order_group_id, "group-1");
+}
+
+TEST(OperationContracts, FillsSettlementsAndQueuePositionsParseCurrentSchemas) {
+	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+
+	transport->response_body =
+		R"({"fills":[{"fill_id":"fill-1","exchange_index":3,"trade_id":"trade-1","order_id":"order-1","ticker":"KXTEST","market_ticker":"KXTEST","outcome_side":"no","book_side":"ask","count_fp":"1.50","yes_price_dollars":"0.2500","no_price_dollars":"0.7500","is_taker":true,"created_time":"2026-09-03T00:00:00Z","fee_cost":"0.0100","subaccount_number":7,"ts":1788393600}]})";
+	const auto fills = client.get_fills();
+	ASSERT_TRUE(fills.has_value());
+	ASSERT_EQ(fills->items.size(), 1U);
+	EXPECT_EQ(fills->items[0].outcome_side, kalshi::OutcomeSide::No);
+	EXPECT_EQ(fills->items[0].book_side, kalshi::BookSide::Ask);
+	EXPECT_EQ(fills->items[0].created_time_iso, "2026-09-03T00:00:00Z");
+	EXPECT_EQ(fills->items[0].subaccount_number, 7);
+	EXPECT_EQ(fills->items[0].timestamp, 1788393600);
+
+	transport->response_body =
+		R"({"settlements":[{"ticker":"KXTEST","exchange_index":3,"event_ticker":"EV1","market_result":"no","yes_count_fp":"0.00","yes_total_cost_dollars":"0.0000","no_count_fp":"1.00","no_total_cost_dollars":"0.7500","revenue":100,"settled_time":"2026-09-03T00:00:00Z","fee_cost":"0.0100","value":0}]})";
+	const auto settlements = client.get_settlements();
+	ASSERT_TRUE(settlements.has_value());
+	ASSERT_EQ(settlements->items.size(), 1U);
+	EXPECT_EQ(settlements->items[0].result, "no");
+	EXPECT_EQ(settlements->items[0].settled_time_iso, "2026-09-03T00:00:00Z");
+	ASSERT_TRUE(settlements->items[0].value.has_value());
+	EXPECT_EQ(*settlements->items[0].value, 0);
+
+	transport->response_body =
+		R"({"queue_positions":[{"order_id":"order-1","market_ticker":"KXTEST","queue_position_fp":"1.50"}]})";
+	const auto queue = client.get_queue_positions(kalshi::GetQueuePositionsParams{});
+	ASSERT_TRUE(queue.has_value());
+	ASSERT_EQ(queue->size(), 1U);
+	EXPECT_EQ((*queue)[0].market_ticker, "KXTEST");
+	EXPECT_EQ((*queue)[0].queue_position_fp, "1.50");
+	EXPECT_EQ((*queue)[0].position, 0);
+}
+
+TEST(OperationContracts, BalanceAndOrderMutationsRouteBySubaccountAndShard) {
+	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+
+	transport->response_body =
+		R"({"balance":2500,"balance_dollars":"25.0000","portfolio_value":3000,"updated_ts":1788393600,"balance_breakdown":[{"exchange_index":3,"balance":"20.0000"},{"exchange_index":4,"balance":"5.0000"}]})";
+	const auto balance = client.get_balance({.subaccount = 7, .exchange_index = -1});
+	ASSERT_TRUE(balance.has_value());
+	EXPECT_EQ(transport->path, "/portfolio/balance?subaccount=7&exchange_index=-1");
+	ASSERT_EQ(balance->balance_breakdown.size(), 2U);
+	EXPECT_EQ(balance->balance_breakdown[0].exchange_index, 3);
+	EXPECT_EQ(balance->balance_breakdown[0].balance_dollars, "20.0000");
+
+	transport->response_body = R"({"order":{"order_id":"order-1"}})";
+	kalshi::AmendOrderParams amend;
+	amend.order_id = "order-1";
+	amend.ticker = "KXTEST";
+	amend.book_side = kalshi::BookSide::Bid;
+	amend.price_dollars = "0.2500";
+	amend.count_fp = "1.00";
+	amend.subaccount = 7;
+	ASSERT_TRUE(client.amend_order(amend).has_value());
+	EXPECT_EQ(transport->path, "/portfolio/events/orders/order-1/amend?subaccount=7");
+
+	kalshi::DecreaseOrderParams decrease;
+	decrease.order_id = "order-1";
+	decrease.reduce_by_fp = "1.00";
+	decrease.subaccount = 7;
+	ASSERT_TRUE(client.decrease_order(decrease).has_value());
+	EXPECT_EQ(transport->path, "/portfolio/events/orders/order-1/decrease?subaccount=7");
+}
+
+TEST(OperationContracts, OrderGroupSelectorsAndNestedEventMarketsArePreserved) {
+	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+
+	transport->response_body = R"({"id":"group-1","contracts_limit_fp":"10.00"})";
+	ASSERT_TRUE(client.get_order_group("group-1", {.subaccount = 7}).has_value());
+	EXPECT_EQ(transport->path, "/portfolio/order_groups/group-1?subaccount=7");
+	ASSERT_TRUE(client.delete_order_group(
+					   "group-1", {.subaccount = 7, .exchange_index = 3})
+					   .has_value());
+	EXPECT_EQ(transport->path,
+			  "/portfolio/order_groups/group-1?subaccount=7&exchange_index=3");
+	ASSERT_TRUE(client.reset_order_group(
+					   "group-1", {.subaccount = 7, .exchange_index = 3})
+					   .has_value());
+	EXPECT_EQ(transport->path,
+			  "/portfolio/order_groups/group-1/reset?subaccount=7&exchange_index=3");
+
+	transport->response_body =
+		R"({"events":[{"event_ticker":"EV1","series_ticker":"SERIES","title":"Event","markets":[{"ticker":"KXTEST","event_ticker":"EV1","status":"active","yes_bid_dollars":"0.2500","exchange_index":3}]}],"cursor":""})";
+	kalshi::GetEventsParams params;
+	params.with_nested_markets = true;
+	const auto events = client.get_events(params);
+	ASSERT_TRUE(events.has_value());
+	ASSERT_EQ(events->items.size(), 1U);
+	ASSERT_EQ(events->items[0].markets.size(), 1U);
+	EXPECT_EQ(events->items[0].markets[0].ticker, "KXTEST");
+	EXPECT_EQ(events->items[0].markets[0].yes_bid_dollars, "0.2500");
+}
+
 TEST(OperationContracts, PortfolioReadFiltersUseCurrentNames) {
 	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
 	kalshi::KalshiClient client(transport);
@@ -456,9 +572,9 @@ TEST(OperationContracts, NamedResourcesUseCurrentPathsAndVerbs) {
 	EXPECT_EQ(transport->path, "/portfolio/order_groups");
 	EXPECT_TRUE(client.create_order_group({}).has_value());
 	EXPECT_EQ(transport->path, "/portfolio/order_groups/create");
-	EXPECT_TRUE(client.reset_order_group("group-1").has_value());
+	EXPECT_TRUE(client.reset_order_group("group-1", {.subaccount = 0}).has_value());
 	EXPECT_EQ(transport->method, kalshi::HttpMethod::PUT);
-	EXPECT_EQ(transport->path, "/portfolio/order_groups/group-1/reset");
+	EXPECT_EQ(transport->path, "/portfolio/order_groups/group-1/reset?subaccount=0");
 	EXPECT_TRUE(client.get_order_queue_position("order-1").has_value());
 	EXPECT_EQ(transport->path, "/portfolio/orders/order-1/queue_position");
 	EXPECT_TRUE(client.get_structured_targets().has_value());
@@ -524,7 +640,8 @@ TEST(OperationContracts, CurrentStringArrayFieldsAreParsedWithoutJsonFragments) 
 
 	transport->response_body =
 		R"({"is_auto_cancel_enabled":true,"contracts_limit_fp":"10.00","orders":["order-1","order-2"],"exchange_index":3})";
-	const kalshi::Result<kalshi::OrderGroup> group = client.get_order_group("group-1");
+	const kalshi::Result<kalshi::OrderGroup> group =
+		client.get_order_group("group-1", {.subaccount = 0});
 	ASSERT_TRUE(group.has_value());
 	EXPECT_EQ(group->order_ids, (std::vector<std::string>{"order-1", "order-2"}));
 

@@ -39,6 +39,7 @@ struct Event {
 	std::string fee_type_override;
 	std::int32_t exchange_index{0};
 	std::vector<std::string> market_tickers;
+	std::vector<Market> markets;
 };
 
 /// Series containing multiple events
@@ -92,6 +93,16 @@ struct EndpointCosts {
 	std::vector<EndpointCost> endpoint_costs;
 };
 
+struct IndexedBalance {
+	std::int32_t exchange_index{0};
+	std::string balance_dollars;
+};
+
+struct GetBalanceParams {
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::int32_t> exchange_index;
+};
+
 /// Account balance
 struct Balance {
 	std::int64_t balance{0};		   // cents
@@ -99,6 +110,7 @@ struct Balance {
 	std::string balance_dollars;
 	std::int64_t portfolio_value{0};
 	std::int64_t updated_ts{0};
+	std::vector<IndexedBalance> balance_breakdown;
 };
 
 /// Fill (trade execution for user)
@@ -129,6 +141,9 @@ struct Fill {
 	std::string fee_cost;
 	OutcomeSide outcome_side{OutcomeSide::Yes};
 	BookSide book_side{BookSide::Bid};
+	std::string created_time_iso;
+	std::optional<std::int64_t> subaccount_number;
+	std::int64_t timestamp{0};
 };
 
 /// Settlement record
@@ -152,6 +167,8 @@ struct Settlement {
 	std::string yes_total_cost_dollars;
 	std::string no_total_cost_dollars;
 	std::string fee_cost;
+	std::string settled_time_iso;
+	std::optional<std::int32_t> value;
 };
 
 /// One row in ``GET /portfolio/deposits`` (Kalshi V2, shipped 2026-05-05).
@@ -312,6 +329,11 @@ struct OrderGroup {
 	std::string subaccount_number;
 };
 
+struct OrderGroupSelector {
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::int32_t> exchange_index;
+};
+
 // ===== Phase 4: Order Queue Position Models =====
 
 /// Order queue position
@@ -319,6 +341,8 @@ struct OrderQueuePosition {
 	std::string order_id;
 	std::int32_t position{0};
 	std::int32_t total_at_price{0};
+	std::string market_ticker;
+	std::string queue_position_fp;
 };
 
 // ===== Phase 5: RFQ/Quotes Models =====
@@ -620,6 +644,9 @@ struct GetSeriesParams {
 	std::optional<bool> include_product_metadata;
 	std::optional<bool> include_volume;
 	std::optional<std::int64_t> min_updated_ts;
+	// Removed upstream; retained so existing callers fail at runtime rather than compile time.
+	std::optional<std::int32_t> limit;
+	std::optional<std::string> cursor;
 };
 
 struct GetQueuePositionsParams {
@@ -822,22 +849,18 @@ struct GetTradesParams {
 /// GET /series/{event_ticker}/markets/{ticker}/candlesticks
 /// Despite the path saying "series", the first parameter is the EVENT ticker.
 struct GetCandlesticksParams {
-	std::string series_ticker;			  ///< Series ticker used by the current endpoint.
 	std::string event_ticker;			  ///< Event ticker (e.g., "KXHIGHLAX-26JAN18")
 	std::string ticker;					  ///< Market ticker (e.g., "KXHIGHLAX-26JAN18-T50")
 	std::int32_t period_interval{1};	  ///< Period in MINUTES: 1 (1m), 60 (1h), 1440 (1d)
 	std::optional<std::int64_t> start_ts; ///< Start timestamp (unix seconds)
 	std::optional<std::int64_t> end_ts;	  ///< End timestamp (unix seconds)
 	std::optional<bool> include_latest_before_start;
+	std::string series_ticker; ///< Series ticker used by the current endpoint.
 };
 
 /// Parameters for creating an order
 struct CreateOrderParams {
 	std::string ticker;
-	/// Canonical V2 single-book side. Required by create_order().
-	std::optional<BookSide> book_side;
-	/// Canonical V2 fixed-point price. Required by create_order().
-	std::optional<std::string> price_dollars;
 	Side side{Side::Yes};
 	Action action{Action::Buy};
 	std::string type{"limit"}; // "limit" or "market"
@@ -860,6 +883,10 @@ struct CreateOrderParams {
 	std::optional<bool> cancel_order_on_pause;
 	std::optional<std::int64_t> subaccount;
 	std::optional<std::int32_t> exchange_index;
+	/// Canonical V2 single-book side. Required by create_order().
+	std::optional<BookSide> book_side;
+	/// Canonical V2 fixed-point price. Required by create_order().
+	std::optional<std::string> price_dollars;
 };
 
 /// Parameters for amending an order
@@ -875,6 +902,7 @@ struct AmendOrderParams {
 	std::optional<std::int32_t> count;
 	std::optional<std::int32_t> yes_price;
 	std::optional<std::int32_t> no_price;
+	std::optional<std::int64_t> subaccount;
 };
 
 /// Parameters for decreasing an order
@@ -885,6 +913,7 @@ struct DecreaseOrderParams {
 	std::optional<std::string> reduce_to_fp;
 	std::optional<std::int32_t> exchange_index;
 	std::optional<std::string> market_ticker;
+	std::optional<std::int64_t> subaccount;
 };
 
 /// Batch order request
@@ -1045,7 +1074,7 @@ public:
 	// ===== Portfolio API (Authenticated) =====
 
 	/// Get account balance
-	[[nodiscard]] Result<Balance> get_balance();
+	[[nodiscard]] Result<Balance> get_balance(const GetBalanceParams& params = {});
 
 	/// Get user positions
 	[[nodiscard]] Result<PaginatedResponse<Position>>
@@ -1147,13 +1176,22 @@ public:
 	get_order_groups(const GetOrderGroupsParams& params = {});
 
 	/// Get a single order group by ID
-	[[nodiscard]] Result<OrderGroup> get_order_group(const std::string& group_id);
+	[[deprecated("use the selector overload")]] [[nodiscard]] Result<OrderGroup>
+	get_order_group(const std::string& group_id);
+	[[nodiscard]] Result<OrderGroup> get_order_group(const std::string& group_id,
+												 const OrderGroupSelector& selector);
 
 	/// Delete an order group
-	[[nodiscard]] Result<void> delete_order_group(const std::string& group_id);
+	[[deprecated("use the selector overload")]] [[nodiscard]] Result<void>
+	delete_order_group(const std::string& group_id);
+	[[nodiscard]] Result<void> delete_order_group(const std::string& group_id,
+											  const OrderGroupSelector& selector);
 
 	/// Reset an order group
-	[[nodiscard]] Result<OrderGroup> reset_order_group(const std::string& group_id);
+	[[deprecated("use the selector overload")]] [[nodiscard]] Result<OrderGroup>
+	reset_order_group(const std::string& group_id);
+	[[nodiscard]] Result<OrderGroup> reset_order_group(const std::string& group_id,
+												   const OrderGroupSelector& selector);
 
 	// ===== Order Queue Position (Authenticated) =====
 
