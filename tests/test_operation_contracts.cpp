@@ -597,9 +597,17 @@ TEST(OperationContracts, CommunicationsAndApiKeysUseCurrentPathsAndVerbs) {
 	EXPECT_EQ(transport->path, "/communications/rfqs/rfq-1");
 	EXPECT_TRUE(client.get_quotes().has_value());
 	EXPECT_EQ(transport->path, "/communications/quotes");
-	EXPECT_TRUE(client.accept_quote("quote-1", kalshi::Side::Yes).has_value());
+	transport->response_body = R"({"quote":{"id":"quote-1","rfq_id":"rfq-1"}})";
+	EXPECT_TRUE(client.get_quote("rfq-1", "quote-1").has_value());
+	EXPECT_EQ(transport->path, "/communications/rfqs/rfq-1/quotes/quote-1");
+	EXPECT_TRUE(client.accept_quote("rfq-1", "quote-1", kalshi::Side::Yes).has_value());
 	EXPECT_EQ(transport->method, kalshi::HttpMethod::PUT);
-	EXPECT_EQ(transport->path, "/communications/quotes/quote-1/accept");
+	EXPECT_EQ(transport->path, "/communications/rfqs/rfq-1/quotes/quote-1/accept");
+	EXPECT_TRUE(client.confirm_quote("rfq-1", "quote-1").has_value());
+	EXPECT_EQ(transport->path, "/communications/rfqs/rfq-1/quotes/quote-1/confirm");
+	EXPECT_TRUE(client.delete_quote("rfq-1", "quote-1").has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::DEL);
+	EXPECT_EQ(transport->path, "/communications/rfqs/rfq-1/quotes/quote-1");
 	EXPECT_TRUE(client.get_api_keys().has_value());
 	EXPECT_EQ(transport->path, "/api_keys");
 	EXPECT_TRUE(client.generate_api_key({.name = "test"}).has_value());
@@ -623,6 +631,20 @@ TEST(OperationContracts, ApiKeyListPreservesScopesBindingsAndRegionExpiration) {
 	EXPECT_FALSE(response->api_keys[1].subaccount.has_value());
 	ASSERT_TRUE(response->api_key_region_expiration_ts.has_value());
 	EXPECT_EQ(*response->api_key_region_expiration_ts, 1770000000);
+}
+
+TEST(OperationContracts, GeneratedPrivateKeyIsDecodedFromJson) {
+	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
+	transport->response_body =
+		R"({"api_key_id":"key-1","private_key":"-----BEGIN PRIVATE KEY-----\nABC\\DEF\n-----END PRIVATE KEY-----\n","warning":null})";
+	kalshi::KalshiClient client(transport);
+
+	const kalshi::Result<kalshi::ApiKey> result =
+		client.generate_api_key({.name = "generated"});
+
+	ASSERT_TRUE(result.has_value());
+	EXPECT_EQ(result->private_key,
+			  "-----BEGIN PRIVATE KEY-----\nABC\\DEF\n-----END PRIVATE KEY-----\n");
 }
 
 TEST(OperationContracts, CurrentStringArrayFieldsAreParsedWithoutJsonFragments) {
@@ -682,7 +704,7 @@ TEST(OperationContracts, RfqQuoteAndKeyBodiesUseCurrentExactSchemas) {
 		transport->body,
 		R"({"rfq_id":"rfq-1","yes_bid":"0.400000","no_bid":"0.600000","rest_remainder":false,"post_only":true,"subaccount":7})");
 
-	ASSERT_TRUE(client.accept_quote("quote-1", kalshi::Side::Yes).has_value());
+	ASSERT_TRUE(client.accept_quote("rfq-1", "quote-1", kalshi::Side::Yes).has_value());
 	EXPECT_EQ(transport->body, R"({"accepted_side":"yes"})");
 
 	transport->response_body = R"({"api_key_id":"key-1"})";
@@ -714,7 +736,7 @@ TEST(OperationContracts, CurrentRfqAndQuoteResponsesPreserveExactFields) {
 
 	transport->response_body =
 		R"({"id":"quote-1","rfq_id":"rfq-1","creator_id":"u2","rfq_creator_id":"u1","market_ticker":"KXTEST","contracts_fp":"1.25","yes_bid_dollars":"0.400000","no_bid_dollars":"0.600000","created_ts":"2026-09-03T00:00:00Z","updated_ts":"2026-09-03T00:01:00Z","status":"open","post_only":true})";
-	const kalshi::Result<kalshi::Quote> quote = client.get_quote("quote-1");
+	const kalshi::Result<kalshi::Quote> quote = client.get_quote("rfq-1", "quote-1");
 	ASSERT_TRUE(quote.has_value());
 	EXPECT_EQ(quote->contracts_fp, "1.25");
 	EXPECT_EQ(quote->yes_bid_dollars, "0.400000");

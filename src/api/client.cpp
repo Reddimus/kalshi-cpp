@@ -183,7 +183,10 @@ std::string extract_string(const std::string& json, const std::string& key) {
 	if (end == std::string::npos || end > json.size())
 		return "";
 
-	return json.substr(start, end - start);
+	const std::string_view encoded{json.data() + pos, end - pos + 1};
+	const glz::expected<std::string, glz::error_ctx> decoded =
+		glz::read_json<std::string>(encoded);
+	return decoded ? *decoded : std::string{};
 }
 
 std::int64_t extract_int(const std::string& json, const std::string& key) {
@@ -3110,6 +3113,20 @@ Result<Quote> KalshiClient::get_quote(const std::string& quote_id) {
 	return parse_quote_response(response->body);
 }
 
+Result<Quote> KalshiClient::get_quote(const std::string& rfq_id, const std::string& quote_id) {
+	Result<HttpResponse> response = impl_->transport->get("/communications/rfqs/" + rfq_id +
+													 "/quotes/" + quote_id);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+	if (response->status_code != 200) {
+		return std::unexpected(Error{
+			ErrorCode::ServerError, "Failed to get quote: " + std::to_string(response->status_code),
+			response->status_code});
+	}
+	return parse_quote_response(response->body);
+}
+
 Result<void> KalshiClient::accept_quote(const std::string& quote_id) {
 	(void)quote_id;
 	return std::unexpected(Error{ErrorCode::InvalidRequest, "accepted_side is required"});
@@ -3130,6 +3147,23 @@ Result<void> KalshiClient::accept_quote(const std::string& quote_id, Side accept
 				  response->status_code});
 	}
 
+	return {};
+}
+
+Result<void> KalshiClient::accept_quote(const std::string& rfq_id, const std::string& quote_id,
+										Side accepted_side) {
+	ser::AcceptQuoteBody body{.accepted_side = std::string(to_json_string(accepted_side))};
+	Result<HttpResponse> response = impl_->transport->put(
+		"/communications/rfqs/" + rfq_id + "/quotes/" + quote_id + "/accept", render_body(body));
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+	if (response->status_code != 200 && response->status_code != 204) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to accept quote: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
 	return {};
 }
 
@@ -3794,6 +3828,22 @@ Result<void> KalshiClient::confirm_quote(const std::string& quote_id) {
 	return {};
 }
 
+Result<void> KalshiClient::confirm_quote(const std::string& rfq_id,
+										 const std::string& quote_id) {
+	Result<HttpResponse> response = impl_->transport->put(
+		"/communications/rfqs/" + rfq_id + "/quotes/" + quote_id + "/confirm", "{}");
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+	if (response->status_code != 200 && response->status_code != 204) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to confirm quote: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
+	return {};
+}
+
 Result<void> KalshiClient::delete_quote(const std::string& quote_id) {
 	Result<HttpResponse> response = impl_->transport->del("/communications/quotes/" + quote_id);
 	if (!response) {
@@ -3807,6 +3857,22 @@ Result<void> KalshiClient::delete_quote(const std::string& quote_id) {
 				  response->status_code});
 	}
 
+	return {};
+}
+
+Result<void> KalshiClient::delete_quote(const std::string& rfq_id,
+										const std::string& quote_id) {
+	Result<HttpResponse> response =
+		impl_->transport->del("/communications/rfqs/" + rfq_id + "/quotes/" + quote_id);
+	if (!response) {
+		return std::unexpected(response.error());
+	}
+	if (response->status_code != 200 && response->status_code != 204) {
+		return std::unexpected(
+			Error{ErrorCode::ServerError,
+				  "Failed to delete quote: " + std::to_string(response->status_code),
+				  response->status_code});
+	}
 	return {};
 }
 

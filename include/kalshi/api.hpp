@@ -1225,18 +1225,30 @@ public:
 	[[nodiscard]] Result<PaginatedResponse<Quote>> get_quotes(const GetQuotesParams& params = {});
 
 	/// Get a single quote by ID
-	[[nodiscard]] Result<Quote> get_quote(const std::string& quote_id);
+	[[deprecated("use the RFQ-scoped overload")]] [[nodiscard]] Result<Quote>
+	get_quote(const std::string& quote_id);
+	[[nodiscard]] Result<Quote> get_quote(const std::string& rfq_id,
+										  const std::string& quote_id);
 
 	/// Accept a quote
 	[[deprecated("accepted_side is required")]] [[nodiscard]] Result<void>
 	accept_quote(const std::string& quote_id);
-	[[nodiscard]] Result<void> accept_quote(const std::string& quote_id, Side accepted_side);
+	[[deprecated("use the RFQ-scoped overload")]] [[nodiscard]] Result<void>
+	accept_quote(const std::string& quote_id, Side accepted_side);
+	[[nodiscard]] Result<void> accept_quote(const std::string& rfq_id,
+										const std::string& quote_id, Side accepted_side);
 
 	/// Confirm a quote
-	[[nodiscard]] Result<void> confirm_quote(const std::string& quote_id);
+	[[deprecated("use the RFQ-scoped overload")]] [[nodiscard]] Result<void>
+	confirm_quote(const std::string& quote_id);
+	[[nodiscard]] Result<void> confirm_quote(const std::string& rfq_id,
+										 const std::string& quote_id);
 
 	/// Delete a quote
-	[[nodiscard]] Result<void> delete_quote(const std::string& quote_id);
+	[[deprecated("use the RFQ-scoped overload")]] [[nodiscard]] Result<void>
+	delete_quote(const std::string& quote_id);
+	[[nodiscard]] Result<void> delete_quote(const std::string& rfq_id,
+										const std::string& quote_id);
 
 	// ===== API Keys Management (Authenticated) =====
 
