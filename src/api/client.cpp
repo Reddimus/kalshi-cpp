@@ -2586,7 +2586,10 @@ std::string KalshiClient::serialize_batch_cancel(const BatchCancelRequest& reque
 	} else {
 		body.orders.reserve(request.order_ids.size());
 		for (const std::string& order_id : request.order_ids) {
-			body.orders.push_back(ser::BatchCancelOrderBody{.order_id = order_id});
+			body.orders.push_back(ser::BatchCancelOrderBody{.order_id = order_id,
+															.subaccount = std::nullopt,
+															.exchange_index = std::nullopt,
+															.market_ticker = std::nullopt});
 		}
 	}
 	return render_body(body);
@@ -2891,7 +2894,8 @@ Result<OrderGroup> KalshiClient::get_order_group(const std::string& group_id,
 }
 
 Result<void> KalshiClient::delete_order_group(const std::string& group_id) {
-	return delete_order_group(group_id, OrderGroupSelector{.subaccount = 0});
+	return delete_order_group(group_id,
+							  OrderGroupSelector{.subaccount = 0, .exchange_index = std::nullopt});
 }
 
 Result<void> KalshiClient::delete_order_group(const std::string& group_id,
@@ -2919,7 +2923,8 @@ Result<void> KalshiClient::delete_order_group(const std::string& group_id,
 }
 
 Result<OrderGroup> KalshiClient::reset_order_group(const std::string& group_id) {
-	return reset_order_group(group_id, OrderGroupSelector{.subaccount = 0});
+	return reset_order_group(group_id,
+							 OrderGroupSelector{.subaccount = 0, .exchange_index = std::nullopt});
 }
 
 Result<OrderGroup> KalshiClient::reset_order_group(const std::string& group_id,

@@ -583,11 +583,18 @@ void WsImplData::handle_message(const std::string& json) {
 	}
 }
 
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
 static const struct lws_protocols protocols[] = {{.name = "kalshi-ws",
 												  .callback = ws_callback,
 												  .per_session_data_size = 0,
 												  .rx_buffer_size = 65536},
 												 LWS_PROTOCOL_LIST_TERM};
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 WebSocketClient::WebSocketClient(const Signer& signer, WsConfig config)
 	: impl_(std::make_unique<Impl>(signer, std::move(config))) {}
