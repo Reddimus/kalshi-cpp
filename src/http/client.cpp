@@ -1,5 +1,7 @@
 #include "kalshi/http_client.hpp"
 
+#include "kalshi/detail/http_path.hpp"
+
 #include <curl/curl.h>
 #include <mutex>
 #include <sstream>
@@ -119,8 +121,9 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 	}
 
 	// Sign the request
+	const std::string signing_path = detail::request_signing_path(impl_->config.base_url, path);
 	Result<AuthHeaders> headers_result =
-		impl_->signer.sign(std::string(to_string(method)), std::string(path));
+		impl_->signer.sign(std::string(to_string(method)), signing_path);
 	if (!headers_result) {
 		return std::unexpected(headers_result.error());
 	}
