@@ -74,17 +74,19 @@ struct Market {
 	std::int32_t open_interest{0};
 	std::optional<std::int32_t> settlement_timer_seconds;
 	std::optional<std::int32_t> settlement_value_cents;
-	std::int32_t exchange_index{0};
 
 	// 1-byte enum
 	MarketStatus status{MarketStatus::Open};
 
 	// Strings last (have internal pointers, variable size)
 	std::string ticker;
-	std::string event_ticker;
-	std::string market_type;
 	std::string title;
 	std::string subtitle;
+	std::optional<std::string> expiration_value;
+	std::optional<std::string> result; // "yes", "no", or nullopt if not settled
+	std::int32_t exchange_index{0};
+	std::string event_ticker;
+	std::string market_type;
 	std::string yes_sub_title;
 	std::string no_sub_title;
 	std::string yes_bid_dollars;
@@ -103,22 +105,20 @@ struct Market {
 	std::string price_level_structure;
 	std::string rules_primary;
 	std::string rules_secondary;
-	std::optional<std::string> expiration_value;
-	std::optional<std::string> result; // "yes", "no", or nullopt if not settled
 };
 
 /// User position in a market
 struct Position {
 	std::string market_ticker;
+	std::int32_t yes_contracts{0};
+	std::int32_t no_contracts{0};
+	std::int32_t total_cost_cents{0};
 	std::string position_fp;
 	std::string total_traded_dollars;
 	std::string market_exposure_dollars;
 	std::string realized_pnl_dollars;
 	std::string fees_paid_dollars;
 	std::int32_t exchange_index{0};
-	std::int32_t yes_contracts{0};
-	std::int32_t no_contracts{0};
-	std::int32_t total_cost_cents{0};
 };
 
 } // namespace kalshi

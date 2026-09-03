@@ -1,5 +1,5 @@
-#include "kalshi/signer.hpp"
 #include "kalshi/detail/http_path.hpp"
+#include "kalshi/signer.hpp"
 
 #include <gtest/gtest.h>
 #include <string>
@@ -73,10 +73,10 @@ TEST(Signer, SignProducesHeaders) {
 }
 
 TEST(HttpSigningPath, UsesFullApiPathAndOmitsQuery) {
-	EXPECT_EQ(kalshi::detail::request_signing_path(
-			  "https://external-api.kalshi.com/trade-api/v2", "/portfolio/orders?limit=5"),
+	EXPECT_EQ(kalshi::detail::request_signing_path("https://external-api.kalshi.com/trade-api/v2",
+												   "/portfolio/orders?limit=5"),
 			  "/trade-api/v2/portfolio/orders");
 	EXPECT_EQ(kalshi::detail::request_signing_path("https://example.test/custom/root/",
-												 "portfolio/balance?subaccount=7"),
+												   "portfolio/balance?subaccount=7"),
 			  "/custom/root/portfolio/balance");
 }

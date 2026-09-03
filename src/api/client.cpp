@@ -184,8 +184,7 @@ std::string extract_string(const std::string& json, const std::string& key) {
 		return "";
 
 	const std::string_view encoded{json.data() + pos, end - pos + 1};
-	const glz::expected<std::string, glz::error_ctx> decoded =
-		glz::read_json<std::string>(encoded);
+	const glz::expected<std::string, glz::error_ctx> decoded = glz::read_json<std::string>(encoded);
 	return decoded ? *decoded : std::string{};
 }
 
@@ -1632,7 +1631,6 @@ Result<Event> KalshiClient::get_event(const std::string& event_ticker) {
 	event.sub_title = extract_string(evt_json, "sub_title");
 	event.collateral_return_type = extract_string(evt_json, "collateral_return_type");
 	event.mutually_exclusive = extract_bool(evt_json, "mutually_exclusive");
-	event.available_on_brokers = extract_bool(evt_json, "available_on_brokers");
 	event.last_updated_ts = extract_string(evt_json, "last_updated_ts");
 	event.fee_type_override = extract_string(evt_json, "fee_type_override");
 	event.exchange_index = static_cast<std::int32_t>(extract_int(evt_json, "exchange_index"));
@@ -1670,7 +1668,6 @@ Result<PaginatedResponse<Event>> KalshiClient::get_events(const GetEventsParams&
 		e.sub_title = extract_string(obj, "sub_title");
 		e.collateral_return_type = extract_string(obj, "collateral_return_type");
 		e.mutually_exclusive = extract_bool(obj, "mutually_exclusive");
-		e.available_on_brokers = extract_bool(obj, "available_on_brokers");
 		e.last_updated_ts = extract_string(obj, "last_updated_ts");
 		e.fee_type_override = extract_string(obj, "fee_type_override");
 		e.exchange_index = static_cast<std::int32_t>(extract_int(obj, "exchange_index"));
@@ -1882,11 +1879,11 @@ Result<Order> KalshiClient::parse_order(const std::string& json) {
 	order.action = parse_action(extract_string(order_json, "action"));
 	const std::string outcome_side = extract_string(order_json, "outcome_side");
 	order.outcome_side = outcome_side.empty()
-						 ? derive_outcome_side(order.side, order.action)
-						 : (outcome_side == "no" ? OutcomeSide::No : OutcomeSide::Yes);
+							 ? derive_outcome_side(order.side, order.action)
+							 : (outcome_side == "no" ? OutcomeSide::No : OutcomeSide::Yes);
 	const std::string book_side = extract_string(order_json, "book_side");
 	order.book_side = book_side.empty() ? derive_book_side(order.side, order.action)
-										 : (book_side == "ask" ? BookSide::Ask : BookSide::Bid);
+										: (book_side == "ask" ? BookSide::Ask : BookSide::Bid);
 	order.exchange_index = static_cast<std::int32_t>(extract_int(order_json, "exchange_index"));
 
 	std::string type_str = extract_string(order_json, "type");
@@ -1939,19 +1936,19 @@ Result<Order> KalshiClient::parse_order(const std::string& json) {
 	}
 
 	order.created_time_iso = extract_string(order_json, "created_time");
-	order.created_time = order.created_time_iso.empty() ? extract_int(order_json, "created_time")
-													 : extract_datetime(order_json, "created_time");
+	order.created_time = order.created_time_iso.empty()
+							 ? extract_int(order_json, "created_time")
+							 : extract_datetime(order_json, "created_time");
 
 	order.expiration_time = extract_string(order_json, "expiration_time");
 	std::int64_t exp = order.expiration_time.empty()
-						 ? extract_int(order_json, "expiration_ts")
-						 : extract_datetime(order_json, "expiration_time");
+						   ? extract_int(order_json, "expiration_ts")
+						   : extract_datetime(order_json, "expiration_time");
 	if (exp > 0) {
 		order.expiration_ts = exp;
 	}
 	order.last_update_time = extract_string(order_json, "last_update_time");
-	order.self_trade_prevention_type =
-		extract_string(order_json, "self_trade_prevention_type");
+	order.self_trade_prevention_type = extract_string(order_json, "self_trade_prevention_type");
 	order.order_group_id = extract_string(order_json, "order_group_id");
 
 	// V2 order-mutating endpoints (create / amend / decrease / batch_*)
@@ -2078,11 +2075,11 @@ Result<PaginatedResponse<Fill>> KalshiClient::get_fills(const GetFillsParams& pa
 		f.action = parse_action(extract_string(obj, "action"));
 		const std::string outcome_side = extract_string(obj, "outcome_side");
 		f.outcome_side = outcome_side.empty()
-						 ? derive_outcome_side(f.side, f.action)
-						 : (outcome_side == "no" ? OutcomeSide::No : OutcomeSide::Yes);
+							 ? derive_outcome_side(f.side, f.action)
+							 : (outcome_side == "no" ? OutcomeSide::No : OutcomeSide::Yes);
 		const std::string book_side = extract_string(obj, "book_side");
 		f.book_side = book_side.empty() ? derive_book_side(f.side, f.action)
-									 : (book_side == "ask" ? BookSide::Ask : BookSide::Bid);
+										: (book_side == "ask" ? BookSide::Ask : BookSide::Bid);
 		f.count_fp = extract_string(obj, "count_fp");
 		f.yes_price_dollars = extract_string(obj, "yes_price_dollars");
 		f.no_price_dollars = extract_string(obj, "no_price_dollars");
@@ -2176,7 +2173,7 @@ KalshiClient::get_settlements(const GetSettlementsParams& params) {
 		s.revenue = extract_int(obj, "revenue");
 		s.settled_time_iso = extract_string(obj, "settled_time");
 		s.settled_time = s.settled_time_iso.empty() ? extract_int(obj, "settled_time")
-													  : extract_datetime(obj, "settled_time");
+													: extract_datetime(obj, "settled_time");
 		s.value = extract_optional_int32(obj, "value");
 		settlements.push_back(s);
 	}
@@ -2756,7 +2753,7 @@ Result<OrderGroup> KalshiClient::get_order_group(const std::string& group_id) {
 }
 
 Result<OrderGroup> KalshiClient::get_order_group(const std::string& group_id,
-													 const OrderGroupSelector& selector) {
+												 const OrderGroupSelector& selector) {
 	std::string path = "/portfolio/order_groups/" + group_id;
 	if (selector.subaccount) {
 		append_query_param(path, "subaccount", *selector.subaccount);
@@ -2787,7 +2784,7 @@ Result<void> KalshiClient::delete_order_group(const std::string& group_id) {
 }
 
 Result<void> KalshiClient::delete_order_group(const std::string& group_id,
-												const OrderGroupSelector& selector) {
+											  const OrderGroupSelector& selector) {
 	std::string path = "/portfolio/order_groups/" + group_id;
 	if (selector.subaccount) {
 		append_query_param(path, "subaccount", *selector.subaccount);
@@ -2815,7 +2812,7 @@ Result<OrderGroup> KalshiClient::reset_order_group(const std::string& group_id) 
 }
 
 Result<OrderGroup> KalshiClient::reset_order_group(const std::string& group_id,
-													   const OrderGroupSelector& selector) {
+												   const OrderGroupSelector& selector) {
 	std::string path = "/portfolio/order_groups/" + group_id + "/reset";
 	if (selector.subaccount) {
 		append_query_param(path, "subaccount", *selector.subaccount);
@@ -3114,8 +3111,8 @@ Result<Quote> KalshiClient::get_quote(const std::string& quote_id) {
 }
 
 Result<Quote> KalshiClient::get_quote(const std::string& rfq_id, const std::string& quote_id) {
-	Result<HttpResponse> response = impl_->transport->get("/communications/rfqs/" + rfq_id +
-													 "/quotes/" + quote_id);
+	Result<HttpResponse> response =
+		impl_->transport->get("/communications/rfqs/" + rfq_id + "/quotes/" + quote_id);
 	if (!response) {
 		return std::unexpected(response.error());
 	}
@@ -3828,8 +3825,7 @@ Result<void> KalshiClient::confirm_quote(const std::string& quote_id) {
 	return {};
 }
 
-Result<void> KalshiClient::confirm_quote(const std::string& rfq_id,
-										 const std::string& quote_id) {
+Result<void> KalshiClient::confirm_quote(const std::string& rfq_id, const std::string& quote_id) {
 	Result<HttpResponse> response = impl_->transport->put(
 		"/communications/rfqs/" + rfq_id + "/quotes/" + quote_id + "/confirm", "{}");
 	if (!response) {
@@ -3860,8 +3856,7 @@ Result<void> KalshiClient::delete_quote(const std::string& quote_id) {
 	return {};
 }
 
-Result<void> KalshiClient::delete_quote(const std::string& rfq_id,
-										const std::string& quote_id) {
+Result<void> KalshiClient::delete_quote(const std::string& rfq_id, const std::string& quote_id) {
 	Result<HttpResponse> response =
 		impl_->transport->del("/communications/rfqs/" + rfq_id + "/quotes/" + quote_id);
 	if (!response) {

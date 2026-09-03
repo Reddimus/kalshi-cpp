@@ -15,8 +15,8 @@ namespace kalshi::detail {
 	const std::size_t authority_start = scheme == std::string_view::npos ? 0 : scheme + 3;
 	const std::size_t path_start = base_url.find('/', authority_start);
 	std::string result = path_start == std::string_view::npos
-						 ? std::string{"/"}
-						 : std::string{base_url.substr(path_start)};
+							 ? std::string{"/"}
+							 : std::string{base_url.substr(path_start)};
 	const std::size_t base_query = result.find('?');
 	if (base_query != std::string::npos) {
 		result.resize(base_query);

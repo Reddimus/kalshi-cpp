@@ -1,6 +1,5 @@
-#include "kalshi/http_client.hpp"
-
 #include "kalshi/detail/http_path.hpp"
+#include "kalshi/http_client.hpp"
 
 #include <curl/curl.h>
 #include <mutex>

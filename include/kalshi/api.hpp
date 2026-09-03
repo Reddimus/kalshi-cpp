@@ -31,14 +31,16 @@ struct Event {
 	std::string title;
 	std::string category;
 	std::string sub_title;
-	std::string collateral_return_type;
 	std::int64_t mutually_exclusive{0};
+	std::vector<std::string> market_tickers;
+	std::string collateral_return_type;
+	/// Removed upstream. Retained as a false compatibility field because a
+	/// deprecated attribute would also warn from Event's implicit copy/move.
 	bool available_on_brokers{false};
 	std::vector<SettlementSource> settlement_source_details;
 	std::string last_updated_ts;
 	std::string fee_type_override;
 	std::int32_t exchange_index{0};
-	std::vector<std::string> market_tickers;
 	std::vector<Market> markets;
 };
 
@@ -123,7 +125,6 @@ struct Fill {
 	std::int32_t count{0};
 	std::int32_t yes_price{0};
 	std::int32_t no_price{0};
-	std::int32_t exchange_index{0};
 
 	// 1-byte fields packed together
 	Side side{Side::Yes};
@@ -132,9 +133,10 @@ struct Fill {
 
 	// Strings last (have internal pointers, variable size)
 	std::string trade_id;
-	std::string fill_id;
 	std::string order_id;
 	std::string market_ticker;
+	std::int32_t exchange_index{0};
+	std::string fill_id;
 	std::string count_fp;
 	std::string yes_price_dollars;
 	std::string no_price_dollars;
@@ -156,12 +158,12 @@ struct Settlement {
 	// 4-byte fields
 	std::int32_t yes_count{0};
 	std::int32_t no_count{0};
-	std::int32_t exchange_index{0};
 
 	// Strings last
 	std::string market_ticker;
-	std::string event_ticker;
 	std::string result;
+	std::int32_t exchange_index{0};
+	std::string event_ticker;
 	std::string yes_count_fp;
 	std::string no_count_fp;
 	std::string yes_total_cost_dollars;
@@ -225,18 +227,16 @@ struct PublicTrade {
 	std::int32_t yes_price{0};
 	std::int32_t no_price{0};
 	std::int32_t count{0};
+	Side taker_side{Side::Yes};
+	std::int64_t created_time{0};
+	/// True when the trade was executed as a negotiated block trade.
+	bool is_block_trade{false};
 	std::string count_fp;
 	std::string yes_price_dollars;
 	std::string no_price_dollars;
 	OutcomeSide taker_outcome_side{OutcomeSide::Yes};
 	BookSide taker_book_side{BookSide::Bid};
-	Side taker_side{Side::Yes};
-	std::int64_t created_time{0};
 	std::string created_time_iso;
-	/// True when the trade was executed as a block trade (large negotiated
-	/// print routed off the central order book). Kalshi added this field on
-	/// 2026-05-29; absent on older payloads → defaults to false.
-	bool is_block_trade{false};
 };
 
 // ===== Phase 1: Exchange API Models =====
@@ -248,6 +248,9 @@ struct DailySchedule {
 };
 
 struct WeeklySchedule {
+	std::string day;
+	std::string open;
+	std::string close;
 	std::string start_time;
 	std::string end_time;
 	std::vector<DailySchedule> monday;
@@ -257,20 +260,15 @@ struct WeeklySchedule {
 	std::vector<DailySchedule> friday;
 	std::vector<DailySchedule> saturday;
 	std::vector<DailySchedule> sunday;
-	// Legacy flattened fields retained for source compatibility.
-	std::string day;
-	std::string open;
-	std::string close;
 };
 
 /// Maintenance window
 struct MaintenanceWindow {
-	std::string start_datetime;
-	std::string end_datetime;
-	// Legacy epoch fields retained for source compatibility.
 	std::int64_t start{0};
 	std::int64_t end{0};
 	std::string description;
+	std::string start_datetime;
+	std::string end_datetime;
 };
 
 /// Exchange schedule
@@ -292,6 +290,10 @@ struct Announcement {
 
 /// Event metadata
 struct EventMetadata {
+	std::string event_ticker;
+	std::string description;
+	std::string rules;
+	std::string resolution_source;
 	struct MarketDetail {
 		std::string market_ticker;
 		std::string image_url;
@@ -303,11 +305,6 @@ struct EventMetadata {
 	std::vector<SettlementSource> settlement_sources;
 	std::string competition;
 	std::string competition_scope;
-	// Legacy fields retained for source compatibility.
-	std::string event_ticker;
-	std::string description;
-	std::string rules;
-	std::string resolution_source;
 };
 
 // ===== Phase 3: Order Groups Models =====
@@ -315,11 +312,6 @@ struct EventMetadata {
 /// Order group
 struct OrderGroup {
 	std::string id;
-	std::string contracts_limit_fp;
-	bool is_auto_cancel_enabled{false};
-	std::int32_t exchange_index{0};
-	std::int64_t subaccount{0};
-	// Legacy response fields retained for source compatibility.
 	std::vector<std::string> order_ids;
 	std::string status;
 	std::string type;
@@ -327,6 +319,10 @@ struct OrderGroup {
 	/// Subaccount that owns the group. Added to the v2 response surface on
 	/// 2026-05-07; empty when the server omits the field (back-compat).
 	std::string subaccount_number;
+	std::string contracts_limit_fp;
+	bool is_auto_cancel_enabled{false};
+	std::int32_t exchange_index{0};
+	std::int64_t subaccount{0};
 };
 
 struct OrderGroupSelector {
@@ -350,8 +346,14 @@ struct OrderQueuePosition {
 /// Request for quote
 struct Rfq {
 	std::string id;
-	std::string creator_id;
 	std::string market_ticker;
+	Side side{Side::Yes};
+	Action action{Action::Buy};
+	std::int32_t count{0};
+	std::string status;
+	std::int64_t expires_at{0};
+	std::int64_t created_time{0};
+	std::string creator_id;
 	std::string contracts_fp;
 	std::string target_cost_dollars;
 	bool rest_remainder{false};
@@ -361,20 +363,17 @@ struct Rfq {
 	std::string created_ts;
 	std::string cancelled_ts;
 	std::string updated_ts;
-	// Legacy fields retained for source compatibility. Current responses use
-	// the exact fixed-point and ISO timestamp fields above.
-	Side side{Side::Yes};
-	Action action{Action::Buy};
-	std::int32_t count{0};
-	std::string status;
-	std::int64_t expires_at{0};
-	std::int64_t created_time{0};
 };
 
 /// Quote response to RFQ
 struct Quote {
 	std::string id;
 	std::string rfq_id;
+	std::int32_t price{0};
+	std::int32_t count{0};
+	std::string status;
+	std::int64_t created_time{0};
+	std::int64_t expires_at{0};
 	std::string creator_id;
 	std::string rfq_creator_id;
 	std::string market_ticker;
@@ -395,12 +394,6 @@ struct Quote {
 	std::int64_t rfq_creator_subaccount{0};
 	std::string yes_contracts_fp;
 	std::string no_contracts_fp;
-	// Legacy rounded fields retained for source compatibility.
-	std::int32_t price{0};
-	std::int32_t count{0};
-	std::string status;
-	std::int64_t created_time{0};
-	std::int64_t expires_at{0};
 };
 
 // ===== Phase 6: Administrative Models =====
@@ -410,12 +403,12 @@ struct ApiKey {
 	std::string id;
 	std::string name;
 	std::vector<std::string> scopes;
+	std::int64_t created_time{0};
+	std::optional<std::int64_t> expires_at;
 	std::optional<std::int64_t> subaccount;
 	std::string fcm_subtrader_id;
 	std::string private_key;
 	std::string warning;
-	std::int64_t created_time{0};
-	std::optional<std::int64_t> expires_at;
 };
 
 /// API keys plus the account's API-key location-attestation expiry.
@@ -427,6 +420,11 @@ struct ApiKeysResponse {
 /// Milestone
 struct Milestone {
 	std::string id;
+	std::string event_ticker;
+	std::string title;
+	std::string description;
+	std::int64_t deadline{0};
+	std::string status;
 	std::string category;
 	std::string type;
 	std::string start_date;
@@ -436,21 +434,17 @@ struct Milestone {
 	std::string last_updated_ts;
 	std::vector<std::string> related_event_tickers;
 	std::vector<std::string> primary_event_tickers;
-	std::string event_ticker;
-	std::string title;
-	std::string description;
-	std::int64_t deadline{0};
-	std::string status;
 };
 
 /// Multivariate collection
 struct MultivariateCollection {
 	std::string id;
+	std::string title;
+	std::string description;
+	std::vector<std::string> event_tickers;
 	std::string collection_ticker;
 	std::string series_ticker;
 	std::int32_t exchange_index{0};
-	std::string title;
-	std::string description;
 	std::string open_date;
 	std::string close_date;
 	bool is_ordered{false};
@@ -459,20 +453,18 @@ struct MultivariateCollection {
 	std::int32_t size_min{0};
 	std::int32_t size_max{0};
 	std::string functional_description;
-	std::vector<std::string> event_tickers;
 };
 
 /// Structured target
 struct StructuredTarget {
 	std::string id;
+	std::string title;
+	std::string description;
+	std::string target_type;
 	std::string name;
 	std::string type;
 	std::string source_id;
 	std::string last_updated_ts;
-	// Legacy aliases retained for source compatibility.
-	std::string title;
-	std::string description;
-	std::string target_type;
 };
 
 /// Communication
@@ -500,6 +492,10 @@ struct LiveData {
 /// Incentive program
 struct IncentiveProgram {
 	std::string id;
+	std::string title;
+	std::string description;
+	std::int64_t start_time{0};
+	std::int64_t end_time{0};
 	std::string market_id;
 	std::string market_ticker;
 	std::string incentive_type;
@@ -511,11 +507,6 @@ struct IncentiveProgram {
 	std::optional<std::int32_t> discount_factor_bps;
 	std::string target_size_fp;
 	std::optional<std::int64_t> max_reward_per_account;
-	// Legacy aliases retained for source compatibility.
-	std::string title;
-	std::string description;
-	std::int64_t start_time{0};
-	std::int64_t end_time{0};
 };
 
 // ===== Additional Models for Full SDK Parity =====
@@ -533,11 +524,11 @@ struct Subaccount {
 
 /// Cross-subaccount transfer record (also the request body shape).
 struct SubaccountTransfer {
-	std::string client_transfer_id;
-	std::string transfer_id;
 	std::int64_t from_subaccount{0};
 	std::int64_t to_subaccount{0};
 	std::int64_t amount{0}; // cents
+	std::string client_transfer_id;
+	std::string transfer_id;
 	std::int64_t amount_cents{0};
 	std::int64_t created_ts{0};
 	std::int32_t exchange_index{0};
@@ -587,9 +578,9 @@ struct UserDataTimestamp {
 struct GenerateApiKeyParams {
 	std::string name;
 	std::vector<std::string> scopes;
+	std::optional<std::int64_t> expires_at; // legacy; rejected by v0.5
 	std::optional<std::int64_t> subaccount;
 	std::optional<std::string> fcm_subtrader_id;
-	std::optional<std::int64_t> expires_at; // legacy; rejected by v0.5
 };
 
 /// Parameters for looking up a multivariate collection bundle
@@ -639,14 +630,13 @@ struct GetEventsParams {
 
 /// Parameters for listing series
 struct GetSeriesParams {
+	std::optional<std::int32_t> limit;
+	std::optional<std::string> cursor;
 	std::optional<std::string> category;
 	std::optional<std::string> tags;
 	std::optional<bool> include_product_metadata;
 	std::optional<bool> include_volume;
 	std::optional<std::int64_t> min_updated_ts;
-	// Removed upstream; retained so existing callers fail at runtime rather than compile time.
-	std::optional<std::int32_t> limit;
-	std::optional<std::string> cursor;
 };
 
 struct GetQueuePositionsParams {
@@ -657,60 +647,57 @@ struct GetQueuePositionsParams {
 
 /// Parameters for listing order groups
 struct GetOrderGroupsParams {
-	std::optional<std::int64_t> subaccount;
-	// Removed filters retained for source compatibility and rejected when set.
 	std::optional<std::int32_t> limit;
 	std::optional<std::string> cursor;
 	std::optional<std::string> status;
+	std::optional<std::int64_t> subaccount;
 };
 
 /// Parameters for creating an order group
 struct CreateOrderGroupParams {
+	std::vector<std::string> order_ids;
+	std::string type; // "oco", "otoco", etc.
 	std::optional<std::int64_t> subaccount;
 	std::optional<std::int64_t> contracts_limit;
 	std::optional<std::string> contracts_limit_fp;
 	std::optional<std::int32_t> exchange_index;
-	// Removed request fields retained for source compatibility and rejected.
-	std::vector<std::string> order_ids;
-	std::string type; // "oco", "otoco", etc.
 };
 
 /// Parameters for listing RFQs
 struct GetRfqsParams {
 	std::optional<std::int32_t> limit;
 	std::optional<std::string> cursor;
-	std::optional<std::string> event_ticker;
 	std::optional<std::string> market_ticker;
-	std::optional<std::int64_t> subaccount;
 	std::optional<std::string> status;
+	std::optional<std::string> event_ticker;
+	std::optional<std::int64_t> subaccount;
 	std::optional<std::string> user_filter;
 };
 
 /// Parameters for creating an RFQ
 struct CreateRfqParams {
 	std::string market_ticker;
+	Side side{Side::Yes};
+	Action action{Action::Buy};
+	std::int32_t count{0};
+	std::optional<std::int64_t> expires_at;
 	std::optional<std::string> contracts_fp;
 	std::optional<std::string> target_cost_dollars;
 	bool rest_remainder{false};
 	std::optional<bool> replace_existing;
 	std::optional<std::string> subtrader_id;
 	std::optional<std::int64_t> subaccount;
-	// Legacy whole-count input maps exactly to contracts_fp when contracts_fp
-	// is absent. Side/action/expiry no longer exist upstream.
-	Side side{Side::Yes};
-	Action action{Action::Buy};
-	std::int32_t count{0};
-	std::optional<std::int64_t> expires_at;
 };
 
 /// Parameters for listing quotes
 struct GetQuotesParams {
 	std::optional<std::int32_t> limit;
 	std::optional<std::string> cursor;
-	std::optional<std::int64_t> min_ts;
-	std::optional<std::int64_t> max_ts;
 	std::optional<std::string> rfq_id;
 	std::optional<std::string> status;
+	std::optional<std::string> rfq_user_filter;
+	std::optional<std::int64_t> min_ts;
+	std::optional<std::int64_t> max_ts;
 	std::optional<std::string> user_filter;
 	std::optional<std::string> rfq_creator_subtrader_id;
 	/// Filter for quotes that responded to RFQs created by the authenticated
@@ -718,17 +705,11 @@ struct GetQuotesParams {
 	/// only quotes whose parent RFQ was created by the calling user are
 	/// returned. Values follow the Kalshi convention (typically `"true"` to
 	/// enable; absent ≡ all quotes the user can see).
-	std::optional<std::string> rfq_user_filter;
 };
 
 /// Parameters for creating a quote
 struct CreateQuoteParams {
 	std::string rfq_id;
-	std::string yes_bid_dollars;
-	std::string no_bid_dollars;
-	bool rest_remainder{false};
-	std::optional<std::int64_t> subaccount;
-	// Legacy integer fields cannot express the current two-sided exact quote.
 	std::int32_t price{0};
 	std::int32_t count{0};
 	std::optional<std::int64_t> expires_at;
@@ -736,22 +717,27 @@ struct CreateQuoteParams {
 	/// it is auto-cancelled at execution if it would have matched. Added to
 	/// the Kalshi v2 API on 2026-05-05.
 	std::optional<bool> post_only;
+	std::string yes_bid_dollars;
+	std::string no_bid_dollars;
+	bool rest_remainder{false};
+	std::optional<std::int64_t> subaccount;
 };
 
 /// Parameters for creating an API key
 struct CreateApiKeyParams {
 	std::string name;
-	std::string public_key;
 	std::vector<std::string> scopes;
+	std::optional<std::int64_t> expires_at; // legacy; rejected by v0.5
+	std::string public_key;
 	std::optional<std::int64_t> subaccount;
 	std::optional<std::string> fcm_subtrader_id;
-	std::optional<std::int64_t> expires_at; // legacy; rejected by v0.5
 };
 
 /// Parameters for listing milestones
 struct GetMilestonesParams {
 	std::optional<std::int32_t> limit;
 	std::optional<std::string> cursor;
+	std::optional<std::string> event_ticker; // legacy alias for related_event_ticker
 	std::optional<std::string> minimum_start_date;
 	std::optional<std::string> category;
 	std::optional<std::string> competition;
@@ -759,7 +745,6 @@ struct GetMilestonesParams {
 	std::optional<std::string> type;
 	std::optional<std::string> related_event_ticker;
 	std::optional<std::int64_t> min_updated_ts;
-	std::optional<std::string> event_ticker; // legacy alias for related_event_ticker
 };
 
 /// Parameters for listing multivariate collections
@@ -773,12 +758,12 @@ struct GetMultivariateCollectionsParams {
 
 /// Parameters for listing structured targets
 struct GetStructuredTargetsParams {
-	std::optional<std::int32_t> page_size;
+	std::optional<std::int32_t> limit; // legacy alias for page_size
 	std::optional<std::string> cursor;
+	std::optional<std::int32_t> page_size;
 	std::optional<std::string> ids;
 	std::optional<std::string> type;
 	std::optional<std::string> competition;
-	std::optional<std::int32_t> limit; // legacy alias for page_size
 };
 
 /// Parameters for searching events/markets
@@ -793,10 +778,10 @@ struct GetOrdersParams {
 	std::optional<std::int32_t> limit;
 	std::optional<std::string> cursor;
 	std::optional<std::string> market_ticker;
+	std::optional<std::string> status; // "open", "pending", etc.
 	std::optional<std::string> event_ticker;
 	std::optional<std::int64_t> min_ts;
 	std::optional<std::int64_t> max_ts;
-	std::optional<std::string> status; // "open", "pending", etc.
 	std::optional<std::int64_t> subaccount;
 	std::optional<std::int32_t> exchange_index;
 };
@@ -872,7 +857,6 @@ struct CreateOrderParams {
 	std::optional<std::string> no_price_dollars;
 	std::optional<std::string> client_order_id;
 	std::optional<std::int64_t> expiration_ts;
-	std::optional<std::int64_t> expiration_time;
 	std::optional<std::string> time_in_force;
 	std::optional<std::int32_t> sell_position_floor;
 	std::optional<std::int32_t> buy_max_cost;
@@ -887,11 +871,15 @@ struct CreateOrderParams {
 	std::optional<BookSide> book_side;
 	/// Canonical V2 fixed-point price. Required by create_order().
 	std::optional<std::string> price_dollars;
+	std::optional<std::int64_t> expiration_time;
 };
 
 /// Parameters for amending an order
 struct AmendOrderParams {
 	std::string order_id;
+	std::optional<std::int32_t> count;
+	std::optional<std::int32_t> yes_price;
+	std::optional<std::int32_t> no_price;
 	std::string ticker;
 	std::optional<BookSide> book_side;
 	std::optional<std::string> price_dollars;
@@ -899,9 +887,6 @@ struct AmendOrderParams {
 	std::optional<std::string> client_order_id;
 	std::optional<std::string> updated_client_order_id;
 	std::optional<std::int32_t> exchange_index;
-	std::optional<std::int32_t> count;
-	std::optional<std::int32_t> yes_price;
-	std::optional<std::int32_t> no_price;
 	std::optional<std::int64_t> subaccount;
 };
 
@@ -1179,19 +1164,19 @@ public:
 	[[deprecated("use the selector overload")]] [[nodiscard]] Result<OrderGroup>
 	get_order_group(const std::string& group_id);
 	[[nodiscard]] Result<OrderGroup> get_order_group(const std::string& group_id,
-												 const OrderGroupSelector& selector);
+													 const OrderGroupSelector& selector);
 
 	/// Delete an order group
 	[[deprecated("use the selector overload")]] [[nodiscard]] Result<void>
 	delete_order_group(const std::string& group_id);
 	[[nodiscard]] Result<void> delete_order_group(const std::string& group_id,
-											  const OrderGroupSelector& selector);
+												  const OrderGroupSelector& selector);
 
 	/// Reset an order group
 	[[deprecated("use the selector overload")]] [[nodiscard]] Result<OrderGroup>
 	reset_order_group(const std::string& group_id);
 	[[nodiscard]] Result<OrderGroup> reset_order_group(const std::string& group_id,
-												   const OrderGroupSelector& selector);
+													   const OrderGroupSelector& selector);
 
 	// ===== Order Queue Position (Authenticated) =====
 
@@ -1225,30 +1210,24 @@ public:
 	[[nodiscard]] Result<PaginatedResponse<Quote>> get_quotes(const GetQuotesParams& params = {});
 
 	/// Get a single quote by ID
-	[[deprecated("use the RFQ-scoped overload")]] [[nodiscard]] Result<Quote>
-	get_quote(const std::string& quote_id);
-	[[nodiscard]] Result<Quote> get_quote(const std::string& rfq_id,
-										  const std::string& quote_id);
+	[[nodiscard]] Result<Quote> get_quote(const std::string& quote_id);
+	[[nodiscard]] Result<Quote> get_quote(const std::string& rfq_id, const std::string& quote_id);
 
 	/// Accept a quote
 	[[deprecated("accepted_side is required")]] [[nodiscard]] Result<void>
 	accept_quote(const std::string& quote_id);
-	[[deprecated("use the RFQ-scoped overload")]] [[nodiscard]] Result<void>
-	accept_quote(const std::string& quote_id, Side accepted_side);
-	[[nodiscard]] Result<void> accept_quote(const std::string& rfq_id,
-										const std::string& quote_id, Side accepted_side);
+	[[nodiscard]] Result<void> accept_quote(const std::string& quote_id, Side accepted_side);
+	[[nodiscard]] Result<void> accept_quote(const std::string& rfq_id, const std::string& quote_id,
+											Side accepted_side);
 
 	/// Confirm a quote
-	[[deprecated("use the RFQ-scoped overload")]] [[nodiscard]] Result<void>
-	confirm_quote(const std::string& quote_id);
+	[[nodiscard]] Result<void> confirm_quote(const std::string& quote_id);
 	[[nodiscard]] Result<void> confirm_quote(const std::string& rfq_id,
-										 const std::string& quote_id);
+											 const std::string& quote_id);
 
 	/// Delete a quote
-	[[deprecated("use the RFQ-scoped overload")]] [[nodiscard]] Result<void>
-	delete_quote(const std::string& quote_id);
-	[[nodiscard]] Result<void> delete_quote(const std::string& rfq_id,
-										const std::string& quote_id);
+	[[nodiscard]] Result<void> delete_quote(const std::string& quote_id);
+	[[nodiscard]] Result<void> delete_quote(const std::string& rfq_id, const std::string& quote_id);
 
 	// ===== API Keys Management (Authenticated) =====
 

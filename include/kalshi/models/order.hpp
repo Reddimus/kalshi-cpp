@@ -52,7 +52,6 @@ struct Order {
 	std::int32_t remaining_count{0};
 	std::int32_t filled_count{0};
 	std::int32_t price{0};
-	std::int32_t exchange_index{0};
 
 	// 1-byte enums packed together (4 bytes total with alignment)
 	Side side{Side::Yes};
@@ -63,6 +62,7 @@ struct Order {
 	// Strings last (have internal pointers, variable size)
 	std::string order_id;
 	std::string market_ticker;
+	std::int32_t exchange_index{0};
 	std::string client_order_id;
 	std::string yes_price_dollars;
 	std::string no_price_dollars;

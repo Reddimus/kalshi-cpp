@@ -182,7 +182,7 @@ TEST(OperationContracts, FillsSettlementsAndQueuePositionsParseCurrentSchemas) {
 
 	transport->response_body =
 		R"({"fills":[{"fill_id":"fill-1","exchange_index":3,"trade_id":"trade-1","order_id":"order-1","ticker":"KXTEST","market_ticker":"KXTEST","outcome_side":"no","book_side":"ask","count_fp":"1.50","yes_price_dollars":"0.2500","no_price_dollars":"0.7500","is_taker":true,"created_time":"2026-09-03T00:00:00Z","fee_cost":"0.0100","subaccount_number":7,"ts":1788393600}]})";
-	const auto fills = client.get_fills();
+	const kalshi::Result<kalshi::PaginatedResponse<kalshi::Fill>> fills = client.get_fills();
 	ASSERT_TRUE(fills.has_value());
 	ASSERT_EQ(fills->items.size(), 1U);
 	EXPECT_EQ(fills->items[0].outcome_side, kalshi::OutcomeSide::No);
@@ -193,7 +193,8 @@ TEST(OperationContracts, FillsSettlementsAndQueuePositionsParseCurrentSchemas) {
 
 	transport->response_body =
 		R"({"settlements":[{"ticker":"KXTEST","exchange_index":3,"event_ticker":"EV1","market_result":"no","yes_count_fp":"0.00","yes_total_cost_dollars":"0.0000","no_count_fp":"1.00","no_total_cost_dollars":"0.7500","revenue":100,"settled_time":"2026-09-03T00:00:00Z","fee_cost":"0.0100","value":0}]})";
-	const auto settlements = client.get_settlements();
+	const kalshi::Result<kalshi::PaginatedResponse<kalshi::Settlement>> settlements =
+		client.get_settlements();
 	ASSERT_TRUE(settlements.has_value());
 	ASSERT_EQ(settlements->items.size(), 1U);
 	EXPECT_EQ(settlements->items[0].result, "no");
@@ -203,7 +204,8 @@ TEST(OperationContracts, FillsSettlementsAndQueuePositionsParseCurrentSchemas) {
 
 	transport->response_body =
 		R"({"queue_positions":[{"order_id":"order-1","market_ticker":"KXTEST","queue_position_fp":"1.50"}]})";
-	const auto queue = client.get_queue_positions(kalshi::GetQueuePositionsParams{});
+	const kalshi::Result<std::vector<kalshi::OrderQueuePosition>> queue =
+		client.get_queue_positions(kalshi::GetQueuePositionsParams{});
 	ASSERT_TRUE(queue.has_value());
 	ASSERT_EQ(queue->size(), 1U);
 	EXPECT_EQ((*queue)[0].market_ticker, "KXTEST");
@@ -217,7 +219,8 @@ TEST(OperationContracts, BalanceAndOrderMutationsRouteBySubaccountAndShard) {
 
 	transport->response_body =
 		R"({"balance":2500,"balance_dollars":"25.0000","portfolio_value":3000,"updated_ts":1788393600,"balance_breakdown":[{"exchange_index":3,"balance":"20.0000"},{"exchange_index":4,"balance":"5.0000"}]})";
-	const auto balance = client.get_balance({.subaccount = 7, .exchange_index = -1});
+	const kalshi::Result<kalshi::Balance> balance =
+		client.get_balance({.subaccount = 7, .exchange_index = -1});
 	ASSERT_TRUE(balance.has_value());
 	EXPECT_EQ(transport->path, "/portfolio/balance?subaccount=7&exchange_index=-1");
 	ASSERT_EQ(balance->balance_breakdown.size(), 2U);
@@ -250,14 +253,11 @@ TEST(OperationContracts, OrderGroupSelectorsAndNestedEventMarketsArePreserved) {
 	transport->response_body = R"({"id":"group-1","contracts_limit_fp":"10.00"})";
 	ASSERT_TRUE(client.get_order_group("group-1", {.subaccount = 7}).has_value());
 	EXPECT_EQ(transport->path, "/portfolio/order_groups/group-1?subaccount=7");
-	ASSERT_TRUE(client.delete_order_group(
-					   "group-1", {.subaccount = 7, .exchange_index = 3})
-					   .has_value());
-	EXPECT_EQ(transport->path,
-			  "/portfolio/order_groups/group-1?subaccount=7&exchange_index=3");
-	ASSERT_TRUE(client.reset_order_group(
-					   "group-1", {.subaccount = 7, .exchange_index = 3})
-					   .has_value());
+	ASSERT_TRUE(
+		client.delete_order_group("group-1", {.subaccount = 7, .exchange_index = 3}).has_value());
+	EXPECT_EQ(transport->path, "/portfolio/order_groups/group-1?subaccount=7&exchange_index=3");
+	ASSERT_TRUE(
+		client.reset_order_group("group-1", {.subaccount = 7, .exchange_index = 3}).has_value());
 	EXPECT_EQ(transport->path,
 			  "/portfolio/order_groups/group-1/reset?subaccount=7&exchange_index=3");
 
@@ -265,7 +265,8 @@ TEST(OperationContracts, OrderGroupSelectorsAndNestedEventMarketsArePreserved) {
 		R"({"events":[{"event_ticker":"EV1","series_ticker":"SERIES","title":"Event","markets":[{"ticker":"KXTEST","event_ticker":"EV1","status":"active","yes_bid_dollars":"0.2500","exchange_index":3}]}],"cursor":""})";
 	kalshi::GetEventsParams params;
 	params.with_nested_markets = true;
-	const auto events = client.get_events(params);
+	const kalshi::Result<kalshi::PaginatedResponse<kalshi::Event>> events =
+		client.get_events(params);
 	ASSERT_TRUE(events.has_value());
 	ASSERT_EQ(events->items.size(), 1U);
 	ASSERT_EQ(events->items[0].markets.size(), 1U);
@@ -639,8 +640,7 @@ TEST(OperationContracts, GeneratedPrivateKeyIsDecodedFromJson) {
 		R"({"api_key_id":"key-1","private_key":"-----BEGIN PRIVATE KEY-----\nABC\\DEF\n-----END PRIVATE KEY-----\n","warning":null})";
 	kalshi::KalshiClient client(transport);
 
-	const kalshi::Result<kalshi::ApiKey> result =
-		client.generate_api_key({.name = "generated"});
+	const kalshi::Result<kalshi::ApiKey> result = client.generate_api_key({.name = "generated"});
 
 	ASSERT_TRUE(result.has_value());
 	EXPECT_EQ(result->private_key,
