@@ -67,6 +67,43 @@ inline std::int32_t extract_int(const std::string& json, const std::string& key)
 	return static_cast<std::int32_t>(result);
 }
 
+inline std::int64_t extract_int64(const std::string& json, const std::string& key) {
+	const std::string search = "\"" + key + "\"";
+	std::size_t pos = json.find(search);
+	if (pos == std::string::npos)
+		return 0;
+	pos = json.find(':', pos + search.size());
+	if (pos == std::string::npos)
+		return 0;
+	pos = json.find_first_not_of(" \t\r\n", pos + 1);
+	if (pos == std::string::npos)
+		return 0;
+	if (json[pos] == '"')
+		++pos;
+	bool negative = false;
+	if (pos < json.size() && json[pos] == '-') {
+		negative = true;
+		++pos;
+	}
+	std::uint64_t value = 0;
+	const std::uint64_t limit = negative ? std::uint64_t{INT64_MAX} + 1U : std::uint64_t{INT64_MAX};
+	bool saw_digit = false;
+	while (pos < json.size() && json[pos] >= '0' && json[pos] <= '9') {
+		saw_digit = true;
+		const std::uint64_t digit = static_cast<std::uint64_t>(json[pos] - '0');
+		if (value > (limit - digit) / 10U)
+			return 0;
+		value = value * 10U + digit;
+		++pos;
+	}
+	if (!saw_digit)
+		return 0;
+	if (negative && value == std::uint64_t{INT64_MAX} + 1U)
+		return INT64_MIN;
+	const std::int64_t signed_value = static_cast<std::int64_t>(value);
+	return negative ? -signed_value : signed_value;
+}
+
 /// Extract a string value for ``key`` from ``json``. Returns "" when
 /// the key is absent or the value is not a string.
 inline std::string extract_string(const std::string& json, const std::string& key) {
@@ -264,6 +301,8 @@ inline std::int64_t extract_iso8601_millis(const std::string& json, const std::s
 struct PriceQty {
 	std::int32_t price{0};
 	std::int32_t quantity{0};
+	std::string price_fp;
+	std::string quantity_fp;
 };
 
 /// Extract a list of ``[price, quantity]`` tuples from
@@ -282,12 +321,13 @@ inline std::vector<PriceQty> extract_orderbook_entries(const std::string& json,
 		return entries;
 	pos++; // Skip outer '['
 
-	auto read_num = [&]() -> std::int32_t {
+	auto read_num = [&](std::string& raw) -> std::int32_t {
 		while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t'))
 			pos++;
 		const bool quoted = pos < json.size() && json[pos] == '"';
 		if (quoted)
 			pos++;
+		const std::size_t start = pos;
 		// int64 accumulate + saturate: orderbook price/size fields are
 		// non-negative, but a malformed frame could carry an out-of-int32 value
 		// that would overflow a bare int32 accumulator (UB).
@@ -299,6 +339,12 @@ inline std::vector<PriceQty> extract_orderbook_entries(const std::string& json,
 			}
 			pos++;
 		}
+		if (pos < json.size() && json[pos] == '.') {
+			++pos;
+			while (pos < json.size() && json[pos] >= '0' && json[pos] <= '9')
+				++pos;
+		}
+		raw = json.substr(start, pos - start);
 		if (quoted && pos < json.size() && json[pos] == '"')
 			pos++;
 		return static_cast<std::int32_t>(val);
@@ -312,17 +358,19 @@ inline std::vector<PriceQty> extract_orderbook_entries(const std::string& json,
 
 		if (json[pos] == '[') {
 			pos++;
-			const std::int32_t price = read_num();
+			std::string price_fp;
+			std::string quantity_fp;
+			const std::int32_t price = read_num(price_fp);
 			while (pos < json.size() && json[pos] != ',' && json[pos] != ']')
 				pos++;
 			if (pos < json.size() && json[pos] == ',')
 				pos++;
-			const std::int32_t qty = read_num();
+			const std::int32_t qty = read_num(quantity_fp);
 			while (pos < json.size() && json[pos] != ']')
 				pos++;
 			if (pos < json.size())
 				pos++; // Skip ']'
-			entries.push_back(PriceQty{price, qty});
+			entries.push_back(PriceQty{price, qty, std::move(price_fp), std::move(quantity_fp)});
 		}
 
 		while (pos < json.size() && (json[pos] == ' ' || json[pos] == '\t' || json[pos] == ','))

@@ -16,6 +16,7 @@
 //    ("2026-04-20T08:19:13.898402Z"), not unix-second ints.
 
 #include "kalshi/detail/ws_json.hpp"
+#include "kalshi/detail/ws_message.hpp"
 
 #include <gtest/gtest.h>
 
@@ -208,4 +209,76 @@ TEST(ExtractOrderbookEntries, EmptyArray) {
 TEST(ExtractOrderbookEntries, MissingKeyReturnsEmpty) {
 	const auto entries = extract_orderbook_entries(R"({"yes":[[47,100]]})", "no");
 	EXPECT_TRUE(entries.empty());
+}
+
+TEST(WsParser, CurrentSupportedFramesPreserveCanonicalAndExactFields) {
+	const std::optional<kalshi::WsMessage> snapshot = kalshi::detail::parse_ws_data_message(
+		R"({"type":"orderbook_snapshot","sid":1,"seq":2,"msg":{"market_ticker":"KXTEST","market_id":"market-1","yes_dollars_fp":[["0.1250","1.50"]],"no_dollars_fp":[["0.8750","2.00"]]}})");
+	ASSERT_TRUE(snapshot.has_value());
+	const kalshi::OrderbookSnapshot& book = std::get<kalshi::OrderbookSnapshot>(*snapshot);
+	ASSERT_EQ(book.yes.size(), 1U);
+	EXPECT_EQ(book.yes[0].price_dollars, "0.1250");
+	EXPECT_EQ(book.yes[0].quantity_fp, "1.50");
+
+	const std::optional<kalshi::WsMessage> trade = kalshi::detail::parse_ws_data_message(
+		R"({"type":"trade","sid":2,"msg":{"trade_id":"trade-1","market_ticker":"KXTEST","yes_price_dollars":"0.2500","no_price_dollars":"0.7500","count_fp":"1.50","taker_side":"no","taker_outcome_side":"yes","taker_book_side":"bid","is_block_trade":true,"ts":1788393600,"ts_ms":1788393600123}})");
+	ASSERT_TRUE(trade.has_value());
+	const kalshi::WsTrade& ws_trade = std::get<kalshi::WsTrade>(*trade);
+	EXPECT_EQ(ws_trade.taker_outcome_side, kalshi::OutcomeSide::Yes);
+	EXPECT_EQ(ws_trade.taker_book_side, kalshi::BookSide::Bid);
+	EXPECT_EQ(ws_trade.timestamp_ms, 1788393600123);
+
+	const std::optional<kalshi::WsMessage> fill = kalshi::detail::parse_ws_data_message(
+		R"({"type":"fill","sid":3,"msg":{"trade_id":"trade-1","order_id":"order-1","market_ticker":"KXTEST","exchange_index":3,"is_taker":true,"side":"no","yes_price_dollars":"0.2500","count_fp":"1.50","fee_cost":"0.0100","action":"sell","outcome_side":"yes","book_side":"bid","ts":1788393600,"ts_ms":1788393600123,"client_order_id":"client-1","post_position_fp":"2.50","purchased_side":"yes","subaccount":7}})");
+	ASSERT_TRUE(fill.has_value());
+	const kalshi::WsFill& ws_fill = std::get<kalshi::WsFill>(*fill);
+	EXPECT_EQ(ws_fill.outcome_side, kalshi::OutcomeSide::Yes);
+	EXPECT_EQ(ws_fill.book_side, kalshi::BookSide::Bid);
+	EXPECT_EQ(ws_fill.exchange_index, 3);
+	EXPECT_EQ(ws_fill.fee_cost, "0.0100");
+	EXPECT_EQ(ws_fill.timestamp_ms, 1788393600123);
+	EXPECT_EQ(ws_fill.post_position_fp, "2.50");
+	EXPECT_EQ(ws_fill.subaccount, 7);
+
+	const std::optional<kalshi::WsMessage> lifecycle = kalshi::detail::parse_ws_data_message(
+		R"({"type":"market_lifecycle_v2","sid":4,"msg":{"event_type":"price_level_structure_updated","market_ticker":"KXTEST","price_level_structure":"center_deci_edge_centi_cent","settlement_value":"0.5000","yes_sub_title":"At least 10"}})");
+	ASSERT_TRUE(lifecycle.has_value());
+	const kalshi::MarketLifecycle& life = std::get<kalshi::MarketLifecycle>(*lifecycle);
+	EXPECT_EQ(life.event_type, "price_level_structure_updated");
+	EXPECT_EQ(life.price_level_structure, "center_deci_edge_centi_cent");
+	EXPECT_EQ(life.settlement_value_dollars, "0.5000");
+	EXPECT_EQ(kalshi::classify_lifecycle_event(life),
+			  kalshi::LifecycleEventType::PriceLevelStructureUpdated);
+
+	const std::optional<kalshi::WsMessage> created = kalshi::detail::parse_ws_data_message(
+		R"({"type":"market_lifecycle_v2","sid":5,"msg":{"event_type":"created","market_ticker":"KXCREATED","exchange_index":2,"open_ts":1788393600,"close_ts":1788480000,"price_level_structure":"deci_cent","price_ranges":[{"start":"0.0000","end":"0.1000","step":"0.0010"},{"start":"0.1000","end":"1.0000","step":"0.0100"}],"strike_type":"between","floor_strike":12.5,"cap_strike":20,"custom_strike":{"unit":"points"},"additional_metadata":{"name":"Created market","title":"Will it happen?","yes_sub_title":"Yes label","no_sub_title":"No label","rules_primary":"Primary","rules_secondary":"Secondary","can_close_early":true,"event_ticker":"KXEVENT","expected_expiration_ts":1788483600,"strike_type":"between","floor_strike":12.5,"cap_strike":20,"custom_strike":{"unit":"points"}}}})");
+	ASSERT_TRUE(created.has_value());
+	const kalshi::MarketLifecycle& created_lifecycle = std::get<kalshi::MarketLifecycle>(*created);
+	ASSERT_EQ(created_lifecycle.price_ranges.size(), 2U);
+	EXPECT_EQ(created_lifecycle.price_ranges[0].step, "0.0010");
+	EXPECT_EQ(created_lifecycle.strike_type, "between");
+	EXPECT_EQ(created_lifecycle.floor_strike, "12.5");
+	EXPECT_EQ(created_lifecycle.cap_strike, "20");
+	EXPECT_EQ(created_lifecycle.custom_strike_json, R"({"unit":"points"})");
+	ASSERT_TRUE(created_lifecycle.additional_metadata.has_value());
+	EXPECT_EQ(created_lifecycle.additional_metadata->event_ticker, "KXEVENT");
+	EXPECT_TRUE(created_lifecycle.additional_metadata->can_close_early);
+	EXPECT_EQ(created_lifecycle.additional_metadata->expected_expiration_ts, 1788483600);
+	EXPECT_EQ(created_lifecycle.additional_metadata->yes_sub_title, "Yes label");
+}
+
+TEST(WsParser, LegacyDirectionsPopulateCanonicalCompatibilityViews) {
+	const std::optional<kalshi::WsMessage> trade = kalshi::detail::parse_ws_data_message(
+		R"({"type":"trade","sid":1,"msg":{"trade_id":"trade","market_ticker":"KXTEST","yes_price_dollars":"0.2500","no_price_dollars":"0.7500","count_fp":"1.00","taker_side":"no","ts":1788393600}})");
+	ASSERT_TRUE(trade.has_value());
+	const kalshi::WsTrade& ws_trade = std::get<kalshi::WsTrade>(*trade);
+	EXPECT_EQ(ws_trade.taker_outcome_side, kalshi::OutcomeSide::No);
+	EXPECT_EQ(ws_trade.taker_book_side, kalshi::BookSide::Ask);
+
+	const std::optional<kalshi::WsMessage> fill = kalshi::detail::parse_ws_data_message(
+		R"({"type":"fill","sid":2,"msg":{"trade_id":"trade","order_id":"order","market_ticker":"KXTEST","is_taker":false,"side":"yes","yes_price_dollars":"0.2500","count_fp":"1.00","action":"sell","ts":1788393600}})");
+	ASSERT_TRUE(fill.has_value());
+	const kalshi::WsFill& ws_fill = std::get<kalshi::WsFill>(*fill);
+	EXPECT_EQ(ws_fill.outcome_side, kalshi::OutcomeSide::No);
+	EXPECT_EQ(ws_fill.book_side, kalshi::BookSide::Ask);
 }

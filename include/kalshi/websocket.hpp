@@ -43,6 +43,7 @@ struct OrderbookSnapshot {
 	std::string market_ticker;
 	std::vector<OrderBookEntry> yes;
 	std::vector<OrderBookEntry> no;
+	std::string market_id;
 };
 
 /// Orderbook delta message
@@ -52,9 +53,14 @@ struct OrderbookDelta {
 	std::string market_ticker;
 	std::int32_t price{0};
 	std::int32_t delta{0};
+	Side side{Side::Yes};
 	std::string price_dollars;
 	std::string delta_fp;
-	Side side{Side::Yes};
+	std::string market_id;
+	std::string client_order_id;
+	std::optional<std::int64_t> subaccount;
+	std::string timestamp_iso;
+	std::int64_t timestamp_ms{0};
 };
 
 /// Trade message from WebSocket
@@ -65,12 +71,15 @@ struct WsTrade {
 	std::int32_t yes_price{0};
 	std::int32_t no_price{0};
 	std::int32_t count{0};
+	Side taker_side{Side::Yes};
+	std::int64_t timestamp{0};
 	std::string yes_price_dollars;
 	std::string no_price_dollars;
 	std::string count_fp;
 	bool is_block_trade{false};
-	Side taker_side{Side::Yes};
-	std::int64_t timestamp{0};
+	OutcomeSide taker_outcome_side{OutcomeSide::Yes};
+	BookSide taker_book_side{BookSide::Bid};
+	std::int64_t timestamp_ms{0};
 };
 
 /// Fill message (user's order was filled)
@@ -84,11 +93,44 @@ struct WsFill {
 	std::int32_t yes_price{0};
 	std::int32_t no_price{0};
 	std::int32_t count{0};
+	Action action{Action::Buy};
+	std::int64_t timestamp{0};
 	std::string yes_price_dollars;
 	std::string no_price_dollars;
 	std::string count_fp;
-	Action action{Action::Buy};
-	std::int64_t timestamp{0};
+	std::int32_t exchange_index{0};
+	std::string fee_cost;
+	OutcomeSide outcome_side{OutcomeSide::Yes};
+	BookSide book_side{BookSide::Bid};
+	std::int64_t timestamp_ms{0};
+	std::string client_order_id;
+	std::string post_position_fp;
+	Side purchased_side{Side::Yes};
+	std::optional<std::int64_t> subaccount;
+};
+
+/// One valid price band emitted by a lifecycle price-structure update.
+struct LifecyclePriceRange {
+	std::string start;
+	std::string end;
+	std::string step;
+};
+
+/// Creation metadata nested in a market lifecycle frame.
+struct LifecycleAdditionalMetadata {
+	std::string name;
+	std::string title;
+	std::string yes_sub_title;
+	std::string no_sub_title;
+	std::string rules_primary;
+	std::string rules_secondary;
+	bool can_close_early{false};
+	std::string event_ticker;
+	std::int64_t expected_expiration_ts{0};
+	std::string strike_type;
+	std::string floor_strike;
+	std::string cap_strike;
+	std::string custom_strike_json;
 };
 
 /// Market lifecycle message
@@ -101,18 +143,25 @@ struct MarketLifecycle {
 	std::optional<std::int64_t> settled_ts;
 	std::optional<std::string> result;
 	bool is_deactivated{false};
-	std::int32_t exchange_index{0};
 	/// Set when the upstream `metadata_updated` lifecycle event reports a
 	/// yes-side subtitle change. Added to the v2 channel 2026-05-11.
 	/// Nullopt when the frame omits the field (most lifecycle frames).
 	std::optional<std::string> yes_sub_title;
+	std::int32_t exchange_index{0};
+	std::string event_type;
+	std::string settlement_value_dollars;
+	std::string price_level_structure;
+	std::vector<LifecyclePriceRange> price_ranges;
+	std::string strike_type;
+	std::string floor_strike;
+	std::string cap_strike;
+	std::string custom_strike_json;
+	std::optional<LifecycleAdditionalMetadata> additional_metadata;
 };
 
 /// Kalshi's `market_lifecycle_v2` channel multiplexes several sub-event
-/// types onto one flat frame shape (no explicit `event_type` field on the
-/// wire as of 2026-05-14). This enum mirrors the documented sub-events
-/// from docs.kalshi.com/changelog so consumers can classify a frame by
-/// which fields are populated. Returned by `classify_lifecycle_event`.
+/// types onto one frame shape. This enum mirrors the documented `event_type`
+/// values. Returned by `classify_lifecycle_event`.
 enum class LifecycleEventType : std::uint8_t {
 	/// Default / not yet classified — fields all carry their defaults.
 	Unknown,
@@ -125,10 +174,12 @@ enum class LifecycleEventType : std::uint8_t {
 	/// `yes_sub_title` is set — yes-side subtitle changed (e.g. floor
 	/// strike rolled forward on a temperature contract). Added 2026-05-11.
 	MetadataUpdated,
-	/// `open_ts` or `close_ts` is non-zero — market created / activated.
-	/// Covers both the `created` and `activated` upstream sub-events; the
-	/// wire format doesn't distinguish them flat-encoded.
+	/// Compatibility fallback for old frames without `event_type`.
 	OpenOrCreated,
+	Created,
+	Activated,
+	CloseDateUpdated,
+	PriceLevelStructureUpdated,
 };
 
 /// Classify a flat MarketLifecycle frame by inspecting which fields are
@@ -139,6 +190,18 @@ enum class LifecycleEventType : std::uint8_t {
 /// principally a settle event.
 [[nodiscard]] constexpr LifecycleEventType
 classify_lifecycle_event(const MarketLifecycle& lc) noexcept {
+	if (lc.event_type == "created") {
+		return LifecycleEventType::Created;
+	}
+	if (lc.event_type == "activated") {
+		return LifecycleEventType::Activated;
+	}
+	if (lc.event_type == "close_date_updated") {
+		return LifecycleEventType::CloseDateUpdated;
+	}
+	if (lc.event_type == "price_level_structure_updated") {
+		return LifecycleEventType::PriceLevelStructureUpdated;
+	}
 	if (lc.settled_ts.has_value()) {
 		return LifecycleEventType::Settled;
 	}
