@@ -1,7 +1,7 @@
 #pragma once
 
 /// @file api.hpp
-/// @brief Complete REST API client for Kalshi
+/// @brief Typed client for supported Kalshi Predictions REST operations
 
 #include "kalshi/error.hpp"
 #include "kalshi/http_client.hpp"

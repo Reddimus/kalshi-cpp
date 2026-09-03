@@ -1,7 +1,7 @@
 # API coverage
 
-This table compares kalshi-cpp v0.5.0 with the checked-in Predictions OpenAPI
-3.29.0 and AsyncAPI 2.0.0 snapshots dated September 3, 2026. Margin and
+This table compares kalshi-cpp v0.5.0 with the official Predictions OpenAPI
+3.29.0 and AsyncAPI 2.0.0 documents fetched September 3, 2026. Margin and
 Perpetuals use a separate API and remain outside this library.
 
 ## REST
