@@ -359,7 +359,7 @@ TEST(OperationContracts, CurrentSeriesAndEventFiltersAreEncoded) {
 	kalshi::KalshiClient client(transport);
 
 	transport->response_body =
-		R"({"series":[{"ticker":"S1","tags":null,"settlement_sources":null,"additional_prohibitions":["employees"],"product_metadata":{"sport":"football","nested":{"level":1}}}]})";
+		R"({"series":[{"ticker":"S1","product_metadata":{"sport":"football","tags":["wrong"],"nested":{"level":1}},"tags":null,"settlement_sources":null,"additional_prohibitions":["employees"]}]})";
 	kalshi::GetSeriesParams series;
 	series.category = "Sports & games";
 	series.tags = "football,nfl";
@@ -375,13 +375,13 @@ TEST(OperationContracts, CurrentSeriesAndEventFiltersAreEncoded) {
 	EXPECT_EQ(series_result->items[0].additional_prohibitions,
 			  (std::vector<std::string>{"employees"}));
 	EXPECT_EQ(series_result->items[0].product_metadata_json,
-			  R"({"sport":"football","nested":{"level":1}})");
+			  R"({"sport":"football","tags":["wrong"],"nested":{"level":1}})");
 	EXPECT_EQ(transport->path,
 			  "/series?category=Sports%20%26%20games&tags=football%2Cnfl&include_product_metadata="
 			  "true&include_volume=true&min_updated_ts=1770000000");
 
 	transport->response_body =
-		R"({"events":[],"milestones":[{"id":"m1","category":"Sports","type":"game","start_date":"2026-09-03T00:00:00Z","related_event_tickers":["E1"],"title":"Kickoff","notification_message":"Starts","primary_event_tickers":["E1"],"last_updated_ts":"2026-09-03T01:00:00Z"}],"cursor":""})";
+		R"({"events":[{"event_ticker":"E1","product_metadata":{"milestones":[{"id":"wrong"}]}}],"milestones":[{"id":"m1","category":"Sports","type":"game","start_date":"2026-09-03T00:00:00Z","related_event_tickers":["E1"],"title":"Kickoff","notification_message":"Starts","source_ids":{"league":"nfl"},"details":{"quarter":1},"primary_event_tickers":["E1"],"last_updated_ts":"2026-09-03T01:00:00Z"}],"cursor":""})";
 	kalshi::GetEventsParams events;
 	events.with_nested_markets = true;
 	events.with_milestones = true;
@@ -392,6 +392,8 @@ TEST(OperationContracts, CurrentSeriesAndEventFiltersAreEncoded) {
 	ASSERT_TRUE(event_result.has_value());
 	ASSERT_EQ(event_result->milestones.size(), 1U);
 	EXPECT_EQ(event_result->milestones[0].id, "m1");
+	EXPECT_EQ(event_result->milestones[0].source_ids_json, R"({"league":"nfl"})");
+	EXPECT_EQ(event_result->milestones[0].details_json, R"({"quarter":1})");
 	EXPECT_EQ(transport->path, "/events?with_nested_markets=true&with_milestones=true&tickers="
 							   "E1%2CE2&min_close_ts=1760000000&min_updated_ts=1770000000");
 	transport->path.clear();
@@ -413,11 +415,18 @@ TEST(OperationContracts, LegacyFieldsNeverSilentlyChangeCurrentRequests) {
 	order.count = 10;
 	EXPECT_FALSE(client.create_order(order).has_value());
 	EXPECT_TRUE(transport->path.empty());
+	order.count = 0;
+	order.book_side = kalshi::BookSide::Ask;
+	EXPECT_FALSE(client.create_order(order).has_value());
+	EXPECT_TRUE(transport->path.empty());
 
 	kalshi::CreateRfqParams rfq;
 	rfq.market_ticker = "KXTEST";
 	rfq.contracts_fp = "1.00";
 	rfq.side = kalshi::Side::No;
+	EXPECT_FALSE(client.create_rfq(rfq).has_value());
+	EXPECT_TRUE(transport->path.empty());
+	rfq.side = kalshi::Side::Yes;
 	EXPECT_FALSE(client.create_rfq(rfq).has_value());
 	EXPECT_TRUE(transport->path.empty());
 
@@ -445,6 +454,11 @@ TEST(OperationContracts, SubaccountTransferHonorsLegacyAmountAlias) {
 	EXPECT_EQ(result->amount, 500);
 	EXPECT_EQ(result->amount_cents, 500);
 	EXPECT_EQ(result->transfer_id, "transfer-1");
+	request.amount_cents = 500;
+	request.amount = -100;
+	transport->path.clear();
+	EXPECT_FALSE(client.transfer_subaccount(request).has_value());
+	EXPECT_TRUE(transport->path.empty());
 }
 
 TEST(OperationContracts, CurrentMarketPortfolioAndDiscoveryFiltersAreEncoded) {
@@ -856,6 +870,7 @@ TEST(OperationContracts, RfqQuoteAndKeyBodiesUseCurrentExactSchemas) {
 	rfq.contracts_fp = "1.25";
 	rfq.target_cost_dollars = "0.625000";
 	rfq.rest_remainder = true;
+	rfq.discard_legacy_direction = true;
 	rfq.subaccount = 7;
 	ASSERT_TRUE(client.create_rfq(rfq).has_value());
 	EXPECT_EQ(

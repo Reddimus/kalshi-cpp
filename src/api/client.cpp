@@ -80,6 +80,11 @@ Result<void> validate_create_order_v2(const CreateOrderParams& params) {
 			ErrorCode::InvalidRequest,
 			"V2 order cannot be combined with legacy direction, count, price, or type fields"});
 	}
+	if (derive_book_side(params.side, params.action) != *params.book_side) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest,
+				  "legacy side and action contradict the canonical V2 book_side"});
+	}
 	return {};
 }
 
@@ -427,29 +432,56 @@ size_t find_object_end(const std::string& json, size_t start) {
 	return depth == 0 ? pos : std::string::npos;
 }
 
-// Find the start of a JSON array by key
-size_t find_array_start(const std::string& json, const std::string& key) {
-	std::string search = "\"" + key + "\"";
-	size_t pos = json.find(search);
-	if (pos == std::string::npos)
-		return std::string::npos;
+std::size_t find_top_level_value(const std::string& json, const std::string& key) {
+	std::int32_t object_depth = 0;
+	for (std::size_t pos = 0; pos < json.size();) {
+		if (json[pos] == '{') {
+			++object_depth;
+			++pos;
+			continue;
+		}
+		if (json[pos] == '}') {
+			--object_depth;
+			++pos;
+			continue;
+		}
+		if (json[pos] != '"') {
+			++pos;
+			continue;
+		}
 
-	pos = json.find(':', pos + search.size());
-	if (pos == std::string::npos)
-		return std::string::npos;
-	pos = json.find_first_not_of(" \t\r\n", pos + 1);
+		const std::size_t token_start = ++pos;
+		bool escaped = false;
+		while (pos < json.size()) {
+			if (json[pos] == '"' && !escaped)
+				break;
+			escaped = json[pos] == '\\' && !escaped;
+			if (json[pos] != '\\')
+				escaped = false;
+			++pos;
+		}
+		if (pos == json.size())
+			return std::string::npos;
+		const std::size_t token_end = pos++;
+		if (object_depth != 1 ||
+			std::string_view{json}.substr(token_start, token_end - token_start) != key)
+			continue;
+		pos = json.find_first_not_of(" \t\r\n", pos);
+		if (pos == std::string::npos || json[pos] != ':')
+			continue;
+		return json.find_first_not_of(" \t\r\n", pos + 1);
+	}
+	return std::string::npos;
+}
+
+// Find the start of a top-level JSON array by key.
+size_t find_array_start(const std::string& json, const std::string& key) {
+	const std::size_t pos = find_top_level_value(json, key);
 	return pos < json.size() && json[pos] == '[' ? pos : std::string::npos;
 }
 
 std::string extract_object_json(const std::string& json, const std::string& key) {
-	const std::string search = "\"" + key + "\"";
-	std::size_t pos = json.find(search);
-	if (pos == std::string::npos)
-		return {};
-	pos = json.find(':', pos + search.size());
-	if (pos == std::string::npos)
-		return {};
-	pos = json.find_first_not_of(" \t\r\n", pos + 1);
+	const std::size_t pos = find_top_level_value(json, key);
 	if (pos == std::string::npos || json[pos] != '{')
 		return {};
 	const std::size_t end = find_object_end(json, pos);
@@ -1067,7 +1099,14 @@ Series parse_series_response(std::string_view body) {
 }
 
 Milestone parse_milestone_response(std::string_view body) {
-	const std::string json{body};
+	const std::string response_body{body};
+	const std::size_t milestone_start = find_object_start(response_body, "milestone");
+	const std::string json =
+		milestone_start == std::string::npos
+			? response_body
+			: response_body.substr(milestone_start,
+								   find_object_end(response_body, milestone_start) -
+									   milestone_start);
 	Milestone milestone;
 	milestone.id = extract_string(json, "id");
 	milestone.category = extract_string(json, "category");
@@ -1080,6 +1119,8 @@ Milestone parse_milestone_response(std::string_view body) {
 	milestone.last_updated_ts = extract_string(json, "last_updated_ts");
 	milestone.related_event_tickers = extract_string_array(json, "related_event_tickers");
 	milestone.primary_event_tickers = extract_string_array(json, "primary_event_tickers");
+	milestone.source_ids_json = extract_object_json(json, "source_ids");
+	milestone.details_json = extract_object_json(json, "details");
 	return milestone;
 }
 
@@ -2659,6 +2700,12 @@ Result<Schedule> KalshiClient::get_exchange_schedule() {
 	}
 
 	Schedule schedule;
+	const std::size_t schedule_start = find_object_start(response->body, "schedule");
+	const std::string schedule_json =
+		schedule_start == std::string::npos
+			? response->body
+			: response->body.substr(
+				  schedule_start, find_object_end(response->body, schedule_start) - schedule_start);
 	const auto parse_daily_schedules = [](const std::string& json, const std::string& day) {
 		std::vector<DailySchedule> sessions;
 		for (const std::string& obj : extract_array_objects(json, day)) {
@@ -2669,8 +2716,7 @@ Result<Schedule> KalshiClient::get_exchange_schedule() {
 	};
 
 	// Parse standard_hours array
-	std::vector<std::string> hours_objects =
-		extract_array_objects(response->body, "standard_hours");
+	std::vector<std::string> hours_objects = extract_array_objects(schedule_json, "standard_hours");
 	for (const std::string& obj : hours_objects) {
 		WeeklySchedule ws;
 		ws.start_time = extract_string(obj, "start_time");
@@ -2690,7 +2736,7 @@ Result<Schedule> KalshiClient::get_exchange_schedule() {
 
 	// Parse maintenance_windows array
 	std::vector<std::string> maint_objects =
-		extract_array_objects(response->body, "maintenance_windows");
+		extract_array_objects(schedule_json, "maintenance_windows");
 	for (const std::string& obj : maint_objects) {
 		MaintenanceWindow mw;
 		mw.start_datetime = extract_string(obj, "start_datetime");
@@ -3059,8 +3105,7 @@ std::string KalshiClient::build_rfqs_query(const GetRfqsParams& params) {
 }
 
 Result<Rfq> KalshiClient::create_rfq(const CreateRfqParams& params) {
-	if (params.market_ticker.empty() || params.expires_at || params.side != Side::Yes ||
-		params.action != Action::Buy ||
+	if (params.market_ticker.empty() || params.expires_at || !params.discard_legacy_direction ||
 		(params.contracts_fp && !FixedPoint::parse(*params.contracts_fp)) ||
 		(params.target_cost_dollars && !FixedPoint::parse(*params.target_cost_dollars))) {
 		return std::unexpected(
@@ -3779,7 +3824,9 @@ Result<Subaccount> KalshiClient::create_subaccount(std::int32_t exchange_index) 
 }
 
 Result<SubaccountTransfer> KalshiClient::transfer_subaccount(const SubaccountTransfer& request) {
-	if (request.amount_cents > 0 && request.amount > 0 && request.amount_cents != request.amount) {
+	if (request.amount_cents < 0 || request.amount < 0 ||
+		(request.amount_cents != 0 && request.amount != 0 &&
+		 request.amount_cents != request.amount)) {
 		return std::unexpected(Error{ErrorCode::InvalidRequest,
 									 "amount and amount_cents must match when both are set"});
 	}

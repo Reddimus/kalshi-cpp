@@ -41,6 +41,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   and separated successful batch items from per-item errors.
 - Rejected removed filters and conflicting legacy request fields before
   transport so migrations cannot silently broaden queries or change orders.
+- RFQ creation now requires `discard_legacy_direction=true` to acknowledge
+  that the current RFQ contract has no direction fields.
 - Kept the legacy subaccount-transfer amount as an exact cents alias and
   rejected conflicting dual values.
 - Removed network calls to deleted announcement and generic search operations.

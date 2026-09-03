@@ -436,6 +436,9 @@ struct Milestone {
 	std::string last_updated_ts;
 	std::vector<std::string> related_event_tickers;
 	std::vector<std::string> primary_event_tickers;
+	/// Exact flexible JSON objects from the published milestone contract.
+	std::string source_ids_json;
+	std::string details_json;
 };
 
 /// Expanded event-list response, including milestones when requested.
@@ -697,6 +700,8 @@ struct CreateRfqParams {
 	std::optional<bool> replace_existing;
 	std::optional<std::string> subtrader_id;
 	std::optional<std::int64_t> subaccount;
+	/// Required to acknowledge that the current RFQ contract has no direction fields.
+	bool discard_legacy_direction{false};
 };
 
 /// Parameters for listing quotes
