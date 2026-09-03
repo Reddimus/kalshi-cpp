@@ -1,5 +1,5 @@
 cmake_minimum_required(VERSION 3.20)
-project(kalshi-cpp VERSION 0.4.9 LANGUAGES CXX)
+project(kalshi-cpp VERSION 0.5.0 LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -14,6 +14,30 @@ option(KALSHI_BUILD_TESTS "Build tests" ON)
 option(KALSHI_BUILD_EXAMPLES "Build examples" ON)
 option(KALSHI_ENABLE_LTO "Enable Link Time Optimization" ON)
 option(KALSHI_NATIVE_ARCH "Use -march=native for CPU-specific tuning" OFF)
+option(KALSHI_ENABLE_CLANG_TIDY "Run clang-tidy while compiling project targets" OFF)
+option(KALSHI_WARNINGS_AS_ERRORS "Treat project warnings as errors" OFF)
+
+if(KALSHI_ENABLE_CLANG_TIDY)
+    find_program(KALSHI_CLANG_TIDY_EXECUTABLE NAMES clang-tidy REQUIRED)
+endif()
+
+function(kalshi_configure_target target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4)
+        if(KALSHI_WARNINGS_AS_ERRORS)
+            target_compile_options(${target} PRIVATE /WX)
+        endif()
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
+        if(KALSHI_WARNINGS_AS_ERRORS)
+            target_compile_options(${target} PRIVATE -Werror)
+        endif()
+    endif()
+    if(KALSHI_ENABLE_CLANG_TIDY)
+        set_property(TARGET ${target} PROPERTY CXX_CLANG_TIDY
+            "${KALSHI_CLANG_TIDY_EXECUTABLE};--warnings-as-errors=*")
+    endif()
+endfunction()
 
 # Aggressive optimization flags for Release builds. MSVC has its own
 # Release flags via CMake's default; only override for GCC/Clang.
@@ -52,10 +76,21 @@ endif()
 
 # Sanitizer support
 option(KALSHI_ENABLE_SANITIZERS "Enable AddressSanitizer and UBSanitizer" OFF)
+option(KALSHI_ENABLE_THREAD_SANITIZER "Enable ThreadSanitizer" OFF)
+if(KALSHI_ENABLE_SANITIZERS AND KALSHI_ENABLE_THREAD_SANITIZER)
+    message(FATAL_ERROR "AddressSanitizer and ThreadSanitizer require separate builds")
+endif()
 if(KALSHI_ENABLE_SANITIZERS)
     add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
     message(STATUS "Sanitizers enabled (ASan + UBSan)")
+endif()
+if(KALSHI_ENABLE_THREAD_SANITIZER)
+    if(MSVC)
+        message(FATAL_ERROR "ThreadSanitizer is not supported by this MSVC configuration")
+    endif()
+    add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
+    add_link_options(-fsanitize=thread)
 endif()
 
 # Code coverage support
@@ -97,11 +132,11 @@ include(FetchContent)
 # the hand-rolled scanners in detail/ws_json.hpp + the local helpers
 # in api/client.cpp and was deliberately stripped of any JSON library
 # in v0.0.7/v0.0.8 — DO NOT reintroduce a runtime parser there.
-# License: MIT. Same v7.6.0 pin as open-meteo-cpp.
+# License: MIT. Shared v8.3.0 pin with spc-cpp avoids duplicate targets in consumers.
 FetchContent_Declare(
     glaze
     GIT_REPOSITORY https://github.com/stephenberry/glaze.git
-    GIT_TAG v7.6.0
+    GIT_TAG v8.3.0
     GIT_SHALLOW TRUE
 )
 FetchContent_MakeAvailable(glaze)
@@ -117,14 +152,19 @@ if(KALSHI_BUILD_TESTS)
     FetchContent_Declare(
         googletest
         GIT_REPOSITORY https://github.com/google/googletest.git
-        GIT_TAG v1.15.2
+        GIT_TAG v1.18.0
         GIT_SHALLOW TRUE
     )
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
+    set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(googletest)
     enable_testing()
     add_subdirectory(tests)
 endif()
+
+foreach(target kalshi_core kalshi_auth kalshi_http kalshi_models kalshi_ws kalshi_api)
+    kalshi_configure_target(${target})
+endforeach()
 
 if(KALSHI_BUILD_EXAMPLES)
     add_subdirectory(examples)
