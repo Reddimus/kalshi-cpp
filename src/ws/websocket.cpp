@@ -1,11 +1,13 @@
 #include "kalshi/websocket.hpp"
 
 #include "kalshi/detail/callback_slot.hpp"
+#include "kalshi/detail/http_path.hpp"
 #include "kalshi/detail/ws_json.hpp"
 #include "kalshi/detail/ws_message.hpp"
 #include "kalshi/fixed_point.hpp"
 
 #include "subscription_registry.hpp"
+#include "ws_endpoint.hpp"
 
 // IMPORTANT: include order below is load-bearing on Windows.
 //
@@ -30,6 +32,7 @@
 // clang-format on
 
 #include <atomic>
+#include <charconv>
 #include <chrono>
 #include <condition_variable>
 #include <cstring>
@@ -49,12 +52,111 @@
 // equivalence vs the pre-migration `nlohmann::ordered_json` output is
 // pinned by `tests/test_json_serialize.cpp`.
 //
-// IMPORTANT: only the OUTGOING command builders use Glaze. The WS
-// `handle_message` hot path below uses the hand-rolled scanners in
-// `kalshi/detail/ws_json.hpp` and is deliberately untouched — see
-// the `feedback_find_first_json_scanner` memory note.
+// Only outgoing command builders use Glaze. The incoming hot path uses the
+// allocation-conscious scanners in `kalshi/detail/ws_json.hpp`; parser and
+// benchmark tests pin their behavior and throughput.
 
 namespace kalshi {
+
+namespace detail {
+
+Result<WsEndpoint> parse_ws_endpoint(std::string_view url) {
+	bool use_ssl = false;
+	std::string_view remainder;
+	if (url.starts_with("wss://")) {
+		use_ssl = true;
+		remainder = url.substr(6);
+	} else if (url.starts_with("ws://")) {
+		remainder = url.substr(5);
+	} else {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest, "WebSocket URL must use ws:// or wss://"});
+	}
+
+	const std::size_t path_pos = remainder.find_first_of("/?#");
+	const std::string_view authority = remainder.substr(0, path_pos);
+	if (authority.empty() || authority.find('@') != std::string_view::npos) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest, "WebSocket URL must contain a host"});
+	}
+	if (path_pos != std::string_view::npos && remainder[path_pos] == '#') {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest, "WebSocket URL fragments are not supported"});
+	}
+
+	std::string_view host;
+	std::string_view port_text;
+	if (authority.front() == '[') {
+		const std::size_t closing_bracket = authority.find(']');
+		if (closing_bracket == std::string_view::npos || closing_bracket == 1) {
+			return std::unexpected(
+				Error{ErrorCode::InvalidRequest, "WebSocket URL contains an invalid IPv6 host"});
+		}
+		host = authority.substr(1, closing_bracket - 1);
+		const std::string_view suffix = authority.substr(closing_bracket + 1);
+		if (!suffix.empty()) {
+			if (!suffix.starts_with(':')) {
+				return std::unexpected(
+					Error{ErrorCode::InvalidRequest, "WebSocket URL contains an invalid host"});
+			}
+			port_text = suffix.substr(1);
+		}
+	} else {
+		const std::size_t colon = authority.rfind(':');
+		if (colon == std::string_view::npos) {
+			host = authority;
+		} else {
+			if (authority.find(':') != colon) {
+				return std::unexpected(
+					Error{ErrorCode::InvalidRequest, "IPv6 WebSocket hosts must use brackets"});
+			}
+			host = authority.substr(0, colon);
+			port_text = authority.substr(colon + 1);
+		}
+	}
+
+	if (host.empty()) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest, "WebSocket URL must contain a host"});
+	}
+	for (const char character : host) {
+		if (character == ' ' || character == '\t' || character == '\r' || character == '\n') {
+			return std::unexpected(
+				Error{ErrorCode::InvalidRequest, "WebSocket URL host contains whitespace"});
+		}
+	}
+
+	int port = use_ssl ? 443 : 80;
+	if (!port_text.empty()) {
+		unsigned int parsed_port = 0;
+		const auto [end, error] =
+			std::from_chars(port_text.data(), port_text.data() + port_text.size(), parsed_port);
+		if (error != std::errc{} || end != port_text.data() + port_text.size() ||
+			parsed_port == 0 || parsed_port > 65535) {
+			return std::unexpected(
+				Error{ErrorCode::InvalidRequest, "WebSocket URL contains an invalid port"});
+		}
+		port = static_cast<int>(parsed_port);
+	} else if (authority.ends_with(':')) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest, "WebSocket URL contains an invalid port"});
+	}
+
+	std::string path{"/"};
+	if (path_pos != std::string_view::npos) {
+		const std::string_view suffix = remainder.substr(path_pos);
+		path =
+			suffix.starts_with('?') ? std::string{"/"} + std::string{suffix} : std::string{suffix};
+		if (path.find('#') != std::string::npos) {
+			return std::unexpected(
+				Error{ErrorCode::InvalidRequest, "WebSocket URL fragments are not supported"});
+		}
+	}
+
+	return WsEndpoint{std::string{host}, std::move(path), port, use_ssl};
+}
+
+} // namespace detail
 
 namespace {
 
@@ -123,27 +225,27 @@ struct LifecycleEnvelopeWire {
 };
 
 std::optional<WsMessage> parse_ws_data_message(std::string_view input) {
-	const std::string json{input};
+	const std::string_view json = input;
 	const std::string type = extract_string(json, "type");
 	const auto side = [&](std::string_view key) {
-		return extract_string(json, std::string{key}) == "no" ? Side::No : Side::Yes;
+		return extract_string(json, key) == "no" ? Side::No : Side::Yes;
 	};
 	const auto action = [&](std::string_view key) {
-		return extract_string(json, std::string{key}) == "sell" ? Action::Sell : Action::Buy;
+		return extract_string(json, key) == "sell" ? Action::Sell : Action::Buy;
 	};
 	const auto outcome_side = [&](std::string_view key) {
-		return extract_string(json, std::string{key}) == "no" ? OutcomeSide::No : OutcomeSide::Yes;
+		return extract_string(json, key) == "no" ? OutcomeSide::No : OutcomeSide::Yes;
 	};
 	const auto book_side = [&](std::string_view key) {
-		return extract_string(json, std::string{key}) == "ask" ? BookSide::Ask : BookSide::Bid;
+		return extract_string(json, key) == "ask" ? BookSide::Ask : BookSide::Bid;
 	};
 	const auto has_key = [&](std::string_view key) {
-		return json.find('"' + std::string{key} + '"') != std::string::npos;
+		return find_json_key(json, key) != json.npos;
 	};
 	const auto orderbook_entries = [&](std::string_view current_key, std::string_view legacy_key) {
 		const bool current = has_key(current_key);
 		const std::vector<PriceQty> pairs =
-			extract_orderbook_entries(json, std::string{current ? current_key : legacy_key});
+			extract_orderbook_entries(json, current ? current_key : legacy_key);
 		std::vector<OrderBookEntry> entries;
 		entries.reserve(pairs.size());
 		for (const PriceQty& pair : pairs) {
@@ -641,38 +743,15 @@ Result<void> WebSocketClient::connect() {
 	data->wsi = nullptr;
 	data->should_stop = false;
 
-	// Parse URL
-	std::string url = data->config.url;
-	bool use_ssl = (url.substr(0, 3) == "wss");
-	std::string host;
-	std::string path = "/";
-	int port = use_ssl ? 443 : 80;
-
-	// Extract host and path from URL
-	size_t host_start = url.find("://");
-	if (host_start != std::string::npos) {
-		host_start += 3;
-	} else {
-		host_start = 0;
+	const Result<detail::WsEndpoint> endpoint_result = detail::parse_ws_endpoint(data->config.url);
+	if (!endpoint_result) {
+		return std::unexpected(endpoint_result.error());
 	}
-
-	size_t path_start = url.find('/', host_start);
-	if (path_start != std::string::npos) {
-		host = url.substr(host_start, path_start - host_start);
-		path = url.substr(path_start);
-	} else {
-		host = url.substr(host_start);
-	}
-
-	// Check for port in host
-	size_t port_pos = host.find(':');
-	if (port_pos != std::string::npos) {
-		port = std::stoi(host.substr(port_pos + 1));
-		host = host.substr(0, port_pos);
-	}
+	const detail::WsEndpoint& endpoint = *endpoint_result;
 
 	// Generate auth headers
-	Result<AuthHeaders> auth_result = data->signer->sign("GET", path);
+	const std::string signing_path = detail::request_signing_path("", endpoint.path);
+	Result<AuthHeaders> auth_result = data->signer->sign("GET", signing_path);
 	if (!auth_result) {
 		return std::unexpected(auth_result.error());
 	}
@@ -695,16 +774,16 @@ Result<void> WebSocketClient::connect() {
 	struct lws_client_connect_info conn_info {};
 	std::memset(&conn_info, 0, sizeof(conn_info));
 	conn_info.context = data->context;
-	conn_info.address = host.c_str();
-	conn_info.port = port;
-	conn_info.path = path.c_str();
-	conn_info.host = host.c_str();
+	conn_info.address = endpoint.host.c_str();
+	conn_info.port = endpoint.port;
+	conn_info.path = endpoint.path.c_str();
+	conn_info.host = endpoint.host.c_str();
 	// Kalshi rejects websocket upgrades that include an Origin header
 	// (403), while the documented Python websockets example sends no
 	// Origin and succeeds. Leave this unset so libwebsockets omits it.
 	conn_info.origin = nullptr;
 
-	if (use_ssl) {
+	if (endpoint.use_ssl) {
 		conn_info.ssl_connection = LCCSCF_USE_SSL;
 	}
 

@@ -1,6 +1,7 @@
 #include "kalshi/api.hpp"
 #include "kalshi/models/market.hpp"
 #include "kalshi/models/order.hpp"
+#include "kalshi/retry.hpp"
 #include "kalshi/websocket.hpp"
 
 #include <gtest/gtest.h>
@@ -55,6 +56,24 @@ TEST(Models, OrderbookEntryConstruction) {
 	kalshi::OrderBookEntry entry{50, 100};
 	ASSERT_EQ(entry.price_cents, 50);
 	ASSERT_EQ(entry.quantity, 100);
+}
+
+TEST(Models, PublicAggregatesHaveDeterministicDefaults) {
+	const kalshi::Error error;
+	EXPECT_EQ(error.code, kalshi::ErrorCode::Unknown);
+	EXPECT_EQ(error.http_status, 0);
+
+	const kalshi::HttpResponse response;
+	EXPECT_EQ(response.status_code, 0);
+
+	const kalshi::OrderBookEntry entry;
+	EXPECT_EQ(entry.price_cents, 0);
+	EXPECT_EQ(entry.quantity, 0);
+
+	const kalshi::RetryResult retry;
+	EXPECT_EQ(retry.total_delay.count(), 0);
+	EXPECT_EQ(retry.attempts_made, 0);
+	EXPECT_FALSE(retry.succeeded);
 }
 
 TEST(Models, PositionDefaultConstruction) {

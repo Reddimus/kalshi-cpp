@@ -28,9 +28,9 @@ struct RetryPolicy {
 /// Result of a retry operation
 /// Reordered for optimal packing.
 struct RetryResult {
-	std::chrono::milliseconds total_delay;
-	std::uint8_t attempts_made; // max 255 attempts
-	bool succeeded;
+	std::chrono::milliseconds total_delay{0};
+	std::uint8_t attempts_made{0}; // max 255 attempts
+	bool succeeded{false};
 };
 
 /// Determines if a response should be retried

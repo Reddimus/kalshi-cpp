@@ -33,8 +33,8 @@ struct HttpClient::Impl {
 	mutable std::mutex request_mutex;
 	CURLcode global_init_result{CURLE_OK};
 
-	Impl(Signer s, ClientConfig c) : signer(std::move(s)), config(std::move(c)) {
-		global_init_result = curl_runtime().result();
+	Impl(Signer s, ClientConfig c)
+		: signer(std::move(s)), config(std::move(c)), global_init_result(curl_runtime().result()) {
 		if (global_init_result == CURLE_OK) {
 			curl = curl_easy_init();
 		}
@@ -88,7 +88,8 @@ HttpClient::HttpClient(HttpClient&&) noexcept = default;
 HttpClient& HttpClient::operator=(HttpClient&&) noexcept = default;
 
 const ClientConfig& HttpClient::config() const noexcept {
-	return impl_->config;
+	static const ClientConfig empty{};
+	return impl_ ? impl_->config : empty;
 }
 
 Result<HttpResponse> HttpClient::get(std::string_view path) const {
@@ -112,6 +113,9 @@ Result<HttpResponse> HttpClient::del(std::string_view path, std::string_view bod
 // NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view path,
 										 std::string_view body) const {
+	if (!impl_) {
+		return std::unexpected(Error::network("Client moved-from"));
+	}
 	std::scoped_lock lock(impl_->request_mutex);
 	if (!impl_->curl) {
 		return std::unexpected(Error::network(impl_->global_init_result == CURLE_OK

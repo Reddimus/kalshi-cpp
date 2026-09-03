@@ -3,7 +3,7 @@
 Thanks for your interest in contributing. This guide covers the local
 build flow, code style expectations, and PR conventions used in this
 repo. For security-vulnerability reports, see [SECURITY.md](SECURITY.md)
-— do **not** open a public issue for those.
+and do not open a public issue for those.
 
 ## Getting started
 
@@ -25,7 +25,7 @@ Windows uses vcpkg (the CI workflow has the exact invocations).
 ## Development workflow
 
 ```bash
-make debug          # Debug build with symbols + sanitizers
+make debug          # Debug build with symbols
 make test           # Run unit tests (ctest)
 make lint           # clang-format --dry-run + cpp_auto_audit
 make format         # Apply clang-format in place
@@ -33,8 +33,10 @@ make coverage       # lcov coverage report (Debug build)
 make clean          # Remove build/
 ```
 
-Always run `make lint` before pushing — the CI gates on both
-`clang-format --dry-run` AND the `cpp_auto_audit.py` script that
+For ASan and UBSan, use the sanitizer commands in the top-level README.
+
+Always run `make lint` before pushing. CI gates on both
+`clang-format --dry-run` and the `cpp_auto_audit.py` script that
 rejects bare `auto` for local variable declarations (see Code style
 below).
 
@@ -51,19 +53,18 @@ below).
   `make format` applies it.
 - **Includes**: project headers first, then system headers
   (enforced by clang-format `SortIncludes`).
-- **JSON**: use null-safe helpers from `models/common.hpp`. Do NOT use
-  `j.value("key", default)` — it throws on JSON null in nlohmann/json
-  v3.
+- **JSON**: use Glaze for structured payloads. Keep hand-rolled scanners limited
+  to measured hot paths with focused parser and benchmark tests.
 
 ## PR conventions
 
 - Branch names: `feat/...`, `fix/...`, `docs/...`, `chore/...`,
   `test/...`, `build/...`, `ci/...`, `refactor/...`.
 - Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/):
-  `<type>(<scope>): <summary>` — e.g.
+  `<type>(<scope>): <summary>`, for example:
   `fix(ws): null-guard moved-from accessors`.
 - Squash + delete branch on merge. PR titles become the squash commit
-  subject — write them clearly.
+  subject, so write them clearly.
 - Update `CHANGELOG.md` under `## [Unreleased]` for any user-visible
   change (new API, fix that consumers will notice, dep bump). Use the
   Keep-a-Changelog sub-headers: Added / Changed / Fixed / Removed.
@@ -75,12 +76,12 @@ below).
 Releases are cut from `main` via tag push:
 
 ```bash
-# 1. Update CMakeLists.txt VERSION and CHANGELOG.md [Unreleased] → [vX.Y.Z]
+# 1. Update CMakeLists.txt VERSION and move CHANGELOG.md entries into [X.Y.Z]
 # 2. Commit the version bump
 git commit -am "chore(release): cut vX.Y.Z"
 git push origin main
 
-# 3. Tag and push the tag — release.yml auto-creates the GitHub Release
+# 3. Tag and push the tag; release.yml creates the GitHub Release
 git tag vX.Y.Z
 git push origin vX.Y.Z
 ```

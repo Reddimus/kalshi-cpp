@@ -44,7 +44,7 @@ enum class HttpMethod : std::uint8_t { GET, POST, PUT, DEL };
 /// Uses contiguous vector storage for headers instead of unordered_map
 /// for better cache locality (typically <10 headers in a response).
 struct HttpResponse {
-	std::int16_t status_code; // HTTP status codes fit in int16 (100-599)
+	std::int16_t status_code{0}; // HTTP status codes fit in int16 (100-599)
 	std::string body;
 	std::vector<std::pair<std::string, std::string>> headers;
 };

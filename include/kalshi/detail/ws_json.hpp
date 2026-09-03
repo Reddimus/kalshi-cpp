@@ -13,10 +13,30 @@
 
 #include <cstdint>
 #include <string>
+#include <string_view>
 #include <utility>
 #include <vector>
 
 namespace kalshi::detail {
+
+/// Find an exact JSON object key without allocating a quoted search string.
+/// This intentionally keeps the parser's existing find-first behavior while
+/// rejecting matching string values that are not followed by a colon.
+inline std::size_t find_json_key(std::string_view json, std::string_view key) noexcept {
+	std::size_t pos = 0;
+	while ((pos = json.find('"', pos)) != std::string_view::npos) {
+		const std::size_t key_start = pos + 1;
+		const std::size_t key_end = key_start + key.size();
+		if (key_end < json.size() && json.substr(key_start, key.size()) == key &&
+			json[key_end] == '"') {
+			const std::size_t colon = json.find_first_not_of(" \t\r\n", key_end + 1);
+			if (colon != std::string_view::npos && json[colon] == ':')
+				return pos;
+		}
+		++pos;
+	}
+	return std::string_view::npos;
+}
 
 /// Extract an integer value for ``key`` from ``json``.
 ///
@@ -26,10 +46,9 @@ namespace kalshi::detail {
 /// treated the leading ``"`` as end-of-number and silently returned 0,
 /// zeroing out every production tick. Returns 0 when the key is absent
 /// or the value cannot be parsed.
-inline std::int32_t extract_int(const std::string& json, const std::string& key) {
-	const std::string search = "\"" + key + "\"";
-	std::size_t pos = json.find(search);
-	if (pos == std::string::npos)
+inline std::int32_t extract_int(std::string_view json, std::string_view key) {
+	std::size_t pos = find_json_key(json, key);
+	if (pos == std::string_view::npos)
 		return 0;
 	pos = json.find(':', pos);
 	if (pos == std::string::npos)
@@ -67,12 +86,11 @@ inline std::int32_t extract_int(const std::string& json, const std::string& key)
 	return static_cast<std::int32_t>(result);
 }
 
-inline std::int64_t extract_int64(const std::string& json, const std::string& key) {
-	const std::string search = "\"" + key + "\"";
-	std::size_t pos = json.find(search);
-	if (pos == std::string::npos)
+inline std::int64_t extract_int64(std::string_view json, std::string_view key) {
+	std::size_t pos = find_json_key(json, key);
+	if (pos == std::string_view::npos)
 		return 0;
-	pos = json.find(':', pos + search.size());
+	pos = json.find(':', pos + key.size() + 2);
 	if (pos == std::string::npos)
 		return 0;
 	pos = json.find_first_not_of(" \t\r\n", pos + 1);
@@ -106,10 +124,9 @@ inline std::int64_t extract_int64(const std::string& json, const std::string& ke
 
 /// Extract a string value for ``key`` from ``json``. Returns "" when
 /// the key is absent or the value is not a string.
-inline std::string extract_string(const std::string& json, const std::string& key) {
-	const std::string search = "\"" + key + "\"";
-	std::size_t pos = json.find(search);
-	if (pos == std::string::npos)
+inline std::string extract_string(std::string_view json, std::string_view key) {
+	std::size_t pos = find_json_key(json, key);
+	if (pos == std::string_view::npos)
 		return "";
 	pos = json.find(':', pos);
 	if (pos == std::string::npos)
@@ -121,16 +138,15 @@ inline std::string extract_string(const std::string& json, const std::string& ke
 	const std::size_t end = json.find('"', start);
 	if (end == std::string::npos)
 		return "";
-	return json.substr(start, end - start);
+	return std::string{json.substr(start, end - start)};
 }
 
 /// Extract a JSON boolean. Missing keys, strings, and malformed tokens are false.
-inline bool extract_bool(const std::string& json, const std::string& key) {
-	const std::string search = "\"" + key + "\"";
-	std::size_t pos = json.find(search);
-	if (pos == std::string::npos)
+inline bool extract_bool(std::string_view json, std::string_view key) {
+	std::size_t pos = find_json_key(json, key);
+	if (pos == std::string_view::npos)
 		return false;
-	pos = json.find(':', pos + search.size());
+	pos = json.find(':', pos + key.size() + 2);
 	if (pos == std::string::npos)
 		return false;
 	pos = json.find_first_not_of(" \t\r\n", pos + 1);
@@ -154,7 +170,7 @@ inline bool extract_bool(const std::string& json, const std::string& key) {
 /// ``integer * 100 + round(fractional_digits_1..2)``. Digits past
 /// the second fractional position round-half-up the cent. Out-of-range
 /// or malformed input returns 0.
-inline std::int32_t extract_dollar_cents(const std::string& json, const std::string& key) {
+inline std::int32_t extract_dollar_cents(std::string_view json, std::string_view key) {
 	const std::string s = extract_string(json, key);
 	if (s.empty())
 		return 0;
@@ -203,7 +219,7 @@ inline std::int32_t extract_dollar_cents(const std::string& json, const std::str
 /// as string-encoded floats (``"40.00"``, ``"-30.87"``). The SDK's
 /// public structs keep counts as ``std::int32_t`` — this rounds to
 /// the nearest integer and preserves sign. Malformed input → 0.
-inline std::int32_t extract_fp_int(const std::string& json, const std::string& key) {
+inline std::int32_t extract_fp_int(std::string_view json, std::string_view key) {
 	const std::string s = extract_string(json, key);
 	if (s.empty())
 		return 0;
@@ -241,12 +257,12 @@ inline std::int32_t extract_fp_int(const std::string& json, const std::string& k
 /// Kalshi sends UTC timestamps with an optional fractional component
 /// and a trailing ``Z``. Accepts up to microsecond precision; truncates
 /// below millisecond.
-inline std::int64_t extract_iso8601_millis(const std::string& json, const std::string& key) {
+inline std::int64_t extract_iso8601_millis(std::string_view json, std::string_view key) {
 	const std::string s = extract_string(json, key);
 	if (s.size() < 19) // min "YYYY-MM-DDTHH:MM:SS"
 		return 0;
 
-	auto read_uint = [](const std::string& str, std::size_t pos, int n) -> int {
+	auto read_uint = [](std::string_view str, std::size_t pos, int n) -> int {
 		int v = 0;
 		for (int i = 0; i < n && pos + i < str.size(); i++) {
 			char c = str[pos + i];
@@ -309,12 +325,11 @@ struct PriceQty {
 /// ``json[key]``. Supports both raw-number and JSON-string encodings
 /// for either slot, mirroring ``extract_int``'s quote tolerance.
 /// Returns an empty vector when the key is absent or malformed.
-inline std::vector<PriceQty> extract_orderbook_entries(const std::string& json,
-													   const std::string& key) {
+inline std::vector<PriceQty> extract_orderbook_entries(std::string_view json,
+													   std::string_view key) {
 	std::vector<PriceQty> entries;
-	const std::string search = "\"" + key + "\"";
-	std::size_t pos = json.find(search);
-	if (pos == std::string::npos)
+	std::size_t pos = find_json_key(json, key);
+	if (pos == std::string_view::npos)
 		return entries;
 	pos = json.find('[', pos);
 	if (pos == std::string::npos)

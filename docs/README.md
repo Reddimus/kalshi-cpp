@@ -7,8 +7,9 @@ SDK documentation and research notes.
 | File          | Description                                                       |
 | ------------- | ----------------------------------------------------------------- |
 | `research.md` | Analysis of official Kalshi SDKs, API behavior, and parity matrix |
+| `api-coverage.md` | Typed REST and WebSocket coverage against the official specs  |
 
-## API Reference
+## API reference
 
 The SDK provides the following main components:
 
@@ -18,39 +19,43 @@ The SDK provides the following main components:
 // Create from PEM string
 auto signer = kalshi::Signer::from_pem("key-id", pem_string);
 
-// Create from PEM file
-auto signer = kalshi::Signer::from_pem_file("key-id", "/path/to/key.pem");
+// Or create from a PEM file:
+// auto signer = kalshi::Signer::from_pem_file("key-id", "/path/to/key.pem");
 
 // Sign a request
-auto headers = signer->sign("GET", "/markets");
+auto headers = signer->sign("GET", "/trade-api/v2/markets");
 // Returns: KALSHI-ACCESS-KEY, KALSHI-ACCESS-SIGNATURE, KALSHI-ACCESS-TIMESTAMP
 ```
 
-### HTTP Client (`kalshi/http_client.hpp`)
+### HTTP client (`kalshi/http_client.hpp`)
 
 ```cpp
-kalshi::HttpClient client(std::move(signer));
+kalshi::HttpClient client(std::move(*signer));
 
 // Make requests
-auto response = client.get("/markets");
-auto response = client.post("/portfolio/orders", json_body);
-auto response = client.del("/portfolio/orders/order-id");
+auto get_response = client.get("/markets");
+auto post_response = client.post("/portfolio/orders", json_body);
+auto delete_response = client.del("/portfolio/orders/order-id");
 
 // Check response
-if (response && response->status_code == 200) {
-    std::cout << response->body << "\n";
+if (get_response && get_response->status_code == 200) {
+    std::cout << get_response->body << "\n";
 }
 ```
 
-### WebSocket Streaming (`kalshi/websocket.hpp`)
+### WebSocket streaming (`kalshi/websocket.hpp`)
 
 ```cpp
 // WsConfig uses std::uint16_t for max_reconnect_attempts (max 65535)
 kalshi::WsConfig config;
 config.max_reconnect_attempts = 10;  // 0-65535
 
-kalshi::WebSocketClient ws(signer, config);
-ws.connect();
+auto ws_signer = kalshi::Signer::from_pem_file("key-id", "/path/to/key.pem");
+if (!ws_signer) return;
+kalshi::WebSocketClient ws(*ws_signer, config); // ws_signer must outlive ws
+if (auto connected = ws.connect(); !connected) {
+    std::cerr << connected.error().message << "\n";
+}
 
 // Subscribe to orderbook updates
 kalshi::Result<kalshi::SubscriptionId> sub = ws.subscribe_orderbook({"TICKER-1", "TICKER-2"});
@@ -69,13 +74,13 @@ kalshi::PaginationParams params{.limit = 100};
 auto query = kalshi::build_paginated_query("/markets", params);
 
 // Use paginated iterator
-kalshi::PaginatedIterator<Market> iter(fetch_fn, 100);
+kalshi::PaginatedIterator<kalshi::Market> iter(fetch_fn, 100);
 while (iter.has_more()) {
     auto page = iter.next_page();
 }
 ```
 
-### Rate Limiting (`kalshi/rate_limit.hpp`)
+### Rate limiting (`kalshi/rate_limit.hpp`)
 
 ```cpp
 // Token counts use std::uint16_t for memory efficiency (max 65535 tokens)
@@ -87,7 +92,7 @@ if (limiter.try_acquire()) {
 }
 ```
 
-### Retry Logic (`kalshi/retry.hpp`)
+### Retry logic (`kalshi/retry.hpp`)
 
 ```cpp
 kalshi::RetryPolicy policy{
@@ -109,33 +114,29 @@ auto result = kalshi::with_retry([&]() { return client.get("/markets"); }, polic
 - `Position` - User position
 - `Candlestick` - Historical OHLC price data
 
-### Historical Market Data
+### Historical market data
 
 The SDK supports fetching historical candlestick data via:
 
 ```cpp
 kalshi::GetCandlesticksParams params;
-params.event_ticker = "KXHIGHLAX-26JAN18";    // Event ticker (NOT series ticker!)
+params.series_ticker = "KXHIGHLAX";           // Series ticker
 params.ticker = "KXHIGHLAX-26JAN18-T50";      // Market ticker
-params.period_interval = 60;                   // 1 hour candles (1, 60, 1440 MINUTES)
+params.period_interval = 60;                   // 1 hour candles (1, 60, 1440 minutes)
 params.start_ts = start_timestamp;             // Unix seconds
 params.end_ts = end_timestamp;                 // Unix seconds
 
 auto candles = client.get_market_candlesticks(params);
 ```
 
-**Notes**:
+Notes:
 
-- Endpoint: `GET /series/{event_ticker}/markets/{ticker}/candlesticks`
-- Despite the path saying "series", use the **event_ticker** not series_ticker
-- Period intervals in **MINUTES**: 1 (1min), 60 (1hr), 1440 (1day)
+- Endpoint: `GET /series/{series_ticker}/markets/{ticker}/candlesticks`
+- Period intervals in minutes: 1 (1 min), 60 (1 hr), 1440 (1 day)
 - Returns OHLC data with volume for each period
-- Rate limit: ~10 requests/sec; paginate large historical requests
 
-## External Resources
+## External resources
 
 - [Kalshi API Documentation](https://docs.kalshi.com)
-- [Kalshi Trading Platform](https://kalshi.com)
-- [Python SDK (sync)](https://pypi.org/project/kalshi-python/) - Official, v2.1.4
-- [Python SDK (async)](https://pypi.org/project/kalshi-python-async/) - Official, v3.2.0+
-- [TypeScript SDK](https://www.npmjs.com/package/kalshi) - Community, WebSocket-only, v0.0.5
+- [Predictions OpenAPI](https://docs.kalshi.com/openapi.yaml)
+- [Predictions AsyncAPI](https://docs.kalshi.com/asyncapi.yaml)

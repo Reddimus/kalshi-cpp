@@ -66,6 +66,12 @@ TEST(ExtractString, MissingKeyReturnsEmpty) {
 	EXPECT_EQ(extract_string(R"({"a":"b"})", "c"), "");
 }
 
+TEST(ExtractString, IgnoresMatchingTextInsideAValue) {
+	EXPECT_EQ(
+		extract_string(R"({"description":"embedded \"name\":\"wrong\"","name":"actual"})", "name"),
+		"actual");
+}
+
 TEST(ExtractBool, HandlesBooleanTokensOnly) {
 	EXPECT_TRUE(extract_bool(R"({"is_taker":true})", "is_taker"));
 	EXPECT_FALSE(extract_bool(R"({"is_taker":false})", "is_taker"));

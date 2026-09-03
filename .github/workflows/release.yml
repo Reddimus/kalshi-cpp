@@ -26,9 +26,9 @@ jobs:
         # Pin the source-of-truth: the tag X.Y.Z must equal the
         # `project(kalshi-cpp VERSION X.Y.Z ...)` field in
         # CMakeLists.txt. Without this guard the two can drift
-        # silently and corrupt `find_package(kalshi-cpp VERSION
+        # silently and corrupt `find_package(kalshi VERSION
         # X.Y.Z)` consumer queries (the generated
-        # kalshi-cppConfigVersion.cmake tracks PROJECT_VERSION).
+        # kalshiConfigVersion.cmake tracks PROJECT_VERSION).
         run: |
           tag="${GITHUB_REF#refs/tags/}"
           version="${tag#v}"
@@ -46,11 +46,8 @@ jobs:
         run: |
           tag="${GITHUB_REF#refs/tags/}"
           version="${tag#v}"
-          # Pipe directly to a file. DO NOT capture into a shell var
-          # and echo it back — bash treats backticks as command
-          # substitution, which silently strips every inline `code`
-          # span from the release body. Reading via `gh release create
-          # --notes-file` preserves the bytes verbatim.
+          # Pipe directly to a file so `gh release create --notes-file`
+          # receives the changelog bytes unchanged.
           awk -v v="$version" '
             $0 ~ "^## \\["v"\\]" { capture=1; next }
             capture && /^## / { exit }

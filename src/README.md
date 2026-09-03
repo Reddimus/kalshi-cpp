@@ -1,40 +1,23 @@
-# Source Directory
+# Source layout
 
-This directory contains the implementation files for the Kalshi C++ SDK.
+Implementation code is split by dependency boundary.
 
-## Structure
+| Path | Purpose | CMake target |
+| --- | --- | --- |
+| `api/` | Typed Predictions operations, parsers, and request bodies | `kalshi_api` |
+| `auth/` | RSA-PSS request signing | `kalshi_auth` |
+| `core/` | Error, rate-limit, and retry support | `kalshi_core` |
+| `http/` | Signed libcurl transport | `kalshi_http` |
+| `models/` | Out-of-line model code | `kalshi_models` |
+| `ws/` | libwebsockets client, commands, and connection state | `kalshi_ws` |
 
-```text
-src/
-├── core/       # Core utilities (error handling, rate limiting, retry)
-├── auth/       # RSA-PSS authentication
-├── http/       # HTTP client
-├── ws/         # WebSocket streaming
-└── models/     # Data model implementations
-```
-
-## Build Targets
-
-| Target | Description |
-| ------ | ----------- |
-| `kalshi_core` | Error handling, rate limiting, retry logic |
-| `kalshi_auth` | Request signing with RSA-PSS |
-| `kalshi_http` | HTTP client with authentication |
-| `kalshi_ws` | WebSocket streaming client |
-| `kalshi_models` | Market, Order, Trade models |
-
-## Building
-
-From this directory:
+Build and test from the repository root:
 
 ```bash
-make build    # Build all targets
-make test     # Run tests
-make clean    # Clean build artifacts
+cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
 ```
 
-Or from the repository root:
-
-```bash
-make build
-```
+Public interfaces belong in `include/kalshi/`. Keep wire-only structs and
+serialization helpers here unless consumers need them.

@@ -829,14 +829,13 @@ TEST(OperationContracts, ApiKeyListPreservesScopesBindingsAndRegionExpiration) {
 TEST(OperationContracts, GeneratedPrivateKeyIsDecodedFromJson) {
 	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
 	transport->response_body =
-		R"({"api_key_id":"key-1","private_key":"-----BEGIN PRIVATE KEY-----\nABC\\DEF\n-----END PRIVATE KEY-----\n","warning":null})";
+		R"({"api_key_id":"key-1","private_key":"line-one\nABC\\DEF\nline-three\n","warning":null})";
 	kalshi::KalshiClient client(transport);
 
 	const kalshi::Result<kalshi::ApiKey> result = client.generate_api_key({.name = "generated"});
 
 	ASSERT_TRUE(result.has_value());
-	EXPECT_EQ(result->private_key,
-			  "-----BEGIN PRIVATE KEY-----\nABC\\DEF\n-----END PRIVATE KEY-----\n");
+	EXPECT_EQ(result->private_key, "line-one\nABC\\DEF\nline-three\n");
 }
 
 TEST(OperationContracts, CurrentStringArrayFieldsAreParsedWithoutJsonFragments) {

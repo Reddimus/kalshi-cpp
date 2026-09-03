@@ -6,6 +6,37 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.2] - 2026-09-03
+
+### Fixed
+
+- Validate WebSocket schemes, hosts, ports, IPv6 literals, and fragments before
+  opening a connection. Invalid configuration now returns `InvalidRequest`
+  instead of throwing from `std::stoi` or reaching the network.
+- Sign WebSocket paths without query parameters, matching Kalshi's current
+  authentication contract while preserving the query in the upgrade request.
+- Keep moved-from `Signer` and `HttpClient` objects safe to inspect and reject
+  work through them with typed errors.
+- Give public error, HTTP response, order-book entry, and retry-result
+  aggregates deterministic scalar defaults.
+- Preserve library-size totals in `tools/bench.sh`; piping the prior loop into
+  `sort` discarded the totals in a subshell.
+- Correct the candlestick example to use the current `series_ticker` route.
+- Replace stale directory guides that described a removed test framework,
+  missing Makefiles, and an incomplete source layout.
+
+### Performance
+
+- Parse WebSocket frames from `std::string_view` without copying the full frame
+  or allocating a quoted search string for each field. The receive benchmark
+  now guards this path alongside request serialization.
+
+### Security
+
+- Generate test-only RSA keys at runtime instead of storing a private-key-shaped
+  fixture in two test files. A clean tracked-tree secret scan now reports no
+  findings.
+
 ## [0.5.1] - 2026-09-03
 
 ### Fixed
@@ -544,7 +575,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.1...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.2...HEAD
+[0.5.2]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.9...v0.5.0
 [0.4.9]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.8...v0.4.9

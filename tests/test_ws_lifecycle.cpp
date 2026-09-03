@@ -24,52 +24,13 @@
 #include <kalshi/websocket.hpp>
 #include <utility>
 
+#include "test_signer_fixture.hpp"
+#include "ws_endpoint.hpp"
+
 namespace {
 
-/// Throwaway 2048-bit RSA key generated specifically for these tests.
-/// Used to make ``Signer::from_pem`` succeed so we can construct a
-/// ``WebSocketClient`` and exercise its move + destruct paths. Never
-/// signs live traffic.
-const char* TEST_RSA_KEY = R"(-----BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEA3ZNc4DAP9V2Rq8H1zNNb2X7x7hxQrCtWt6D7EnuFXsOLMJ0B
-2WPDUVlvVlsF5EofNM0Tejf3BP6x1qtPxY+LC1oGcvVPJhQp3AiCRjt1fpZeEqaR
-H9/pSatURcb+E/M4kL4F4IK1vn6RnqA/VqO2WQiKCMfQgL9h+XCNi12wX9l+sH+8
-6mIX2yan0UeKGKvLBgNjdqxaD9QElo0lz+APvNF9bTSHe4zSycr8MQvWVmY+/CG9
-6JzIid/SFChYJjZ5btDRZy8/iHftf99lo1pJ80I/NKiHk/wlsiQpJpAVmBYBfOxp
-4YS3Uy3uEnWvTvbGl1zT4aZAa1jOmGGvZiHUUQIDAQABAoIBAC7/w09NepEX9h55
-36bA/WZawjv41xbSAYylUaRXvZA+h5956kq/mc4/W3m0iIEmRMzJJDTEOrodQUEw
-6NSV0E9J2vzW8mE4HTHuPx3hHljJ0e4AVV+uudf1xsQfQ8UdDfZLzEjVSPI9fCtq
-v8yjoLntcQQQSDaLAd/sYyW464DE50pUwgt3wGyIHx19m+TF8ntULzZv/e0P++hW
-ox8L1Ytfd5h1augQ0K3rD27i9QSOauesLN4cc2eZZ8ow1rr6pR38++NHyrYO/NaR
-nm6qU6W0EqUgyZdRaApD89UK1lGvt9rq++Yg2kAtw3MPsFoK2lFTYjEyGphyadBN
-dG9jym0CgYEA8PF7m6C+LcPdKk1BoN2b3mt9FvV0AJu/3yIijHd2RCSmr2OVV2py
-SZ0J9xWQi95eSU0y5RUiA3k82AFHlPJSsCpLqfeAS8fJcYHo09mMM6+xKv8E6KEW
-Laxt6GsIeaJRLkcn4pO2ZAq4aTk79lhNHXc7rg0kKNokgvMBamPIN60CgYEA62wL
-MKpGfUp6Hl1jOszbXt867XbTSX2eoK1HQ8mkeGlxJgBI7UrIKIaArbU1Ov/gAfu5
-gDWiLcxZtl8gHRjlEaSl01wKM6AXbEl+3jU1lOATscdsRyeyJ48dk5IWPZygnVUo
-+amtQyet07Bht90Q3ULsDPaFXVtZAJDxj0vHM7UCgYEAlsg4d6M3gMJjBNcGLBqj
-MaUIyjZfGwZdI9Fj143nGCvrmDT0v5jg3sqE8viu1akaTjsej5gTCiNz/SWH22Fu
-d8pwQXSe+E2V9g+7WeB5ydq4P9UKCF7O11RiD6Hz0tLOhOyIvFV+PcsrrsXfjYGi
-+L6mPX0B1QL2+HAEwcSiBp0CgYA82hSaY6kMwa+HIcSAcmtRvonQz6IVoO7bwW5m
-SzzEEx04IWK4U1ghgYLJY8l6kqEoYhS02ygshmG6DiSS4Nh1EwX5+BR6+6qSRv0Q
-GtjavoDYtx951Pzr1MZkWqJ9EntBr72DqyQp85uu2CyqBe5SAvZY82/NjcsXpl+K
-FqBK8QKBgQDeSgsq3ljKeIuLBl9yYzc9rEGnMZJl33wcVgAG6jTr+qZ5iEToiRTu
-TSBYZgwgMJTq7i4blpsYJCoHcQynRJgSmIvSLuCw/ovyBHmHvJDDjrFsCutQYXA9
-Y2lRUoypd9DhH64Hki9kaqKd23817XEXR9kwu7QdrzWYWST5l+cTAg==
------END RSA PRIVATE KEY-----
-)";
-
 kalshi::Signer make_test_signer() {
-	kalshi::Result<kalshi::Signer> result =
-		kalshi::Signer::from_pem("test-api-key-id", TEST_RSA_KEY);
-	// If this skips it means the OpenSSL build can't parse the embedded
-	// PEM — the lifecycle tests below have nothing meaningful to assert
-	// without a valid signer. We don't want to silently pass.
-	if (!result.has_value()) {
-		ADD_FAILURE() << "Embedded test RSA key failed to parse — "
-						 "regenerate via openssl genrsa -traditional 2048";
-	}
-	return std::move(result.value());
+	return kalshi::test::make_signer();
 }
 
 } // namespace
@@ -86,6 +47,43 @@ TEST(WsLifecycle, ConfigAccessorReturnsConfig) {
 	cfg.url = "wss://example.test/ws";
 	kalshi::WebSocketClient ws(signer, cfg);
 	EXPECT_EQ(ws.config().url, "wss://example.test/ws");
+}
+
+TEST(WsLifecycle, InvalidUrlReturnsErrorWithoutNetworkOrExceptions) {
+	kalshi::Signer signer = make_test_signer();
+
+	for (const std::string& url :
+		 {"https://example.test/ws", "wss:///ws", "wss://user@example.test/ws",
+		  "wss://example.test:/ws", "wss://example.test:not-a-port/ws",
+		  "wss://example.test:70000/ws", "wss://::1/ws", "wss://example.test/ws#fragment"}) {
+		kalshi::WsConfig cfg;
+		cfg.url = url;
+		kalshi::WebSocketClient ws(signer, cfg);
+		kalshi::Result<void> result;
+		EXPECT_NO_THROW(result = ws.connect()) << url;
+		ASSERT_FALSE(result.has_value()) << url;
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest) << url;
+	}
+}
+
+TEST(WsLifecycle, UrlParserPreservesConnectionPathAndCustomPort) {
+	const kalshi::Result<kalshi::detail::WsEndpoint> result =
+		kalshi::detail::parse_ws_endpoint("wss://example.test:8443/ws/v2?token=value");
+	ASSERT_TRUE(result.has_value());
+	EXPECT_EQ(result->host, "example.test");
+	EXPECT_EQ(result->path, "/ws/v2?token=value");
+	EXPECT_EQ(result->port, 8443);
+	EXPECT_TRUE(result->use_ssl);
+}
+
+TEST(WsLifecycle, UrlParserSupportsBracketedIpv6AndQueryOnlyPath) {
+	const kalshi::Result<kalshi::detail::WsEndpoint> result =
+		kalshi::detail::parse_ws_endpoint("ws://[::1]?token=value");
+	ASSERT_TRUE(result.has_value());
+	EXPECT_EQ(result->host, "::1");
+	EXPECT_EQ(result->path, "/?token=value");
+	EXPECT_EQ(result->port, 80);
+	EXPECT_FALSE(result->use_ssl);
 }
 
 TEST(WsLifecycle, MoveConstructLeavesMovedFromSafe) {

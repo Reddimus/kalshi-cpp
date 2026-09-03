@@ -41,8 +41,8 @@ enum class MarketStatus : std::uint8_t { Open, Closed, Settled, Unopened, Paused
 
 /// Price-quantity pair in an order book
 struct OrderBookEntry {
-	std::int32_t price_cents; // 1-99 for binary markets
-	std::int32_t quantity;
+	std::int32_t price_cents{0}; // 1-99 for binary markets
+	std::int32_t quantity{0};
 	std::string price_dollars;
 	std::string quantity_fp;
 };
