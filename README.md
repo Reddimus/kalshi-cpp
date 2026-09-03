@@ -90,19 +90,9 @@ if (!result) std::cerr << result.error().message << '\n';
 
 ## Predictions API coverage
 
-The typed surface covers exchange status and schedule; market, event, and
-series reads; core portfolio reads and V2 order mutations; subaccounts; RFQs,
-quotes, API keys, milestones, structured targets, and collection reads.
-
-The 3.29.0 contract also publishes operations that are not typed yet:
-
-| Area | Deferred operations |
-| --- | --- |
-| Market data | Fee changes, batch/event candles, multivariate events, forecast history |
-| Trading | Order-group trigger/limit, intra-exchange transfer, target allocation, FCM views |
-| Communications | Block trades and RFQ-scoped quote routes |
-| Discovery | Tags, sports filters, typed live data, game stats, weather, calibrations |
-| Archive | Historical cutoff, markets, candles, fills, orders, positions, and trades |
+The typed surface covers the common market-data, portfolio, order, subaccount,
+RFQ, quote, and discovery workflows. See the exact [REST and WebSocket coverage
+table](docs/api-coverage.md) before depending on a less common operation.
 
 Unsupported legacy methods fail before transport instead of calling a stale
 route. Margin endpoints belong in a separate client and remain out of scope.
@@ -116,6 +106,7 @@ route. Margin endpoints belong in a separate client and remain out of scope.
 | `src/http/` | Signed libcurl transport |
 | `src/ws/` | WebSocket client and frame parsing |
 | `tests/` | Unit, parser, and operation-contract tests |
+| `docs/api-coverage.md` | Exact supported and deferred API surface |
 | `docs/research.md` | Upstream contract provenance |
 
 ## Development gates

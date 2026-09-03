@@ -10,6 +10,13 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- Corrected request signing to include the full API path and exclude the query
+  string, matching Kalshi's current authentication contract.
+- Preserved existing aggregate member prefixes while appending v0.5 fields.
+- Added current RFQ-scoped quote routes alongside the generic quote routes.
+- Updated supported WebSocket frames with current exact fields and canonical
+  direction models. User callbacks now run outside internal locks, and a
+  callback-triggered disconnect never joins its own service thread.
 - Migrated event-market create, amend, decrease, cancel, batch, and cancel-all
   operations to the current single-book V2 contracts. Ambiguous legacy order
   bodies now fail before transport.
