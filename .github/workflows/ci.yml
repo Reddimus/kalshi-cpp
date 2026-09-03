@@ -112,12 +112,17 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends \
-            build-essential clang-tidy cmake pkg-config libcurl4-openssl-dev \
-            libssl-dev libwebsockets-dev
+            build-essential clang-18 clang-tidy libc++-18-dev libc++abi-18-dev \
+            cmake pkg-config libcurl4-openssl-dev libssl-dev libwebsockets-dev
       - name: Configure
+        # Clang 18 reports __cpp_concepts=201907 with libstdc++ 13, which hides
+        # std::expected even in C++23 mode. libc++ 18 provides the C++23 type
+        # and lets clang-tidy analyze the same public API the builds compile.
         run: >-
           cmake -S . -B build-tidy
           -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_COMPILER=clang++-18
+          -DCMAKE_CXX_FLAGS=-stdlib=libc++
           -DKALSHI_ENABLE_CLANG_TIDY=ON
           -DKALSHI_ENABLE_LTO=OFF
           -DKALSHI_BUILD_TESTS=OFF
