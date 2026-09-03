@@ -6,6 +6,47 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.5.0] - 2026-09-03
+
+### Changed
+
+- Migrated event-market create, amend, decrease, cancel, batch, and cancel-all
+  operations to the current single-book V2 contracts. Ambiguous legacy order
+  bodies now fail before transport.
+- Preserved REST and WebSocket fixed-point values as exact strings. Legacy
+  integer views are populated only when conversion is lossless and in range.
+- Added exchange-shard fields and filters across markets, orders, fills,
+  positions, settlements, and lifecycle events.
+- Updated Predictions routes and filters for trades, series, events,
+  orderbooks, queue positions, communications, API keys, and user timestamps.
+- Preserved API-key scopes and location-attestation expiry, Series tags and
+  prohibitions, milestone ticker lists, and order-group order IDs.
+- Removed network calls to deleted announcement and generic search operations.
+  Legacy generic communications, collection lookup, and ticker-based live-data
+  methods now return `InvalidRequest` instead of calling stale routes.
+- Added injectable HTTP transport support. libcurl initialization is
+  process-safe, requests on one client are serialized, and TLS peer and host
+  verification are controlled together.
+- Updated Glaze to 8.3.0 and GoogleTest to 1.18.0. CI now checks project
+  warnings, sanitizers, clang-tidy, installed-package consumption, and
+  FetchContent consumption.
+
+### Added
+
+- `FixedPoint` for checked, exact decimal conversion.
+- Operation-contract tests that assert routes, verbs, encoded filters, exact
+  V2 bodies, and representative current response schemas without credentials.
+
+### Migration
+
+- Set `CreateOrderParams::book_side`, `count_fp`, `price_dollars`,
+  `time_in_force`, and `self_trade_prevention_type` for V2 order creation.
+- Use `series_ticker`, `start_ts`, and `end_ts` for candlesticks.
+- Read exact `*_dollars` and `*_fp` fields instead of assuming whole cents or
+  contracts.
+- Margin and Perpetuals remain out of scope because Kalshi publishes them as a
+  separate API contract.
+
 ## [0.4.9] - 2026-09-02
 
 ### Added
