@@ -62,6 +62,9 @@ std::string base64_encode(const unsigned char* data, size_t len) {
 
 } // namespace
 
+// The public API keeps the key identifier first, matching Kalshi's credential
+// presentation order. Named parameters at call sites make the distinction clear.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 Result<Signer> Signer::from_pem(std::string_view api_key_id, std::string_view pem_key) {
 	std::unique_ptr<Impl> impl = std::make_unique<Impl>();
 	impl->api_key_id = std::string(api_key_id);
@@ -82,6 +85,7 @@ Result<Signer> Signer::from_pem(std::string_view api_key_id, std::string_view pe
 	return Signer(std::move(impl));
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 Result<Signer> Signer::from_pem_file(std::string_view api_key_id, std::string_view file_path) {
 	std::ifstream file{std::string(file_path)};
 	if (!file) {

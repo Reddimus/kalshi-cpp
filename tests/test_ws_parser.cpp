@@ -19,6 +19,7 @@
 
 #include <gtest/gtest.h>
 
+using kalshi::detail::extract_bool;
 using kalshi::detail::extract_dollar_cents;
 using kalshi::detail::extract_fp_int;
 using kalshi::detail::extract_int;
@@ -62,6 +63,13 @@ TEST(ExtractString, HappyPath) {
 
 TEST(ExtractString, MissingKeyReturnsEmpty) {
 	EXPECT_EQ(extract_string(R"({"a":"b"})", "c"), "");
+}
+
+TEST(ExtractBool, HandlesBooleanTokensOnly) {
+	EXPECT_TRUE(extract_bool(R"({"is_taker":true})", "is_taker"));
+	EXPECT_FALSE(extract_bool(R"({"is_taker":false})", "is_taker"));
+	EXPECT_FALSE(extract_bool(R"({"is_taker":"true"})", "is_taker"));
+	EXPECT_FALSE(extract_bool(R"({"other":true})", "is_taker"));
 }
 
 // --- extract_dollar_cents: regression coverage ---------------------

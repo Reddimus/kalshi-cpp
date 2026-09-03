@@ -47,18 +47,18 @@ kalshi::ser::BatchOrdersBody make_payload() {
 	for (int i = 0; i < 50; ++i) {
 		kalshi::ser::CreateOrderBody o;
 		o.ticker = "KXHIGHDEN-26MAY11-T" + std::to_string(50 + i);
-		o.side = (i % 2 == 0) ? "yes" : "no";
-		o.action = "buy";
-		o.type = "limit";
-		o.count = 1 + (i % 10);
-		o.yes_price = 30 + (i % 40);
+		o.side = (i % 2 == 0) ? "bid" : "ask";
+		o.count = std::to_string(1 + (i % 10)) + ".00";
+		o.price = "0." + std::to_string(30 + (i % 40)) + "00";
+		o.time_in_force = "good_till_canceled";
+		o.self_trade_prevention_type = "taker_at_cross";
 		// Sprinkle some optionals so the skip_null_members path is
 		// exercised on most-but-not-all fields.
 		if (i % 3 == 0) {
 			o.client_order_id = "client-" + std::to_string(i);
 		}
 		if (i % 5 == 0) {
-			o.expiration_ts = 1788000000 + i;
+			o.expiration_time = 1788000000 + i;
 		}
 		payload.orders.push_back(std::move(o));
 	}

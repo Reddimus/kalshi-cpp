@@ -1,6 +1,7 @@
 #include "kalshi/websocket.hpp"
 
 #include "kalshi/detail/ws_json.hpp"
+#include "kalshi/fixed_point.hpp"
 
 #include "subscription_registry.hpp"
 
@@ -32,6 +33,7 @@
 #include <cstring>
 #include <deque>
 #include <libwebsockets.h>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -51,6 +53,21 @@
 // the `feedback_find_first_json_scanner` memory note.
 
 namespace kalshi {
+
+namespace {
+
+std::int32_t exact_ws_integer(std::string_view wire, std::uint8_t scale) {
+	const Result<FixedPoint> parsed = FixedPoint::parse(wire);
+	if (!parsed)
+		return 0;
+	const Result<std::int64_t> value = parsed->scaled_integer(scale);
+	if (!value || *value < std::numeric_limits<std::int32_t>::min() ||
+		*value > std::numeric_limits<std::int32_t>::max())
+		return 0;
+	return static_cast<std::int32_t>(*value);
+}
+
+} // namespace
 
 // Forward declaration for the callback
 struct WsImplData;
@@ -160,24 +177,36 @@ struct WsImplData {
 		}
 	}
 
-	void invoke_message_callback(const WsMessage& msg) {
-		std::lock_guard lock(callback_mutex);
-		if (message_callback) {
-			message_callback(msg);
+	void invoke_message_callback(const WsMessage& msg) noexcept {
+		try {
+			std::lock_guard lock(callback_mutex);
+			if (message_callback) {
+				message_callback(msg);
+			}
+		} catch (...) {
+			// User callbacks must not unwind through libwebsockets' C callback.
 		}
 	}
 
-	void invoke_error_callback(const WsError& err) {
-		std::lock_guard lock(callback_mutex);
-		if (error_callback) {
-			error_callback(err);
+	void invoke_error_callback(const WsError& err) noexcept {
+		try {
+			std::lock_guard lock(callback_mutex);
+			if (error_callback) {
+				error_callback(err);
+			}
+		} catch (...) {
+			// Error callbacks are terminal notification hooks, not exceptions.
 		}
 	}
 
-	void invoke_state_callback(bool connected_state) {
-		std::lock_guard lock(callback_mutex);
-		if (state_callback) {
-			state_callback(connected_state);
+	void invoke_state_callback(bool connected_state) noexcept {
+		try {
+			std::lock_guard lock(callback_mutex);
+			if (state_callback) {
+				state_callback(connected_state);
+			}
+		} catch (...) {
+			// State callbacks must not make disconnect or destruction throw.
 		}
 	}
 
@@ -191,9 +220,11 @@ struct WebSocketClient::Impl {
 	Impl(const Signer& s, WsConfig c) : data(std::make_unique<WsImplData>(s, std::move(c))) {}
 };
 
-// libwebsockets callback
+// libwebsockets fixes this callback ABI, including the adjacent opaque pointers.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in,
 					   size_t len) {
+	(void)user;
 	WsImplData* impl = static_cast<WsImplData*>(lws_context_user(lws_get_context(wsi)));
 
 	if (!impl)
@@ -320,8 +351,12 @@ void WsImplData::handle_message(const std::string& json) {
 		const std::vector<detail::PriceQty> pairs = detail::extract_orderbook_entries(json, key);
 		std::vector<OrderBookEntry> entries;
 		entries.reserve(pairs.size());
-		for (const detail::PriceQty& p : pairs)
-			entries.push_back(OrderBookEntry{p.price, p.quantity});
+		for (const detail::PriceQty& p : pairs) {
+			OrderBookEntry entry{};
+			entry.price_cents = p.price;
+			entry.quantity = p.quantity;
+			entries.push_back(std::move(entry));
+		}
 		return entries;
 	};
 
@@ -370,8 +405,10 @@ void WsImplData::handle_message(const std::string& json) {
 		delta.sid = extract_int("sid");
 		delta.seq = extract_int("seq");
 		delta.market_ticker = extract_string("market_ticker");
-		delta.price = detail::extract_dollar_cents(json, "price_dollars");
-		delta.delta = detail::extract_fp_int(json, "delta_fp");
+		delta.price_dollars = extract_string("price_dollars");
+		delta.delta_fp = extract_string("delta_fp");
+		delta.price = exact_ws_integer(delta.price_dollars, 2);
+		delta.delta = exact_ws_integer(delta.delta_fp, 0);
 		std::string side_str = extract_string("side");
 		delta.side = (side_str == "yes") ? Side::Yes : Side::No;
 		invoke_message_callback(delta);
@@ -384,9 +421,13 @@ void WsImplData::handle_message(const std::string& json) {
 		trade.sid = extract_int("sid");
 		trade.trade_id = extract_string("trade_id");
 		trade.market_ticker = extract_string("market_ticker");
-		trade.yes_price = detail::extract_dollar_cents(json, "yes_price_dollars");
-		trade.no_price = detail::extract_dollar_cents(json, "no_price_dollars");
-		trade.count = detail::extract_fp_int(json, "count_fp");
+		trade.yes_price_dollars = extract_string("yes_price_dollars");
+		trade.no_price_dollars = extract_string("no_price_dollars");
+		trade.count_fp = extract_string("count_fp");
+		trade.yes_price = exact_ws_integer(trade.yes_price_dollars, 2);
+		trade.no_price = exact_ws_integer(trade.no_price_dollars, 2);
+		trade.count = exact_ws_integer(trade.count_fp, 0);
+		trade.is_block_trade = detail::extract_bool(json, "is_block_trade");
 		std::string side_str = extract_string("taker_side");
 		trade.taker_side = (side_str == "yes") ? Side::Yes : Side::No;
 		trade.timestamp = extract_int("ts");
@@ -399,12 +440,15 @@ void WsImplData::handle_message(const std::string& json) {
 		fill.trade_id = extract_string("trade_id");
 		fill.order_id = extract_string("order_id");
 		fill.market_ticker = extract_string("market_ticker");
-		fill.is_taker = (extract_string("is_taker") == "true");
+		fill.is_taker = detail::extract_bool(json, "is_taker");
 		std::string side_str = extract_string("side");
 		fill.side = (side_str == "yes") ? Side::Yes : Side::No;
-		fill.yes_price = detail::extract_dollar_cents(json, "yes_price_dollars");
-		fill.no_price = detail::extract_dollar_cents(json, "no_price_dollars");
-		fill.count = detail::extract_fp_int(json, "count_fp");
+		fill.yes_price_dollars = extract_string("yes_price_dollars");
+		fill.no_price_dollars = extract_string("no_price_dollars");
+		fill.count_fp = extract_string("count_fp");
+		fill.yes_price = exact_ws_integer(fill.yes_price_dollars, 2);
+		fill.no_price = exact_ws_integer(fill.no_price_dollars, 2);
+		fill.count = exact_ws_integer(fill.count_fp, 0);
 		std::string action_str = extract_string("action");
 		fill.action = (action_str == "buy") ? Action::Buy : Action::Sell;
 		fill.timestamp = extract_int("ts");
@@ -415,6 +459,7 @@ void WsImplData::handle_message(const std::string& json) {
 		lc.market_ticker = extract_string("market_ticker");
 		lc.open_ts = extract_int("open_ts");
 		lc.close_ts = extract_int("close_ts");
+		lc.exchange_index = extract_int("exchange_index");
 		std::int64_t det = extract_int("determination_ts");
 		if (det > 0)
 			lc.determination_ts = det;
@@ -435,7 +480,10 @@ void WsImplData::handle_message(const std::string& json) {
 	}
 }
 
-static const struct lws_protocols protocols[] = {{"kalshi-ws", ws_callback, 0, 65536},
+static const struct lws_protocols protocols[] = {{.name = "kalshi-ws",
+												  .callback = ws_callback,
+												  .per_session_data_size = 0,
+												  .rx_buffer_size = 65536},
 												 LWS_PROTOCOL_LIST_TERM};
 
 WebSocketClient::WebSocketClient(const Signer& signer, WsConfig config)
@@ -544,8 +592,7 @@ Result<void> WebSocketClient::connect() {
 	conn_info.origin = nullptr;
 
 	if (use_ssl) {
-		conn_info.ssl_connection =
-			LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+		conn_info.ssl_connection = LCCSCF_USE_SSL;
 	}
 
 	data->wsi = lws_client_connect_via_info(&conn_info);
@@ -780,12 +827,13 @@ void WebSocketClient::on_state_change(WsStateCallback callback) {
 	impl_->data->state_callback = std::move(callback);
 }
 
-const WsConfig& WebSocketClient::config() const noexcept {
+const WsConfig& WebSocketClient::config() const noexcept { // NOLINT(bugprone-exception-escape)
 	// Returning a reference into a nullptr would crash; surface a
 	// static empty config so accessors stay safe on moved-from
 	// instances (matches the null-guard pattern in disconnect() /
 	// is_connected()).
 	if (!impl_) {
+		// NOLINTNEXTLINE(bugprone-exception-escape)
 		static const WsConfig kEmpty{};
 		return kEmpty;
 	}

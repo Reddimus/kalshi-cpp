@@ -87,6 +87,23 @@ inline std::string extract_string(const std::string& json, const std::string& ke
 	return json.substr(start, end - start);
 }
 
+/// Extract a JSON boolean. Missing keys, strings, and malformed tokens are false.
+inline bool extract_bool(const std::string& json, const std::string& key) {
+	const std::string search = "\"" + key + "\"";
+	std::size_t pos = json.find(search);
+	if (pos == std::string::npos)
+		return false;
+	pos = json.find(':', pos + search.size());
+	if (pos == std::string::npos)
+		return false;
+	pos = json.find_first_not_of(" \t\r\n", pos + 1);
+	if (pos == std::string::npos || json.compare(pos, 4, "true") != 0)
+		return false;
+	const std::size_t end = pos + 4;
+	return end == json.size() || json[end] == ',' || json[end] == '}' || json[end] == ']' ||
+		   json[end] == ' ' || json[end] == '\t' || json[end] == '\r' || json[end] == '\n';
+}
+
 /// Parse a decimal-dollar JSON-string value into integer cents.
 ///
 /// Kalshi's v2 WebSocket schema encodes price fields as decimal

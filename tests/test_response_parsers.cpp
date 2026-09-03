@@ -31,6 +31,9 @@ TEST(ResponseParsers, CandlesticksParseCurrentDollarSchema) {
 	EXPECT_EQ(candles[0].low_price, 39);
 	EXPECT_EQ(candles[0].close_price, 51);
 	EXPECT_EQ(candles[0].volume, 5406);
+	EXPECT_EQ(candles[0].open_price_dollars, "0.4200");
+	EXPECT_EQ(candles[0].close_price_dollars, "0.5100");
+	EXPECT_EQ(candles[0].volume_fp, "5406.00");
 }
 
 TEST(ResponseParsers, CandlesticksParseLegacyCentSchema) {
@@ -123,11 +126,17 @@ TEST(ResponseParsers, OrderbookParsesCurrentFixedPointDollarSchema) {
 
 	EXPECT_EQ(book.market_ticker, "KXRAINSEAM-26MAY");
 	ASSERT_EQ(book.yes_bids.size(), 2U);
+	EXPECT_EQ(book.yes_bids[0].price_dollars, "0.0100");
+	EXPECT_EQ(book.yes_bids[0].quantity_fp, "788.03");
 	EXPECT_EQ(book.yes_bids[0].price_cents, 1);
-	EXPECT_EQ(book.yes_bids[0].quantity, 788);
-	EXPECT_EQ(book.yes_bids[1].price_cents, 13);
-	EXPECT_EQ(book.yes_bids[1].quantity, 4);
+	EXPECT_EQ(book.yes_bids[0].quantity, 0);
+	EXPECT_EQ(book.yes_bids[1].price_dollars, "0.1250");
+	EXPECT_EQ(book.yes_bids[1].quantity_fp, "3.50");
+	EXPECT_EQ(book.yes_bids[1].price_cents, 0);
+	EXPECT_EQ(book.yes_bids[1].quantity, 0);
 	ASSERT_EQ(book.no_bids.size(), 1U);
+	EXPECT_EQ(book.no_bids[0].price_dollars, "0.9900");
+	EXPECT_EQ(book.no_bids[0].quantity_fp, "10.00");
 	EXPECT_EQ(book.no_bids[0].price_cents, 99);
 	EXPECT_EQ(book.no_bids[0].quantity, 10);
 }

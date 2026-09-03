@@ -56,12 +56,37 @@ struct ClientConfig {
 	bool verify_ssl{true};
 };
 
+/// Injectable request boundary used by the typed REST client.
+class HttpTransport {
+public:
+	virtual ~HttpTransport() = default;
+
+	[[nodiscard]] virtual Result<HttpResponse> request(HttpMethod method, std::string_view path,
+													   std::string_view body = {}) const = 0;
+
+	[[nodiscard]] Result<HttpResponse> get(std::string_view path) const {
+		return request(HttpMethod::GET, path);
+	}
+	[[nodiscard]] Result<HttpResponse> post(std::string_view path,
+											std::string_view body = {}) const {
+		return request(HttpMethod::POST, path, body);
+	}
+	[[nodiscard]] Result<HttpResponse> put(std::string_view path,
+										   std::string_view body = {}) const {
+		return request(HttpMethod::PUT, path, body);
+	}
+	[[nodiscard]] Result<HttpResponse> del(std::string_view path,
+										   std::string_view body = {}) const {
+		return request(HttpMethod::DEL, path, body);
+	}
+};
+
 /// HTTP client for Kalshi API
 ///
-/// @note Thread Safety: This class is NOT thread-safe. The underlying CURL
-/// handle is shared across all requests. If you need concurrent API access,
-/// create one HttpClient instance per thread or protect access with a mutex.
-class HttpClient {
+/// @note Thread Safety: Calls on one instance are serialized because libcurl's
+/// easy handle cannot serve concurrent requests. Use separate clients when
+/// request concurrency matters.
+class HttpClient final : public HttpTransport {
 public:
 	/// Create a client with the given signer and configuration
 	HttpClient(Signer signer, ClientConfig config = {});
@@ -89,7 +114,7 @@ public:
 
 	/// Perform a request with custom method
 	[[nodiscard]] Result<HttpResponse> request(HttpMethod method, std::string_view path,
-											   std::string_view body = {}) const;
+											   std::string_view body = {}) const override;
 
 	/// Get the client configuration
 	[[nodiscard]] const ClientConfig& config() const noexcept;

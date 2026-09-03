@@ -43,6 +43,8 @@ enum class MarketStatus : std::uint8_t { Open, Closed, Settled, Unopened, Paused
 struct OrderBookEntry {
 	std::int32_t price_cents; // 1-99 for binary markets
 	std::int32_t quantity;
+	std::string price_dollars;
+	std::string quantity_fp;
 };
 
 /// Order book for a market
@@ -72,14 +74,35 @@ struct Market {
 	std::int32_t open_interest{0};
 	std::optional<std::int32_t> settlement_timer_seconds;
 	std::optional<std::int32_t> settlement_value_cents;
+	std::int32_t exchange_index{0};
 
 	// 1-byte enum
 	MarketStatus status{MarketStatus::Open};
 
 	// Strings last (have internal pointers, variable size)
 	std::string ticker;
+	std::string event_ticker;
+	std::string market_type;
 	std::string title;
 	std::string subtitle;
+	std::string yes_sub_title;
+	std::string no_sub_title;
+	std::string yes_bid_dollars;
+	std::string yes_ask_dollars;
+	std::string no_bid_dollars;
+	std::string no_ask_dollars;
+	std::string last_price_dollars;
+	std::string volume_fp;
+	std::string volume_24h_fp;
+	std::string open_interest_fp;
+	std::string notional_value_dollars;
+	std::string previous_yes_bid_dollars;
+	std::string previous_yes_ask_dollars;
+	std::string previous_price_dollars;
+	std::string settlement_value_dollars;
+	std::string price_level_structure;
+	std::string rules_primary;
+	std::string rules_secondary;
 	std::optional<std::string> expiration_value;
 	std::optional<std::string> result; // "yes", "no", or nullopt if not settled
 };
@@ -87,6 +110,12 @@ struct Market {
 /// User position in a market
 struct Position {
 	std::string market_ticker;
+	std::string position_fp;
+	std::string total_traded_dollars;
+	std::string market_exposure_dollars;
+	std::string realized_pnl_dollars;
+	std::string fees_paid_dollars;
+	std::int32_t exchange_index{0};
 	std::int32_t yes_contracts{0};
 	std::int32_t no_contracts{0};
 	std::int32_t total_cost_cents{0};

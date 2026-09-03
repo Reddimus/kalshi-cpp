@@ -3,7 +3,7 @@
 namespace kalshi {
 
 RetryingClient::RetryingClient(HttpClient& client, RetryPolicy policy)
-	: client_(client), policy_(std::move(policy)) {}
+	: client_(client), policy_(policy) {}
 
 Result<HttpResponse> RetryingClient::get(std::string_view path) {
 	return with_retry([this, path]() { return client_.get(path); }, policy_);
@@ -26,7 +26,7 @@ const RetryPolicy& RetryingClient::policy() const noexcept {
 }
 
 void RetryingClient::set_policy(RetryPolicy policy) noexcept {
-	policy_ = std::move(policy);
+	policy_ = policy;
 }
 
 } // namespace kalshi

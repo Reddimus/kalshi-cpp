@@ -52,6 +52,8 @@ struct OrderbookDelta {
 	std::string market_ticker;
 	std::int32_t price{0};
 	std::int32_t delta{0};
+	std::string price_dollars;
+	std::string delta_fp;
 	Side side{Side::Yes};
 };
 
@@ -63,6 +65,10 @@ struct WsTrade {
 	std::int32_t yes_price{0};
 	std::int32_t no_price{0};
 	std::int32_t count{0};
+	std::string yes_price_dollars;
+	std::string no_price_dollars;
+	std::string count_fp;
+	bool is_block_trade{false};
 	Side taker_side{Side::Yes};
 	std::int64_t timestamp{0};
 };
@@ -78,6 +84,9 @@ struct WsFill {
 	std::int32_t yes_price{0};
 	std::int32_t no_price{0};
 	std::int32_t count{0};
+	std::string yes_price_dollars;
+	std::string no_price_dollars;
+	std::string count_fp;
 	Action action{Action::Buy};
 	std::int64_t timestamp{0};
 };
@@ -92,6 +101,7 @@ struct MarketLifecycle {
 	std::optional<std::int64_t> settled_ts;
 	std::optional<std::string> result;
 	bool is_deactivated{false};
+	std::int32_t exchange_index{0};
 	/// Set when the upstream `metadata_updated` lifecycle event reports a
 	/// yes-side subtitle change. Added to the v2 channel 2026-05-11.
 	/// Nullopt when the frame omits the field (most lifecycle frames).
