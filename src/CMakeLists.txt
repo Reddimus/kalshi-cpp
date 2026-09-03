@@ -104,4 +104,5 @@ target_include_directories(kalshi_api PRIVATE
 
 # Main SDK library (combines all)
 add_library(kalshi INTERFACE)
+add_library(kalshi::kalshi ALIAS kalshi)
 target_link_libraries(kalshi INTERFACE kalshi_core kalshi_auth kalshi_http kalshi_models kalshi_ws kalshi_api)

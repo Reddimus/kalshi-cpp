@@ -1,7 +1,7 @@
 #!/bin/sh
 set -eu
 
-repo_dir=$(CDPATH= cd -- "$(dirname -- "$0")/.." && pwd)
+repo_dir=$(CDPATH='' cd -- "$(dirname -- "$0")/.." && pwd)
 scratch_dir=$(mktemp -d "${TMPDIR:-/tmp}/kalshi-consumers.XXXXXX")
 trap 'rm -rf -- "$scratch_dir"' EXIT HUP INT TERM
 
@@ -29,7 +29,7 @@ printf '%s\n' \
 cmake -S "$scratch_dir/consumer" -B "$scratch_dir/consumer-build" \
   -DCMAKE_PREFIX_PATH="$scratch_dir/prefix"
 cmake --build "$scratch_dir/consumer-build" --parallel
-test "$("$scratch_dir/consumer-build/consumer")" = "0.5.0"
+test "$("$scratch_dir/consumer-build/consumer")" = "0.5.1"
 
 mkdir -p "$scratch_dir/fetch-consumer"
 printf '%s\n' \
@@ -42,9 +42,9 @@ printf '%s\n' \
   'set(KALSHI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)' \
   'FetchContent_MakeAvailable(kalshi)' \
   'add_executable(fetch_consumer main.cpp)' \
-  'target_link_libraries(fetch_consumer PRIVATE kalshi)' \
+  'target_link_libraries(fetch_consumer PRIVATE kalshi::kalshi)' \
   > "$scratch_dir/fetch-consumer/CMakeLists.txt"
 cp "$scratch_dir/consumer/main.cpp" "$scratch_dir/fetch-consumer/main.cpp"
 cmake -S "$scratch_dir/fetch-consumer" -B "$scratch_dir/fetch-build"
 cmake --build "$scratch_dir/fetch-build" --parallel
-test "$("$scratch_dir/fetch-build/fetch_consumer")" = "0.5.0"
+test "$("$scratch_dir/fetch-build/fetch_consumer")" = "0.5.1"
