@@ -84,6 +84,12 @@ ser::BatchCancelOrderBody to_batch_cancel_order_body(const BatchCancelOrder& ord
 	return body;
 }
 
+void set_canonical_direction(Order& order, BookSide book_side) {
+	order.book_side = book_side;
+	order.outcome_side = book_side == BookSide::Ask ? OutcomeSide::No : OutcomeSide::Yes;
+	order.has_canonical_direction = true;
+}
+
 } // anonymous namespace
 
 struct KalshiClient::Impl {
@@ -1699,6 +1705,7 @@ Result<PaginatedResponse<Event>> KalshiClient::get_events(const GetEventsParams&
 
 	std::vector<Event> events;
 	std::vector<std::string> event_objects = extract_array_objects(response->body, "events");
+	events.reserve(event_objects.size());
 
 	for (const std::string& obj : event_objects)
 		events.push_back(api_detail::parse_event_response(obj));
@@ -2297,10 +2304,7 @@ Result<Order> KalshiClient::create_order(const CreateOrderParams& params) {
 	Result<Order> result = parse_order(response->body);
 	if (result) {
 		result->market_ticker = params.ticker;
-		result->book_side = *params.book_side;
-		result->outcome_side =
-			*params.book_side == BookSide::Ask ? OutcomeSide::No : OutcomeSide::Yes;
-		result->has_canonical_direction = true;
+		set_canonical_direction(*result, params.book_side.value_or(BookSide::Bid));
 	}
 	return result;
 }
@@ -2394,10 +2398,7 @@ Result<Order> KalshiClient::amend_order(const AmendOrderParams& params) {
 	Result<Order> result = parse_order(response->body);
 	if (result) {
 		result->market_ticker = params.ticker;
-		result->book_side = *params.book_side;
-		result->outcome_side =
-			*params.book_side == BookSide::Ask ? OutcomeSide::No : OutcomeSide::Yes;
-		result->has_canonical_direction = true;
+		set_canonical_direction(*result, *params.book_side);
 	}
 	return result;
 }
@@ -2496,10 +2497,7 @@ Result<BatchResponse<Order>> KalshiClient::batch_create_orders(const BatchOrderR
 		if (order && index < request.orders.size()) {
 			const CreateOrderParams& request_order = request.orders[index];
 			order->market_ticker = request_order.ticker;
-			order->book_side = *request_order.book_side;
-			order->outcome_side =
-				*request_order.book_side == BookSide::Ask ? OutcomeSide::No : OutcomeSide::Yes;
-			order->has_canonical_direction = true;
+			set_canonical_direction(*order, request_order.book_side.value_or(BookSide::Bid));
 			result.results.push_back(std::move(*order));
 		}
 	}
