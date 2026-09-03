@@ -1,17 +1,43 @@
+#include "kalshi/detail/http_path.hpp"
 #include "kalshi/http_client.hpp"
 
 #include <curl/curl.h>
+#include <mutex>
 #include <sstream>
 
 namespace kalshi {
+
+namespace {
+
+class CurlRuntime {
+public:
+	CurlRuntime() : result_(curl_global_init(CURL_GLOBAL_DEFAULT)) {}
+	~CurlRuntime() { curl_global_cleanup(); }
+	[[nodiscard]] CURLcode result() const noexcept { return result_; }
+
+private:
+	CURLcode result_;
+};
+
+CurlRuntime& curl_runtime() {
+	static CurlRuntime runtime;
+	return runtime;
+}
+
+} // namespace
 
 struct HttpClient::Impl {
 	Signer signer;
 	ClientConfig config;
 	CURL* curl{nullptr};
+	mutable std::mutex request_mutex;
+	CURLcode global_init_result{CURLE_OK};
 
 	Impl(Signer s, ClientConfig c) : signer(std::move(s)), config(std::move(c)) {
-		curl = curl_easy_init();
+		global_init_result = curl_runtime().result();
+		if (global_init_result == CURLE_OK) {
+			curl = curl_easy_init();
+		}
 	}
 
 	~Impl() {
@@ -81,22 +107,29 @@ Result<HttpResponse> HttpClient::del(std::string_view path, std::string_view bod
 	return request(HttpMethod::DEL, path, body);
 }
 
+// The transport interface deliberately keeps the request target next to its
+// payload. HttpMethod makes the call sites unambiguous.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view path,
 										 std::string_view body) const {
+	std::scoped_lock lock(impl_->request_mutex);
 	if (!impl_->curl) {
-		return std::unexpected(Error::network("CURL not initialized"));
+		return std::unexpected(Error::network(impl_->global_init_result == CURLE_OK
+												  ? "CURL easy handle not initialized"
+												  : curl_easy_strerror(impl_->global_init_result)));
 	}
 
 	// Sign the request
+	const std::string signing_path = detail::request_signing_path(impl_->config.base_url, path);
 	Result<AuthHeaders> headers_result =
-		impl_->signer.sign(std::string(to_string(method)), std::string(path));
+		impl_->signer.sign(std::string(to_string(method)), signing_path);
 	if (!headers_result) {
 		return std::unexpected(headers_result.error());
 	}
 	const AuthHeaders& auth = *headers_result;
 
 	// Build URL
-	std::string url = impl_->config.base_url + std::string(path);
+	const std::string url = detail::request_url(impl_->config.base_url, path);
 
 	// Reset curl handle
 	curl_easy_reset(impl_->curl);
@@ -140,6 +173,7 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 
 	// SSL verification
 	curl_easy_setopt(impl_->curl, CURLOPT_SSL_VERIFYPEER, impl_->config.verify_ssl ? 1L : 0L);
+	curl_easy_setopt(impl_->curl, CURLOPT_SSL_VERIFYHOST, impl_->config.verify_ssl ? 2L : 0L);
 
 	// Response handling
 	HttpResponse response;

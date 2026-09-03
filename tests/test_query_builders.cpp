@@ -15,12 +15,11 @@
 
 TEST(QueryBuilders, SeriesListEncodesStringParameters) {
 	kalshi::GetSeriesParams params;
-	params.limit = 200;
 	params.category = "Climate and Weather";
-	params.cursor = "abc+/=";
+	params.tags = "temperature+rain";
 
 	EXPECT_EQ(kalshi::api_detail::build_series_query_string(params),
-			  "/series?limit=200&cursor=abc%2B%2F%3D&category=Climate%20and%20Weather");
+			  "/series?category=Climate%20and%20Weather&tags=temperature%2Brain");
 }
 
 TEST(QueryBuilders, CancelOrderV2AddsOptionalSelectors) {

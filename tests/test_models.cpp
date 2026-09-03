@@ -5,6 +5,44 @@
 
 #include <gtest/gtest.h>
 #include <string>
+#include <vector>
+
+TEST(Models, LegacyAggregatePrefixesRemainSourceCompatible) {
+	const kalshi::Event event{"event", "series", "title", "category", "subtitle", 1, {"market"}};
+	EXPECT_EQ(event.market_tickers.front(), "market");
+
+	const kalshi::Fill fill{
+		1, 2, 3, 4, kalshi::Side::No, kalshi::Action::Sell, false, "trade", "order", "market"};
+	EXPECT_EQ(fill.order_id, "order");
+
+	const kalshi::Settlement settlement{1, 2, 3, 4, "market", "yes"};
+	EXPECT_EQ(settlement.result, "yes");
+
+	const kalshi::PublicTrade trade{"trade", "market", 25, 75, 2, kalshi::Side::Yes, 123, false};
+	EXPECT_EQ(trade.created_time, 123);
+
+	const kalshi::WeeklySchedule schedule{"monday", "09:00", "17:00"};
+	EXPECT_EQ(schedule.day, "monday");
+	const kalshi::MaintenanceWindow maintenance{10, 20, "planned"};
+	EXPECT_EQ(maintenance.description, "planned");
+
+	const kalshi::OrderGroup group{"group", {"order"}, "open", "oco", 100, "0"};
+	EXPECT_EQ(group.order_ids.front(), "order");
+	const kalshi::Rfq rfq{"rfq", "market", kalshi::Side::Yes, kalshi::Action::Buy, 1, "open",
+						  10,	 20};
+	EXPECT_EQ(rfq.status, "open");
+	const kalshi::Quote quote{"quote", "rfq", 50, 2, "open", 10, 20};
+	EXPECT_EQ(quote.price, 50);
+
+	const kalshi::GenerateApiKeyParams key{"name", {"read"}, 100};
+	ASSERT_TRUE(key.expires_at.has_value());
+	const kalshi::GetSeriesParams series{10, "cursor", "sports"};
+	EXPECT_EQ(series.category, "sports");
+	const kalshi::GetOrdersParams orders{10, "cursor", "market", "resting"};
+	EXPECT_EQ(orders.status, "resting");
+	const kalshi::AmendOrderParams amend{"order", 2, 30, 70};
+	EXPECT_EQ(amend.yes_price, 30);
+}
 
 TEST(Models, MarketDefaultConstruction) {
 	kalshi::Market market;
@@ -160,6 +198,19 @@ TEST(Models, ClassifyLifecycleEvent) {
 	opened.open_ts = 1778792400;
 	opened.close_ts = 1798865940;
 	EXPECT_EQ(kalshi::classify_lifecycle_event(opened), kalshi::LifecycleEventType::OpenOrCreated);
+}
+
+TEST(Models, ClassifyEveryExplicitLifecycleEventType) {
+	kalshi::MarketLifecycle lifecycle;
+	lifecycle.event_type = "metadata_updated";
+	EXPECT_EQ(kalshi::classify_lifecycle_event(lifecycle),
+			  kalshi::LifecycleEventType::MetadataUpdated);
+	lifecycle.event_type = "deactivated";
+	EXPECT_EQ(kalshi::classify_lifecycle_event(lifecycle), kalshi::LifecycleEventType::Deactivated);
+	lifecycle.event_type = "determined";
+	EXPECT_EQ(kalshi::classify_lifecycle_event(lifecycle), kalshi::LifecycleEventType::Determined);
+	lifecycle.event_type = "settled";
+	EXPECT_EQ(kalshi::classify_lifecycle_event(lifecycle), kalshi::LifecycleEventType::Settled);
 }
 
 TEST(Models, OrderMutationTsMsDefault) {

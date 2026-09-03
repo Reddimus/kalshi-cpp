@@ -11,6 +11,8 @@ add_executable(kalshi_tests
     test_json_serialize.cpp
     test_response_parsers.cpp
     test_query_builders.cpp
+    test_operation_contracts.cpp
+    test_fixed_point.cpp
 )
 
 target_link_libraries(kalshi_tests PRIVATE
@@ -28,7 +30,9 @@ target_include_directories(kalshi_tests PRIVATE
 )
 
 include(GoogleTest)
-gtest_discover_tests(kalshi_tests)
+# Instrumented binaries can take several seconds to initialize before listing
+# tests on macOS runners.
+gtest_discover_tests(kalshi_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30)
 
 # Serialize-throughput regression guard. Renders a representative
 # 50-order batch-create body 1k times and asserts us/op stays under

@@ -17,7 +17,9 @@
 /// scope here (no creds, no exchange round-trip on CI). These tests
 /// don't connect, so they don't need network access.
 
+#include <future>
 #include <gtest/gtest.h>
+#include <kalshi/detail/callback_slot.hpp>
 #include <kalshi/signer.hpp>
 #include <kalshi/websocket.hpp>
 #include <utility>
@@ -164,4 +166,30 @@ TEST(WsLifecycle, DefaultIsConnectedFalseAfterMove) {
 	EXPECT_FALSE(c.is_connected());
 	EXPECT_FALSE(b.is_connected());
 	EXPECT_FALSE(a.is_connected());
+}
+
+TEST(WsLifecycle, CallbackMayReplaceItselfWithoutDeadlocking) {
+	kalshi::detail::CallbackSlot<void(int)> callback;
+	int observed = 0;
+	callback.set([&](int value) {
+		observed = value;
+		callback.set([](int) {});
+	});
+	callback.invoke(42);
+	EXPECT_EQ(observed, 42);
+}
+
+TEST(WsLifecycle, ServiceThreadNeverJoinsItself) {
+	std::promise<void> assigned;
+	std::shared_future<void> may_check = assigned.get_future().share();
+	std::promise<bool> result;
+	std::thread service_thread;
+	service_thread = std::thread([&] {
+		may_check.wait();
+		result.set_value(kalshi::detail::join_thread_unless_current(service_thread));
+	});
+	assigned.set_value();
+	EXPECT_FALSE(result.get_future().get());
+	ASSERT_TRUE(service_thread.joinable());
+	service_thread.join();
 }

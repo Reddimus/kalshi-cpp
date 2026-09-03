@@ -10,7 +10,7 @@ jobs:
   build-linux:
     runs-on: ubuntu-24.04
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.1
 
       - name: Install dependencies
         run: |
@@ -20,7 +20,7 @@ jobs:
             libcurl4-openssl-dev libssl-dev libwebsockets-dev
 
       - name: Build
-        run: make build
+        run: make build CMAKE_ARGS=-DKALSHI_WARNINGS_AS_ERRORS=ON
 
       - name: Test
         run: make test
@@ -31,7 +31,7 @@ jobs:
   build-macos:
     runs-on: macos-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.1
 
       - name: Install dependencies
         # Lint runs only on Linux so we don't need clang-format from brew —
@@ -53,7 +53,7 @@ jobs:
   build-windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.1
 
       - name: Install dependencies (vcpkg)
         # GitHub-hosted Windows runners ship vcpkg pre-installed at
@@ -81,5 +81,62 @@ jobs:
   markdown-lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7.0.1
       - uses: DavidAnson/markdownlint-cli2-action@v23
+
+  sanitizer:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config libcurl4-openssl-dev \
+            libssl-dev libwebsockets-dev
+      - name: Configure
+        run: >-
+          cmake -S . -B build-sanitized
+          -DCMAKE_BUILD_TYPE=Debug
+          -DKALSHI_ENABLE_LTO=OFF
+          -DKALSHI_ENABLE_SANITIZERS=ON
+          -DKALSHI_BUILD_EXAMPLES=OFF
+      - run: cmake --build build-sanitized --parallel
+      - run: ctest --test-dir build-sanitized --output-on-failure
+
+  clang-tidy:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential clang-18 clang-tidy libc++-18-dev libc++abi-18-dev \
+            cmake pkg-config libcurl4-openssl-dev libssl-dev libwebsockets-dev
+      - name: Configure
+        # Clang 18 reports __cpp_concepts=201907 with libstdc++ 13, which hides
+        # std::expected even in C++23 mode. libc++ 18 provides the C++23 type
+        # and lets clang-tidy analyze the same public API the builds compile.
+        run: >-
+          cmake -S . -B build-tidy
+          -DCMAKE_BUILD_TYPE=Debug
+          -DCMAKE_CXX_COMPILER=clang++-18
+          -DCMAKE_CXX_FLAGS=-stdlib=libc++
+          -DKALSHI_ENABLE_CLANG_TIDY=ON
+          -DKALSHI_ENABLE_LTO=OFF
+          -DKALSHI_BUILD_TESTS=OFF
+          -DKALSHI_BUILD_EXAMPLES=OFF
+      - run: cmake --build build-tidy --parallel
+
+  consumer-smoke:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v7.0.1
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            build-essential cmake pkg-config libcurl4-openssl-dev \
+            libssl-dev libwebsockets-dev
+      - run: ./tools/test_consumers.sh

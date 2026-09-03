@@ -5,6 +5,7 @@
 
 #include "kalshi/api.hpp"
 #include "kalshi/error.hpp"
+#include "kalshi/fixed_point.hpp"
 #include "kalshi/http_client.hpp"
 #include "kalshi/models/market.hpp"
 #include "kalshi/models/order.hpp"

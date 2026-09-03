@@ -62,6 +62,29 @@ struct Order {
 	// Strings last (have internal pointers, variable size)
 	std::string order_id;
 	std::string market_ticker;
+	std::int32_t exchange_index{0};
+	std::string client_order_id;
+	std::string yes_price_dollars;
+	std::string no_price_dollars;
+	std::string fill_count_fp;
+	std::string remaining_count_fp;
+	std::string initial_count_fp;
+	std::string taker_fill_cost_dollars;
+	std::string maker_fill_cost_dollars;
+	std::string taker_fees_dollars;
+	std::string maker_fees_dollars;
+	OutcomeSide outcome_side{OutcomeSide::Yes};
+	BookSide book_side{BookSide::Bid};
+	std::string user_id;
+	std::string created_time_iso;
+	std::string expiration_time;
+	std::string last_update_time;
+	std::string self_trade_prevention_type;
+	std::string order_group_id;
+	std::string average_fill_price;
+	std::string average_fee_paid;
+	/// True when the canonical direction came from the response or mutation request.
+	bool has_canonical_direction{false};
 };
 
 /// Trade execution

@@ -106,97 +106,82 @@ TEST(JsonSerialize, WsUpdate) {
 TEST(JsonSerialize, CreateOrderMinimal) {
 	kalshi::ser::CreateOrderBody body;
 	body.ticker = "KXHIGHDEN-26MAY11-T80";
-	body.side = "yes";
-	body.action = "buy";
-	body.type = "limit";
-	body.count = 5;
-	body.yes_price = 47;
+	body.side = "bid";
+	body.count = "5.00";
+	body.price = "0.4700";
+	body.time_in_force = "good_till_canceled";
+	body.self_trade_prevention_type = "taker_at_cross";
 	// All other optionals nullopt — must be omitted.
 
 	const std::string expected =
-		R"({"ticker":"KXHIGHDEN-26MAY11-T80","side":"yes","action":"buy","type":"limit","count":5,"yes_price":47})";
+		R"({"ticker":"KXHIGHDEN-26MAY11-T80","side":"bid","count":"5.00","price":"0.4700","time_in_force":"good_till_canceled","self_trade_prevention_type":"taker_at_cross"})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
 
 TEST(JsonSerialize, CreateOrderAllFields) {
 	kalshi::ser::CreateOrderBody body;
 	body.ticker = "KXHIGHLAX-26MAY11-T75";
-	body.side = "no";
-	body.action = "sell";
-	body.type = "limit";
-	body.count = 10;
-	body.count_fp = "10.00";
-	body.yes_price = 33;
-	body.no_price = 67;
-	body.yes_price_dollars = "0.3300";
-	body.no_price_dollars = "0.6700";
-	body.client_order_id = "client-abc-123";
-	body.expiration_ts = 1788000000;
+	body.side = "ask";
+	body.count = "10.00";
+	body.price = "0.6700";
 	body.time_in_force = "fill_or_kill";
-	body.sell_position_floor = 0;
-	body.buy_max_cost = 1000;
+	body.self_trade_prevention_type = "taker_at_cross";
+	body.client_order_id = "client-abc-123";
+	body.expiration_time = 1788000000;
 	body.post_only = true;
 	body.reduce_only = true;
-	body.self_trade_prevention_type = "taker_at_cross";
 	body.order_group_id = "group-abc";
 	body.cancel_order_on_pause = true;
 	body.subaccount = 7;
 	body.exchange_index = 0;
 
 	const std::string expected =
-		R"({"ticker":"KXHIGHLAX-26MAY11-T75","side":"no","action":"sell","type":"limit","count":10,"count_fp":"10.00","yes_price":33,"no_price":67,"yes_price_dollars":"0.3300","no_price_dollars":"0.6700","client_order_id":"client-abc-123","expiration_ts":1788000000,"time_in_force":"fill_or_kill","sell_position_floor":0,"buy_max_cost":1000,"post_only":true,"reduce_only":true,"self_trade_prevention_type":"taker_at_cross","order_group_id":"group-abc","cancel_order_on_pause":true,"subaccount":7,"exchange_index":0})";
+		R"({"ticker":"KXHIGHLAX-26MAY11-T75","side":"ask","count":"10.00","price":"0.6700","time_in_force":"fill_or_kill","self_trade_prevention_type":"taker_at_cross","client_order_id":"client-abc-123","expiration_time":1788000000,"post_only":true,"reduce_only":true,"order_group_id":"group-abc","cancel_order_on_pause":true,"subaccount":7,"exchange_index":0})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
 
 TEST(JsonSerialize, AmendOrderPartial) {
 	kalshi::ser::AmendOrderBody body;
-	body.count = 12;
-	body.yes_price = 42;
-	// no_price omitted.
+	body.ticker = "T1";
+	body.side = "bid";
+	body.price = "0.4200";
+	body.count = "12.00";
 
-	const std::string expected = R"({"count":12,"yes_price":42})";
-	EXPECT_EQ(kalshi::ser::render_body(body), expected);
-}
-
-TEST(JsonSerialize, AmendOrderAllNullopt) {
-	// Pre-migration impl emitted `{}` (an empty object) when every
-	// optional was nullopt — verify Glaze does the same.
-	kalshi::ser::AmendOrderBody body;
-	const std::string expected = R"({})";
+	const std::string expected = R"({"ticker":"T1","side":"bid","price":"0.4200","count":"12.00"})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
 
 TEST(JsonSerialize, DecreaseOrder) {
 	kalshi::ser::DecreaseOrderBody body;
-	body.reduce_by = 3;
-	const std::string expected = R"({"reduce_by":3})";
+	body.reduce_by = "3.00";
+	const std::string expected = R"({"reduce_by":"3.00"})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
 
 TEST(JsonSerialize, BatchOrders) {
 	kalshi::ser::CreateOrderBody o1;
 	o1.ticker = "T1";
-	o1.side = "yes";
-	o1.action = "buy";
-	o1.type = "limit";
-	o1.count = 1;
-	o1.yes_price = 50;
+	o1.side = "bid";
+	o1.count = "1.00";
+	o1.price = "0.5000";
+	o1.time_in_force = "good_till_canceled";
+	o1.self_trade_prevention_type = "taker_at_cross";
 
 	kalshi::ser::CreateOrderBody o2;
 	o2.ticker = "T2";
-	o2.side = "no";
-	o2.action = "buy";
-	o2.type = "limit";
-	o2.count = 2;
-	o2.no_price = 40;
+	o2.side = "ask";
+	o2.count = "2.00";
+	o2.price = "0.4000";
+	o2.time_in_force = "immediate_or_cancel";
+	o2.self_trade_prevention_type = "maker";
 
 	kalshi::ser::BatchOrdersBody body;
 	body.orders = {o1, o2};
 
 	const std::string expected =
 		R"({"orders":[)"
-		R"({"ticker":"T1","side":"yes","action":"buy","type":"limit","count":1,"yes_price":50},)"
-		R"({"ticker":"T2","side":"no","action":"buy","type":"limit","count":2,"no_price":40})"
+		R"({"ticker":"T1","side":"bid","count":"1.00","price":"0.5000","time_in_force":"good_till_canceled","self_trade_prevention_type":"taker_at_cross"},)"
+		R"({"ticker":"T2","side":"ask","count":"2.00","price":"0.4000","time_in_force":"immediate_or_cancel","self_trade_prevention_type":"maker"})"
 		R"(]})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
@@ -218,47 +203,49 @@ TEST(JsonSerialize, BatchCancel) {
 
 TEST(JsonSerialize, OrderGroup) {
 	kalshi::ser::OrderGroupBody body;
-	body.type = "oco";
-	body.order_ids = {"oid-1", "oid-2"};
-	const std::string expected = R"({"type":"oco","order_ids":["oid-1","oid-2"]})";
+	body.subaccount = 7;
+	body.contracts_limit_fp = "10.25";
+	body.exchange_index = 3;
+	const std::string expected =
+		R"({"subaccount":7,"contracts_limit_fp":"10.25","exchange_index":3})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
 
 TEST(JsonSerialize, RfqMinimal) {
 	kalshi::ser::RfqBody body;
 	body.market_ticker = "KXHIGHDEN-26MAY11-T80";
-	body.side = "yes";
-	body.action = "buy";
-	body.count = 100;
+	body.contracts_fp = "100.00";
+	body.rest_remainder = false;
 
 	const std::string expected =
-		R"({"market_ticker":"KXHIGHDEN-26MAY11-T80","side":"yes","action":"buy","count":100})";
+		R"({"market_ticker":"KXHIGHDEN-26MAY11-T80","contracts_fp":"100.00","rest_remainder":false})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
 
-TEST(JsonSerialize, RfqWithExpiry) {
+TEST(JsonSerialize, RfqAllFields) {
 	kalshi::ser::RfqBody body;
 	body.market_ticker = "T";
-	body.side = "yes";
-	body.action = "buy";
-	body.count = 1;
-	body.expires_at = 1788000000;
+	body.contracts_fp = "1.25";
+	body.target_cost_dollars = "0.625000";
+	body.rest_remainder = true;
+	body.replace_existing = true;
+	body.subtrader_id = "user_trader";
+	body.subaccount = 7;
 
 	const std::string expected =
-		R"({"market_ticker":"T","side":"yes","action":"buy","count":1,"expires_at":1788000000})";
+		R"({"market_ticker":"T","contracts_fp":"1.25","target_cost_dollars":"0.625000","rest_remainder":true,"replace_existing":true,"subtrader_id":"user_trader","subaccount":7})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
 
 TEST(JsonSerialize, Quote) {
 	kalshi::ser::QuoteBody body;
 	body.rfq_id = "rfq-xyz";
-	body.price = 55;
-	body.count = 25;
-	body.expires_at = 1788000000;
+	body.yes_bid = "0.550000";
+	body.no_bid = "0.450000";
+	body.rest_remainder = false;
 
-	// post_only omitted (nullopt) — Glaze drops the key entirely.
 	const std::string expected =
-		R"({"rfq_id":"rfq-xyz","price":55,"count":25,"expires_at":1788000000})";
+		R"({"rfq_id":"rfq-xyz","yes_bid":"0.550000","no_bid":"0.450000","rest_remainder":false})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
 
@@ -268,22 +255,25 @@ TEST(JsonSerialize, QuotePostOnly) {
 	// glz::meta<QuoteBody>) and is included when set.
 	kalshi::ser::QuoteBody body;
 	body.rfq_id = "rfq-xyz";
-	body.price = 55;
-	body.count = 25;
-	body.expires_at = 1788000000;
+	body.yes_bid = "0.550000";
+	body.no_bid = "0.450000";
+	body.rest_remainder = true;
 	body.post_only = true;
+	body.subaccount = 7;
 
 	const std::string expected =
-		R"({"rfq_id":"rfq-xyz","price":55,"count":25,"expires_at":1788000000,"post_only":true})";
+		R"({"rfq_id":"rfq-xyz","yes_bid":"0.550000","no_bid":"0.450000","rest_remainder":true,"post_only":true,"subaccount":7})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
 
 TEST(JsonSerialize, ApiKey) {
 	kalshi::ser::ApiKeyBody body;
 	body.name = "test-key";
+	body.public_key = "pem";
 	body.scopes = {"read:markets", "write:orders"};
 
-	const std::string expected = R"({"name":"test-key","scopes":["read:markets","write:orders"]})";
+	const std::string expected =
+		R"({"name":"test-key","public_key":"pem","scopes":["read:markets","write:orders"]})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
 
@@ -330,25 +320,28 @@ TEST(JsonSerialize, MarketTickers) {
 
 TEST(JsonSerialize, SubaccountTransfer) {
 	kalshi::ser::SubaccountTransferBody body;
+	body.client_transfer_id = "transfer-1";
 	body.from_subaccount = 1;
 	body.to_subaccount = 2;
-	body.amount = 500;
-	const std::string expected = R"({"from_subaccount":1,"to_subaccount":2,"amount":500})";
+	body.amount_cents = 500;
+	body.exchange_index = 3;
+	const std::string expected =
+		R"({"client_transfer_id":"transfer-1","from_subaccount":1,"to_subaccount":2,"amount_cents":500,"exchange_index":3})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
 
 TEST(JsonSerialize, SubaccountNettingEnabled) {
 	kalshi::ser::SubaccountNettingBody body;
-	body.subaccount = 5;
-	body.netting_enabled = true;
-	const std::string expected = R"({"subaccount":5,"netting_enabled":true})";
+	body.subaccount_number = 5;
+	body.enabled = true;
+	const std::string expected = R"({"subaccount_number":5,"enabled":true})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }
 
 TEST(JsonSerialize, SubaccountNettingDisabled) {
 	kalshi::ser::SubaccountNettingBody body;
-	body.subaccount = 5;
-	body.netting_enabled = false;
-	const std::string expected = R"({"subaccount":5,"netting_enabled":false})";
+	body.subaccount_number = 5;
+	body.enabled = false;
+	const std::string expected = R"({"subaccount_number":5,"enabled":false})";
 	EXPECT_EQ(kalshi::ser::render_body(body), expected);
 }

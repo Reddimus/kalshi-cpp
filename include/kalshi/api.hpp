@@ -1,7 +1,7 @@
 #pragma once
 
 /// @file api.hpp
-/// @brief Complete REST API client for Kalshi
+/// @brief Typed client for supported Kalshi Predictions REST operations
 
 #include "kalshi/error.hpp"
 #include "kalshi/http_client.hpp"
@@ -20,6 +20,11 @@ namespace kalshi {
 // Forward declarations for API response types
 
 /// Event containing multiple markets
+struct SettlementSource {
+	std::string name;
+	std::string url;
+};
+
 struct Event {
 	std::string event_ticker;
 	std::string series_ticker;
@@ -28,6 +33,15 @@ struct Event {
 	std::string sub_title;
 	std::int64_t mutually_exclusive{0};
 	std::vector<std::string> market_tickers;
+	std::string collateral_return_type;
+	/// Removed upstream. Retained as a false compatibility field because a
+	/// deprecated attribute would also warn from Event's implicit copy/move.
+	bool available_on_brokers{false};
+	std::vector<SettlementSource> settlement_source_details;
+	std::string last_updated_ts;
+	std::string fee_type_override;
+	std::int32_t exchange_index{0};
+	std::vector<Market> markets;
 };
 
 /// Series containing multiple events
@@ -36,6 +50,19 @@ struct Series {
 	std::string title;
 	std::string category;
 	std::string frequency;
+	std::vector<std::string> tags;
+	std::vector<std::string> settlement_sources;
+	std::vector<SettlementSource> settlement_source_details;
+	std::string contract_url;
+	std::string contract_terms_url;
+	std::string fee_type;
+	double fee_multiplier{0.0};
+	std::vector<std::string> additional_prohibitions;
+	std::string last_updated_ts;
+	std::string volume_fp;
+	std::int32_t exchange_index{0};
+	/// Exact JSON object returned when product metadata is requested; empty for null or omitted.
+	std::string product_metadata_json;
 };
 
 /// Exchange status
@@ -70,10 +97,24 @@ struct EndpointCosts {
 	std::vector<EndpointCost> endpoint_costs;
 };
 
+struct IndexedBalance {
+	std::int32_t exchange_index{0};
+	std::string balance_dollars;
+};
+
+struct GetBalanceParams {
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::int32_t> exchange_index;
+};
+
 /// Account balance
 struct Balance {
 	std::int64_t balance{0};		   // cents
 	std::int64_t available_balance{0}; // cents
+	std::string balance_dollars;
+	std::int64_t portfolio_value{0};
+	std::int64_t updated_ts{0};
+	std::vector<IndexedBalance> balance_breakdown;
 };
 
 /// Fill (trade execution for user)
@@ -96,6 +137,17 @@ struct Fill {
 	std::string trade_id;
 	std::string order_id;
 	std::string market_ticker;
+	std::int32_t exchange_index{0};
+	std::string fill_id;
+	std::string count_fp;
+	std::string yes_price_dollars;
+	std::string no_price_dollars;
+	std::string fee_cost;
+	OutcomeSide outcome_side{OutcomeSide::Yes};
+	BookSide book_side{BookSide::Bid};
+	std::string created_time_iso;
+	std::optional<std::int64_t> subaccount_number;
+	std::int64_t timestamp{0};
 };
 
 /// Settlement record
@@ -112,6 +164,15 @@ struct Settlement {
 	// Strings last
 	std::string market_ticker;
 	std::string result;
+	std::int32_t exchange_index{0};
+	std::string event_ticker;
+	std::string yes_count_fp;
+	std::string no_count_fp;
+	std::string yes_total_cost_dollars;
+	std::string no_total_cost_dollars;
+	std::string fee_cost;
+	std::string settled_time_iso;
+	std::optional<std::int32_t> value;
 };
 
 /// One row in ``GET /portfolio/deposits`` (Kalshi V2, shipped 2026-05-05).
@@ -154,6 +215,11 @@ struct Candlestick {
 	std::int32_t high_price{0};
 	std::int32_t low_price{0};
 	std::int32_t volume{0};
+	std::string open_price_dollars;
+	std::string close_price_dollars;
+	std::string high_price_dollars;
+	std::string low_price_dollars;
+	std::string volume_fp;
 };
 
 /// Public trade record
@@ -165,19 +231,37 @@ struct PublicTrade {
 	std::int32_t count{0};
 	Side taker_side{Side::Yes};
 	std::int64_t created_time{0};
-	/// True when the trade was executed as a block trade (large negotiated
-	/// print routed off the central order book). Kalshi added this field on
-	/// 2026-05-29; absent on older payloads → defaults to false.
+	/// True when the trade was executed as a negotiated block trade.
 	bool is_block_trade{false};
+	std::string count_fp;
+	std::string yes_price_dollars;
+	std::string no_price_dollars;
+	OutcomeSide taker_outcome_side{OutcomeSide::Yes};
+	BookSide taker_book_side{BookSide::Bid};
+	std::string created_time_iso;
 };
 
 // ===== Phase 1: Exchange API Models =====
 
 /// Weekly schedule entry for exchange hours
+struct DailySchedule {
+	std::string open_time;
+	std::string close_time;
+};
+
 struct WeeklySchedule {
 	std::string day;
 	std::string open;
 	std::string close;
+	std::string start_time;
+	std::string end_time;
+	std::vector<DailySchedule> monday;
+	std::vector<DailySchedule> tuesday;
+	std::vector<DailySchedule> wednesday;
+	std::vector<DailySchedule> thursday;
+	std::vector<DailySchedule> friday;
+	std::vector<DailySchedule> saturday;
+	std::vector<DailySchedule> sunday;
 };
 
 /// Maintenance window
@@ -185,6 +269,8 @@ struct MaintenanceWindow {
 	std::int64_t start{0};
 	std::int64_t end{0};
 	std::string description;
+	std::string start_datetime;
+	std::string end_datetime;
 };
 
 /// Exchange schedule
@@ -210,6 +296,17 @@ struct EventMetadata {
 	std::string description;
 	std::string rules;
 	std::string resolution_source;
+	struct MarketDetail {
+		std::string market_ticker;
+		std::string image_url;
+		std::string color_code;
+	};
+	std::string image_url;
+	std::string featured_image_url;
+	std::vector<MarketDetail> market_details;
+	std::vector<SettlementSource> settlement_sources;
+	std::string competition;
+	std::string competition_scope;
 };
 
 // ===== Phase 3: Order Groups Models =====
@@ -224,6 +321,15 @@ struct OrderGroup {
 	/// Subaccount that owns the group. Added to the v2 response surface on
 	/// 2026-05-07; empty when the server omits the field (back-compat).
 	std::string subaccount_number;
+	std::string contracts_limit_fp;
+	bool is_auto_cancel_enabled{false};
+	std::int32_t exchange_index{0};
+	std::int64_t subaccount{0};
+};
+
+struct OrderGroupSelector {
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::int32_t> exchange_index;
 };
 
 // ===== Phase 4: Order Queue Position Models =====
@@ -233,6 +339,8 @@ struct OrderQueuePosition {
 	std::string order_id;
 	std::int32_t position{0};
 	std::int32_t total_at_price{0};
+	std::string market_ticker;
+	std::string queue_position_fp;
 };
 
 // ===== Phase 5: RFQ/Quotes Models =====
@@ -247,6 +355,16 @@ struct Rfq {
 	std::string status;
 	std::int64_t expires_at{0};
 	std::int64_t created_time{0};
+	std::string creator_id;
+	std::string contracts_fp;
+	std::string target_cost_dollars;
+	bool rest_remainder{false};
+	std::string cancellation_reason;
+	std::string creator_user_id;
+	std::int64_t creator_subaccount{0};
+	std::string created_ts;
+	std::string cancelled_ts;
+	std::string updated_ts;
 };
 
 /// Quote response to RFQ
@@ -258,6 +376,26 @@ struct Quote {
 	std::string status;
 	std::int64_t created_time{0};
 	std::int64_t expires_at{0};
+	std::string creator_id;
+	std::string rfq_creator_id;
+	std::string market_ticker;
+	std::string contracts_fp;
+	std::string yes_bid_dollars;
+	std::string no_bid_dollars;
+	std::string created_ts;
+	std::string updated_ts;
+	std::string accepted_side;
+	std::string accepted_ts;
+	std::string confirmed_ts;
+	std::string executed_ts;
+	std::string cancelled_ts;
+	bool rest_remainder{false};
+	bool post_only{false};
+	std::string cancellation_reason;
+	std::int64_t creator_subaccount{0};
+	std::int64_t rfq_creator_subaccount{0};
+	std::string yes_contracts_fp;
+	std::string no_contracts_fp;
 };
 
 // ===== Phase 6: Administrative Models =====
@@ -269,6 +407,16 @@ struct ApiKey {
 	std::vector<std::string> scopes;
 	std::int64_t created_time{0};
 	std::optional<std::int64_t> expires_at;
+	std::optional<std::int64_t> subaccount;
+	std::string fcm_subtrader_id;
+	std::string private_key;
+	std::string warning;
+};
+
+/// API keys plus the account's API-key location-attestation expiry.
+struct ApiKeysResponse {
+	std::vector<ApiKey> api_keys;
+	std::optional<std::int64_t> api_key_region_expiration_ts;
 };
 
 /// Milestone
@@ -279,6 +427,25 @@ struct Milestone {
 	std::string description;
 	std::int64_t deadline{0};
 	std::string status;
+	std::string category;
+	std::string type;
+	std::string start_date;
+	std::string end_date;
+	std::string notification_message;
+	std::string source_id;
+	std::string last_updated_ts;
+	std::vector<std::string> related_event_tickers;
+	std::vector<std::string> primary_event_tickers;
+	/// Exact flexible JSON objects from the published milestone contract.
+	std::string source_ids_json;
+	std::string details_json;
+};
+
+/// Expanded event-list response, including milestones when requested.
+struct EventsResponse {
+	std::vector<Event> events;
+	std::vector<Milestone> milestones;
+	std::optional<Cursor> next_cursor;
 };
 
 /// Multivariate collection
@@ -287,6 +454,17 @@ struct MultivariateCollection {
 	std::string title;
 	std::string description;
 	std::vector<std::string> event_tickers;
+	std::string collection_ticker;
+	std::string series_ticker;
+	std::int32_t exchange_index{0};
+	std::string open_date;
+	std::string close_date;
+	bool is_ordered{false};
+	bool is_single_market_per_event{false};
+	bool is_all_yes{false};
+	std::int32_t size_min{0};
+	std::int32_t size_max{0};
+	std::string functional_description;
 };
 
 /// Structured target
@@ -295,6 +473,10 @@ struct StructuredTarget {
 	std::string title;
 	std::string description;
 	std::string target_type;
+	std::string name;
+	std::string type;
+	std::string source_id;
+	std::string last_updated_ts;
 };
 
 /// Communication
@@ -326,6 +508,17 @@ struct IncentiveProgram {
 	std::string description;
 	std::int64_t start_time{0};
 	std::int64_t end_time{0};
+	std::string market_id;
+	std::string market_ticker;
+	std::string incentive_type;
+	std::string incentive_description;
+	std::string start_date;
+	std::string end_date;
+	std::int64_t period_reward{0};
+	bool paid_out{false};
+	std::optional<std::int32_t> discount_factor_bps;
+	std::string target_size_fp;
+	std::optional<std::int64_t> max_reward_per_account;
 };
 
 // ===== Additional Models for Full SDK Parity =====
@@ -336,6 +529,9 @@ struct IncentiveProgram {
 struct Subaccount {
 	std::int64_t subaccount_number{0};
 	std::int64_t balance{0}; // cents
+	std::string balance_dollars;
+	std::int32_t exchange_index{0};
+	std::int64_t updated_ts{0};
 };
 
 /// Cross-subaccount transfer record (also the request body shape).
@@ -343,6 +539,11 @@ struct SubaccountTransfer {
 	std::int64_t from_subaccount{0};
 	std::int64_t to_subaccount{0};
 	std::int64_t amount{0}; // cents
+	std::string client_transfer_id;
+	std::string transfer_id;
+	std::int64_t amount_cents{0};
+	std::int64_t created_ts{0};
+	std::int32_t exchange_index{0};
 };
 
 /// Response for ``GET /portfolio/subaccounts/balances``.
@@ -360,6 +561,7 @@ struct SubaccountTransfers {
 struct SubaccountNetting {
 	std::int64_t subaccount{0};
 	bool netting_enabled{false};
+	std::int32_t exchange_index{0};
 };
 
 /// Response for ``GET /portfolio/subaccounts/netting``.
@@ -376,18 +578,22 @@ struct GetSubaccountTransfersParams {
 /// Total resting order value response
 struct TotalRestingOrderValue {
 	std::int64_t total_value{0}; // in cents
+	std::vector<IndexedBalance> resting_order_value_breakdown;
 };
 
 /// User data timestamp response
 struct UserDataTimestamp {
 	std::int64_t timestamp{0};
+	std::string as_of_time;
 };
 
 /// Parameters for generating an API key
 struct GenerateApiKeyParams {
 	std::string name;
 	std::vector<std::string> scopes;
-	std::optional<std::int64_t> expires_at;
+	std::optional<std::int64_t> expires_at; // legacy; rejected by v0.5
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::string> fcm_subtrader_id;
 };
 
 /// Parameters for looking up a multivariate collection bundle
@@ -412,6 +618,14 @@ struct GetMarketsParams {
 	std::optional<std::string> series_ticker;
 	std::optional<std::string> status;	// "open", "closed", "settled"
 	std::optional<std::string> tickers; // comma-separated
+	std::optional<std::int64_t> min_created_ts;
+	std::optional<std::int64_t> max_created_ts;
+	std::optional<std::int64_t> min_updated_ts;
+	std::optional<std::int64_t> max_close_ts;
+	std::optional<std::int64_t> min_close_ts;
+	std::optional<std::int64_t> min_settled_ts;
+	std::optional<std::int64_t> max_settled_ts;
+	std::optional<std::string> mve_filter;
 };
 
 /// Parameters for listing events
@@ -420,6 +634,11 @@ struct GetEventsParams {
 	std::optional<std::string> cursor;
 	std::optional<std::string> series_ticker;
 	std::optional<std::string> status;
+	std::optional<bool> with_nested_markets;
+	std::optional<bool> with_milestones;
+	std::optional<std::string> event_tickers;
+	std::optional<std::int64_t> min_close_ts;
+	std::optional<std::int64_t> min_updated_ts;
 };
 
 /// Parameters for listing series
@@ -427,6 +646,16 @@ struct GetSeriesParams {
 	std::optional<std::int32_t> limit;
 	std::optional<std::string> cursor;
 	std::optional<std::string> category;
+	std::optional<std::string> tags;
+	std::optional<bool> include_product_metadata;
+	std::optional<bool> include_volume;
+	std::optional<std::int64_t> min_updated_ts;
+};
+
+struct GetQueuePositionsParams {
+	std::optional<std::string> market_tickers;
+	std::optional<std::string> event_ticker;
+	std::optional<std::int64_t> subaccount;
 };
 
 /// Parameters for listing order groups
@@ -434,12 +663,17 @@ struct GetOrderGroupsParams {
 	std::optional<std::int32_t> limit;
 	std::optional<std::string> cursor;
 	std::optional<std::string> status;
+	std::optional<std::int64_t> subaccount;
 };
 
 /// Parameters for creating an order group
 struct CreateOrderGroupParams {
 	std::vector<std::string> order_ids;
 	std::string type; // "oco", "otoco", etc.
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::int64_t> contracts_limit;
+	std::optional<std::string> contracts_limit_fp;
+	std::optional<std::int32_t> exchange_index;
 };
 
 /// Parameters for listing RFQs
@@ -448,6 +682,9 @@ struct GetRfqsParams {
 	std::optional<std::string> cursor;
 	std::optional<std::string> market_ticker;
 	std::optional<std::string> status;
+	std::optional<std::string> event_ticker;
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::string> user_filter;
 };
 
 /// Parameters for creating an RFQ
@@ -457,6 +694,14 @@ struct CreateRfqParams {
 	Action action{Action::Buy};
 	std::int32_t count{0};
 	std::optional<std::int64_t> expires_at;
+	std::optional<std::string> contracts_fp;
+	std::optional<std::string> target_cost_dollars;
+	bool rest_remainder{false};
+	std::optional<bool> replace_existing;
+	std::optional<std::string> subtrader_id;
+	std::optional<std::int64_t> subaccount;
+	/// Required to acknowledge that the current RFQ contract has no direction fields.
+	bool discard_legacy_direction{false};
 };
 
 /// Parameters for listing quotes
@@ -465,12 +710,16 @@ struct GetQuotesParams {
 	std::optional<std::string> cursor;
 	std::optional<std::string> rfq_id;
 	std::optional<std::string> status;
+	std::optional<std::string> rfq_user_filter;
+	std::optional<std::int64_t> min_ts;
+	std::optional<std::int64_t> max_ts;
+	std::optional<std::string> user_filter;
+	std::optional<std::string> rfq_creator_subtrader_id;
 	/// Filter for quotes that responded to RFQs created by the authenticated
 	/// user. Added to GET /communications/quotes on 2026-05-07. When set,
 	/// only quotes whose parent RFQ was created by the calling user are
 	/// returned. Values follow the Kalshi convention (typically `"true"` to
 	/// enable; absent ≡ all quotes the user can see).
-	std::optional<std::string> rfq_user_filter;
 };
 
 /// Parameters for creating a quote
@@ -483,30 +732,60 @@ struct CreateQuoteParams {
 	/// it is auto-cancelled at execution if it would have matched. Added to
 	/// the Kalshi v2 API on 2026-05-05.
 	std::optional<bool> post_only;
+	std::string yes_bid_dollars;
+	std::string no_bid_dollars;
+	bool rest_remainder{false};
+	std::optional<std::int64_t> subaccount;
 };
 
 /// Parameters for creating an API key
 struct CreateApiKeyParams {
 	std::string name;
 	std::vector<std::string> scopes;
-	std::optional<std::int64_t> expires_at;
+	std::optional<std::int64_t> expires_at; // legacy; rejected by v0.5
+	std::string public_key;
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::string> fcm_subtrader_id;
 };
 
 /// Parameters for listing milestones
 struct GetMilestonesParams {
 	std::optional<std::int32_t> limit;
 	std::optional<std::string> cursor;
-	std::optional<std::string> event_ticker;
+	std::optional<std::string> event_ticker; // legacy alias for related_event_ticker
+	std::optional<std::string> minimum_start_date;
+	std::optional<std::string> category;
+	std::optional<std::string> competition;
+	std::optional<std::string> source_id;
+	std::optional<std::string> type;
+	std::optional<std::string> related_event_ticker;
+	std::optional<std::int64_t> min_updated_ts;
 };
 
 /// Parameters for listing multivariate collections
 struct GetMultivariateCollectionsParams {
 	std::optional<std::int32_t> limit;
 	std::optional<std::string> cursor;
+	std::optional<std::string> status;
+	std::optional<std::string> associated_event_ticker;
+	std::optional<std::string> series_ticker;
 };
 
 /// Parameters for listing structured targets
 struct GetStructuredTargetsParams {
+	std::optional<std::int32_t> limit; // legacy alias for page_size
+	std::optional<std::string> cursor;
+	std::optional<std::int32_t> page_size;
+	std::vector<std::string> ids;
+	std::optional<std::string> type;
+	std::optional<std::string> competition;
+};
+
+/// Parameters for listing incentive programs.
+struct GetIncentiveProgramsParams {
+	std::optional<std::string> status;
+	std::optional<std::string> type;
+	std::optional<std::string> incentive_description;
 	std::optional<std::int32_t> limit;
 	std::optional<std::string> cursor;
 };
@@ -524,6 +803,11 @@ struct GetOrdersParams {
 	std::optional<std::string> cursor;
 	std::optional<std::string> market_ticker;
 	std::optional<std::string> status; // "open", "pending", etc.
+	std::optional<std::string> event_ticker;
+	std::optional<std::int64_t> min_ts;
+	std::optional<std::int64_t> max_ts;
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::int32_t> exchange_index;
 };
 
 /// Parameters for listing fills
@@ -534,6 +818,8 @@ struct GetFillsParams {
 	std::optional<std::string> order_id;
 	std::optional<std::int64_t> min_ts;
 	std::optional<std::int64_t> max_ts;
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::int32_t> exchange_index;
 };
 
 /// Parameters for listing positions
@@ -543,6 +829,19 @@ struct GetPositionsParams {
 	std::optional<std::string> event_ticker;
 	std::optional<std::string> market_ticker;
 	std::optional<std::string> settlement_status;
+	std::optional<std::string> count_filter;
+	std::optional<std::int64_t> subaccount;
+	std::optional<std::int32_t> exchange_index;
+};
+
+struct GetSettlementsParams {
+	std::optional<std::int32_t> limit;
+	std::optional<std::string> cursor;
+	std::optional<std::string> market_ticker;
+	std::optional<std::string> event_ticker;
+	std::optional<std::int64_t> min_ts;
+	std::optional<std::int64_t> max_ts;
+	std::optional<std::int64_t> subaccount;
 };
 
 /// Parameters for listing trades
@@ -552,18 +851,19 @@ struct GetTradesParams {
 	std::optional<std::string> market_ticker;
 	std::optional<std::int64_t> min_ts;
 	std::optional<std::int64_t> max_ts;
+	std::optional<bool> is_block_trade;
 };
 
 /// Parameters for market candlesticks
-/// Note: Requires both event_ticker and market ticker because the endpoint is
-/// GET /series/{event_ticker}/markets/{ticker}/candlesticks
-/// Despite the path saying "series", the first parameter is the EVENT ticker.
+/// Requires a series ticker, market ticker, and time range.
 struct GetCandlesticksParams {
-	std::string event_ticker;			  ///< Event ticker (e.g., "KXHIGHLAX-26JAN18")
+	std::string event_ticker;			  ///< Legacy alias for series_ticker.
 	std::string ticker;					  ///< Market ticker (e.g., "KXHIGHLAX-26JAN18-T50")
 	std::int32_t period_interval{1};	  ///< Period in MINUTES: 1 (1m), 60 (1h), 1440 (1d)
 	std::optional<std::int64_t> start_ts; ///< Start timestamp (unix seconds)
 	std::optional<std::int64_t> end_ts;	  ///< End timestamp (unix seconds)
+	std::optional<bool> include_latest_before_start;
+	std::string series_ticker; ///< Series ticker used by the current endpoint.
 };
 
 /// Parameters for creating an order
@@ -590,6 +890,14 @@ struct CreateOrderParams {
 	std::optional<bool> cancel_order_on_pause;
 	std::optional<std::int64_t> subaccount;
 	std::optional<std::int32_t> exchange_index;
+	/// Canonical V2 single-book side. Required by create_order().
+	std::optional<BookSide> book_side;
+	/// Canonical V2 fixed-point price. Required by create_order().
+	std::optional<std::string> price_dollars;
+	std::optional<std::int64_t> expiration_time;
+	/// Set when the canonical book_side intentionally replaces the default
+	/// legacy Yes/Buy direction. Required only when the two directions differ.
+	bool discard_legacy_direction{false};
 };
 
 /// Parameters for amending an order
@@ -598,12 +906,25 @@ struct AmendOrderParams {
 	std::optional<std::int32_t> count;
 	std::optional<std::int32_t> yes_price;
 	std::optional<std::int32_t> no_price;
+	std::string ticker;
+	std::optional<BookSide> book_side;
+	std::optional<std::string> price_dollars;
+	std::optional<std::string> count_fp;
+	std::optional<std::string> client_order_id;
+	std::optional<std::string> updated_client_order_id;
+	std::optional<std::int32_t> exchange_index;
+	std::optional<std::int64_t> subaccount;
 };
 
 /// Parameters for decreasing an order
 struct DecreaseOrderParams {
 	std::string order_id;
 	std::int32_t reduce_by{0};
+	std::optional<std::string> reduce_by_fp;
+	std::optional<std::string> reduce_to_fp;
+	std::optional<std::int32_t> exchange_index;
+	std::optional<std::string> market_ticker;
+	std::optional<std::int64_t> subaccount;
 };
 
 /// Batch order request
@@ -616,6 +937,7 @@ struct BatchCancelOrder {
 	std::string order_id;
 	std::optional<std::int64_t> subaccount;
 	std::optional<std::int32_t> exchange_index;
+	std::optional<std::string> market_ticker;
 };
 
 /// Batch cancel request.
@@ -633,6 +955,7 @@ struct CancelOrderV2Params {
 	std::string order_id;
 	std::optional<std::int64_t> subaccount;
 	std::optional<std::int32_t> exchange_index;
+	std::optional<std::string> market_ticker;
 };
 
 /// Per-order error payload returned by event-market batch cancel V2.
@@ -666,14 +989,16 @@ struct BatchResponse {
 	std::vector<std::string> errors;
 };
 
-/// Complete Kalshi REST API client
+/// Typed client for the supported Kalshi Predictions REST API operations.
 ///
-/// Provides typed methods for all Kalshi v2 API endpoints.
-/// Uses the HttpClient for actual HTTP communication.
+/// The Margin API is a separate product and is intentionally not exposed by
+/// this client. See the compatibility table in the README for operation gaps.
 class KalshiClient {
 public:
 	/// Create a client with the given HTTP client
 	explicit KalshiClient(HttpClient client);
+	/// Create a client with an injected transport.
+	explicit KalshiClient(std::shared_ptr<HttpTransport> transport);
 	~KalshiClient();
 
 	KalshiClient(KalshiClient&&) noexcept;
@@ -682,6 +1007,10 @@ public:
 	// Non-copyable
 	KalshiClient(const KalshiClient&) = delete;
 	KalshiClient& operator=(const KalshiClient&) = delete;
+
+	/// Underlying request transport, including injected test/application transports.
+	[[nodiscard]] HttpTransport& transport() noexcept;
+	[[nodiscard]] const HttpTransport& transport() const noexcept;
 
 	// ===== Exchange API =====
 
@@ -692,7 +1021,9 @@ public:
 	[[nodiscard]] Result<Schedule> get_exchange_schedule();
 
 	/// Get exchange announcements
-	[[nodiscard]] Result<std::vector<Announcement>> get_exchange_announcements();
+	[[deprecated(
+		"removed from the Predictions API")]] [[nodiscard]] Result<std::vector<Announcement>>
+	get_exchange_announcements();
 
 	/// Get user data timestamp
 	[[nodiscard]] Result<UserDataTimestamp> get_user_data_timestamp();
@@ -735,9 +1066,13 @@ public:
 
 	/// Get a single event by ticker
 	[[nodiscard]] Result<Event> get_event(const std::string& event_ticker);
+	[[nodiscard]] Result<Event> get_event(const std::string& event_ticker,
+										  bool with_nested_markets);
 
 	/// List events with optional filters
 	[[nodiscard]] Result<PaginatedResponse<Event>> get_events(const GetEventsParams& params = {});
+	/// List events and preserve optional top-level milestone expansions.
+	[[nodiscard]] Result<EventsResponse> get_events_response(const GetEventsParams& params = {});
 
 	/// Get event metadata
 	[[nodiscard]] Result<EventMetadata> get_event_metadata(const std::string& event_ticker);
@@ -746,6 +1081,7 @@ public:
 
 	/// Get a single series by ticker
 	[[nodiscard]] Result<Series> get_series(const std::string& series_ticker);
+	[[nodiscard]] Result<Series> get_series(const std::string& series_ticker, bool include_volume);
 
 	/// List all series
 	[[nodiscard]] Result<PaginatedResponse<Series>>
@@ -754,7 +1090,7 @@ public:
 	// ===== Portfolio API (Authenticated) =====
 
 	/// Get account balance
-	[[nodiscard]] Result<Balance> get_balance();
+	[[nodiscard]] Result<Balance> get_balance(const GetBalanceParams& params = {});
 
 	/// Get user positions
 	[[nodiscard]] Result<PaginatedResponse<Position>>
@@ -771,7 +1107,9 @@ public:
 
 	/// Get user settlements
 	[[nodiscard]] Result<PaginatedResponse<Settlement>>
-	get_settlements(const GetPositionsParams& params = {});
+	get_settlements(const GetSettlementsParams& params = {});
+	[[deprecated("use GetSettlementsParams")]] [[nodiscard]] Result<PaginatedResponse<Settlement>>
+	get_settlements(const GetPositionsParams& params);
 
 	/// List deposits (Kalshi V2 ``GET /portfolio/deposits``, shipped
 	/// 2026-05-05). Cursor-paginated; ``params.limit`` is clamped
@@ -791,9 +1129,9 @@ public:
 	// ===== Subaccounts (Authenticated) =====
 
 	/// Create a new subaccount under the primary account holder.
-	/// The Kalshi API takes no body; the new subaccount's
-	/// ``subaccount_number`` is returned for use in subsequent calls.
+	/// Pass an exchange shard when the subaccount should be created there.
 	[[nodiscard]] Result<Subaccount> create_subaccount();
+	[[nodiscard]] Result<Subaccount> create_subaccount(std::int32_t exchange_index);
 
 	/// Transfer ``amount`` cents from one subaccount to another.
 	[[nodiscard]] Result<SubaccountTransfer> transfer_subaccount(const SubaccountTransfer& request);
@@ -819,6 +1157,9 @@ public:
 
 	/// Cancel an order
 	[[nodiscard]] Result<void> cancel_order(const std::string& order_id);
+	/// Cancel all resting event-market orders, optionally for one subaccount.
+	[[nodiscard]] Result<void>
+	cancel_all_orders(std::optional<std::int64_t> subaccount = std::nullopt);
 
 	/// Cancel an event-market order using Kalshi's V2 response shape.
 	[[nodiscard]] Result<OrderCancelResult> cancel_order_v2(const CancelOrderV2Params& params);
@@ -851,13 +1192,22 @@ public:
 	get_order_groups(const GetOrderGroupsParams& params = {});
 
 	/// Get a single order group by ID
-	[[nodiscard]] Result<OrderGroup> get_order_group(const std::string& group_id);
+	[[deprecated("use the selector overload")]] [[nodiscard]] Result<OrderGroup>
+	get_order_group(const std::string& group_id);
+	[[nodiscard]] Result<OrderGroup> get_order_group(const std::string& group_id,
+													 const OrderGroupSelector& selector);
 
 	/// Delete an order group
-	[[nodiscard]] Result<void> delete_order_group(const std::string& group_id);
+	[[deprecated("use the selector overload")]] [[nodiscard]] Result<void>
+	delete_order_group(const std::string& group_id);
+	[[nodiscard]] Result<void> delete_order_group(const std::string& group_id,
+												  const OrderGroupSelector& selector);
 
 	/// Reset an order group
-	[[nodiscard]] Result<OrderGroup> reset_order_group(const std::string& group_id);
+	[[deprecated("use the selector overload")]] [[nodiscard]] Result<OrderGroup>
+	reset_order_group(const std::string& group_id);
+	[[nodiscard]] Result<OrderGroup> reset_order_group(const std::string& group_id,
+													   const OrderGroupSelector& selector);
 
 	// ===== Order Queue Position (Authenticated) =====
 
@@ -867,6 +1217,8 @@ public:
 	/// Get queue positions for multiple orders
 	[[nodiscard]] Result<std::vector<OrderQueuePosition>>
 	get_queue_positions(const std::vector<std::string>& order_ids);
+	[[nodiscard]] Result<std::vector<OrderQueuePosition>>
+	get_queue_positions(const GetQueuePositionsParams& params);
 
 	// ===== RFQ/Quotes (Authenticated) =====
 
@@ -890,19 +1242,30 @@ public:
 
 	/// Get a single quote by ID
 	[[nodiscard]] Result<Quote> get_quote(const std::string& quote_id);
+	[[nodiscard]] Result<Quote> get_quote(const std::string& rfq_id, const std::string& quote_id);
 
 	/// Accept a quote
-	[[nodiscard]] Result<void> accept_quote(const std::string& quote_id);
+	[[deprecated("accepted_side is required")]] [[nodiscard]] Result<void>
+	accept_quote(const std::string& quote_id);
+	[[nodiscard]] Result<void> accept_quote(const std::string& quote_id, Side accepted_side);
+	[[nodiscard]] Result<void> accept_quote(const std::string& rfq_id, const std::string& quote_id,
+											Side accepted_side);
 
 	/// Confirm a quote
 	[[nodiscard]] Result<void> confirm_quote(const std::string& quote_id);
+	[[nodiscard]] Result<void> confirm_quote(const std::string& rfq_id,
+											 const std::string& quote_id);
 
 	/// Delete a quote
 	[[nodiscard]] Result<void> delete_quote(const std::string& quote_id);
+	[[nodiscard]] Result<void> delete_quote(const std::string& rfq_id, const std::string& quote_id);
 
 	// ===== API Keys Management (Authenticated) =====
 
 	/// List API keys
+	[[nodiscard]] Result<ApiKeysResponse> get_api_keys_response();
+
+	/// List API keys without the account-level location-attestation metadata.
 	[[nodiscard]] Result<std::vector<ApiKey>> get_api_keys();
 
 	/// Create an API key
@@ -934,7 +1297,7 @@ public:
 	get_multivariate_collection(const std::string& collection_id);
 
 	/// Lookup bundle pricing for a multivariate collection
-	[[nodiscard]] Result<LookupBundleResponse>
+	[[deprecated("removed from the Predictions API")]] [[nodiscard]] Result<LookupBundleResponse>
 	lookup_multivariate_bundle(const std::string& collection_ticker,
 							   const LookupBundleParams& params);
 
@@ -950,29 +1313,41 @@ public:
 	// ===== Communications =====
 
 	/// Get a communication by ID
-	[[nodiscard]] Result<Communication> get_communication(const std::string& comm_id);
+	[[deprecated("removed; use the RFQ, quote, and block-trade operations")]] [[nodiscard]] Result<
+		Communication>
+	get_communication(const std::string& comm_id);
 
 	// ===== Search API =====
 
 	/// Search events
-	[[nodiscard]] Result<PaginatedResponse<Event>> search_events(const SearchParams& params);
+	[[deprecated(
+		"removed from the Predictions API")]] [[nodiscard]] Result<PaginatedResponse<Event>>
+	search_events(const SearchParams& params);
 
 	/// Search markets
-	[[nodiscard]] Result<PaginatedResponse<Market>> search_markets(const SearchParams& params);
+	[[deprecated(
+		"removed from the Predictions API")]] [[nodiscard]] Result<PaginatedResponse<Market>>
+	search_markets(const SearchParams& params);
 
 	// ===== Live Data API =====
 
 	/// Get live data for a single ticker
-	[[nodiscard]] Result<LiveData> get_live_data(const std::string& ticker);
+	[[deprecated("use the typed live_data event, milestone, or weather "
+				 "operations")]] [[nodiscard]] Result<LiveData>
+	get_live_data(const std::string& ticker);
 
-	/// Get live data for multiple tickers
-	[[nodiscard]] Result<std::vector<LiveData>>
+	/// Legacy market-ticker batch model. The current GET /live_data/batch
+	/// operation accepts milestone_ids and returns sport-specific payloads.
+	[[deprecated("use the current milestone-based live_data operations")]] [[nodiscard]] Result<
+		std::vector<LiveData>>
 	get_live_datas(const std::vector<std::string>& tickers);
 
 	// ===== Incentive Programs =====
 
 	/// List incentive programs
 	[[nodiscard]] Result<std::vector<IncentiveProgram>> get_incentive_programs();
+	[[nodiscard]] Result<PaginatedResponse<IncentiveProgram>>
+	get_incentive_programs(const GetIncentiveProgramsParams& params);
 
 	/// Access the underlying HTTP client
 	[[nodiscard]] HttpClient& http_client();
@@ -1032,6 +1407,10 @@ private:
 /// Convert Action to JSON string
 [[nodiscard]] constexpr std::string_view to_json_string(Action action) noexcept {
 	return action == Action::Buy ? "buy" : "sell";
+}
+
+[[nodiscard]] constexpr std::string_view to_json_string(BookSide side) noexcept {
+	return side == BookSide::Bid ? "bid" : "ask";
 }
 
 /// Parse Side from JSON string

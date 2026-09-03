@@ -6,7 +6,7 @@
 namespace kalshi {
 
 RateLimiter::RateLimiter(Config config)
-	: config_(std::move(config)), tokens_(config_.initial_tokens),
+	: config_(config), tokens_(config_.initial_tokens),
 	  last_refill_(std::chrono::steady_clock::now()) {}
 
 void RateLimiter::refill() noexcept {

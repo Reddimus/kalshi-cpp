@@ -1,6 +1,9 @@
 #include "kalshi/websocket.hpp"
 
+#include "kalshi/detail/callback_slot.hpp"
 #include "kalshi/detail/ws_json.hpp"
+#include "kalshi/detail/ws_message.hpp"
+#include "kalshi/fixed_point.hpp"
 
 #include "subscription_registry.hpp"
 
@@ -32,6 +35,7 @@
 #include <cstring>
 #include <deque>
 #include <libwebsockets.h>
+#include <limits>
 #include <mutex>
 #include <string>
 #include <thread>
@@ -51,6 +55,253 @@
 // the `feedback_find_first_json_scanner` memory note.
 
 namespace kalshi {
+
+namespace {
+
+std::int32_t exact_ws_integer(std::string_view wire, std::uint8_t scale) {
+	const Result<FixedPoint> parsed = FixedPoint::parse(wire);
+	if (!parsed)
+		return 0;
+	const Result<std::int64_t> value = parsed->scaled_integer(scale);
+	if (!value || *value < std::numeric_limits<std::int32_t>::min() ||
+		*value > std::numeric_limits<std::int32_t>::max())
+		return 0;
+	return static_cast<std::int32_t>(*value);
+}
+
+} // namespace
+
+namespace detail {
+
+struct LifecyclePriceRangeWire {
+	std::string start;
+	std::string end;
+	std::string step;
+};
+
+struct LifecycleAdditionalMetadataWire {
+	std::string name;
+	std::string title;
+	std::string yes_sub_title;
+	std::string no_sub_title;
+	std::string rules_primary;
+	std::string rules_secondary;
+	bool can_close_early{false};
+	std::string event_ticker;
+	std::int64_t expected_expiration_ts{0};
+	std::string strike_type;
+	std::optional<glz::raw_json> floor_strike;
+	std::optional<glz::raw_json> cap_strike;
+	std::optional<glz::raw_json> custom_strike;
+};
+
+struct LifecycleMessageWire {
+	std::string event_type;
+	std::string market_ticker;
+	std::int32_t exchange_index{0};
+	std::int64_t open_ts{0};
+	std::int64_t close_ts{0};
+	std::optional<std::int64_t> determination_ts;
+	std::optional<std::int64_t> settled_ts;
+	std::optional<std::string> result;
+	std::string settlement_value;
+	bool is_deactivated{false};
+	std::string price_level_structure;
+	std::vector<LifecyclePriceRangeWire> price_ranges;
+	std::string strike_type;
+	std::optional<glz::raw_json> floor_strike;
+	std::optional<glz::raw_json> cap_strike;
+	std::optional<glz::raw_json> custom_strike;
+	std::optional<std::string> yes_sub_title;
+	std::optional<LifecycleAdditionalMetadataWire> additional_metadata;
+};
+
+struct LifecycleEnvelopeWire {
+	std::string type;
+	std::int32_t sid{0};
+	LifecycleMessageWire msg;
+};
+
+std::optional<WsMessage> parse_ws_data_message(std::string_view input) {
+	const std::string json{input};
+	const std::string type = extract_string(json, "type");
+	const auto side = [&](std::string_view key) {
+		return extract_string(json, std::string{key}) == "no" ? Side::No : Side::Yes;
+	};
+	const auto action = [&](std::string_view key) {
+		return extract_string(json, std::string{key}) == "sell" ? Action::Sell : Action::Buy;
+	};
+	const auto outcome_side = [&](std::string_view key) {
+		return extract_string(json, std::string{key}) == "no" ? OutcomeSide::No : OutcomeSide::Yes;
+	};
+	const auto book_side = [&](std::string_view key) {
+		return extract_string(json, std::string{key}) == "ask" ? BookSide::Ask : BookSide::Bid;
+	};
+	const auto has_key = [&](std::string_view key) {
+		return json.find('"' + std::string{key} + '"') != std::string::npos;
+	};
+	const auto orderbook_entries = [&](std::string_view current_key, std::string_view legacy_key) {
+		const bool current = has_key(current_key);
+		const std::vector<PriceQty> pairs =
+			extract_orderbook_entries(json, std::string{current ? current_key : legacy_key});
+		std::vector<OrderBookEntry> entries;
+		entries.reserve(pairs.size());
+		for (const PriceQty& pair : pairs) {
+			OrderBookEntry entry{};
+			entry.price_dollars = current ? pair.price_fp : std::string{};
+			entry.quantity_fp = current ? pair.quantity_fp : std::string{};
+			entry.price_cents = current ? exact_ws_integer(pair.price_fp, 2) : pair.price;
+			entry.quantity = current ? exact_ws_integer(pair.quantity_fp, 0) : pair.quantity;
+			entries.push_back(std::move(entry));
+		}
+		return entries;
+	};
+
+	if (type == "orderbook_snapshot") {
+		OrderbookSnapshot snapshot;
+		snapshot.sid = extract_int(json, "sid");
+		snapshot.seq = extract_int(json, "seq");
+		snapshot.market_ticker = extract_string(json, "market_ticker");
+		snapshot.market_id = extract_string(json, "market_id");
+		snapshot.yes = orderbook_entries("yes_dollars_fp", "yes");
+		snapshot.no = orderbook_entries("no_dollars_fp", "no");
+		return snapshot;
+	}
+	if (type == "orderbook_delta") {
+		OrderbookDelta delta;
+		delta.sid = extract_int(json, "sid");
+		delta.seq = extract_int(json, "seq");
+		delta.market_ticker = extract_string(json, "market_ticker");
+		delta.market_id = extract_string(json, "market_id");
+		delta.client_order_id = extract_string(json, "client_order_id");
+		if (has_key("subaccount"))
+			delta.subaccount = extract_int64(json, "subaccount");
+		delta.price_dollars = extract_string(json, "price_dollars");
+		delta.delta_fp = extract_string(json, "delta_fp");
+		delta.price = exact_ws_integer(delta.price_dollars, 2);
+		delta.delta = exact_ws_integer(delta.delta_fp, 0);
+		delta.side = side("side");
+		delta.timestamp_iso = extract_string(json, "ts");
+		delta.timestamp_ms = extract_int64(json, "ts_ms");
+		return delta;
+	}
+	if (type == "trade") {
+		WsTrade trade;
+		trade.sid = extract_int(json, "sid");
+		trade.trade_id = extract_string(json, "trade_id");
+		trade.market_ticker = extract_string(json, "market_ticker");
+		trade.yes_price_dollars = extract_string(json, "yes_price_dollars");
+		trade.no_price_dollars = extract_string(json, "no_price_dollars");
+		trade.count_fp = extract_string(json, "count_fp");
+		trade.yes_price = exact_ws_integer(trade.yes_price_dollars, 2);
+		trade.no_price = exact_ws_integer(trade.no_price_dollars, 2);
+		trade.count = exact_ws_integer(trade.count_fp, 0);
+		trade.is_block_trade = extract_bool(json, "is_block_trade");
+		trade.taker_side = side("taker_side");
+		const std::string canonical_outcome = extract_string(json, "taker_outcome_side");
+		trade.taker_outcome_side =
+			canonical_outcome.empty()
+				? (trade.taker_side == Side::No ? OutcomeSide::No : OutcomeSide::Yes)
+				: outcome_side("taker_outcome_side");
+		const std::string canonical_book = extract_string(json, "taker_book_side");
+		trade.taker_book_side =
+			canonical_book.empty()
+				? (trade.taker_outcome_side == OutcomeSide::No ? BookSide::Ask : BookSide::Bid)
+				: book_side("taker_book_side");
+		trade.timestamp = extract_int64(json, "ts");
+		trade.timestamp_ms = extract_int64(json, "ts_ms");
+		return trade;
+	}
+	if (type == "fill") {
+		WsFill fill;
+		fill.sid = extract_int(json, "sid");
+		fill.trade_id = extract_string(json, "trade_id");
+		fill.order_id = extract_string(json, "order_id");
+		fill.market_ticker = extract_string(json, "market_ticker");
+		fill.exchange_index = extract_int(json, "exchange_index");
+		fill.is_taker = extract_bool(json, "is_taker");
+		fill.side = side("side");
+		fill.yes_price_dollars = extract_string(json, "yes_price_dollars");
+		fill.no_price_dollars = extract_string(json, "no_price_dollars");
+		fill.count_fp = extract_string(json, "count_fp");
+		fill.fee_cost = extract_string(json, "fee_cost");
+		fill.yes_price = exact_ws_integer(fill.yes_price_dollars, 2);
+		fill.no_price = exact_ws_integer(fill.no_price_dollars, 2);
+		fill.count = exact_ws_integer(fill.count_fp, 0);
+		fill.action = action("action");
+		const std::string canonical_outcome = extract_string(json, "outcome_side");
+		fill.outcome_side = canonical_outcome.empty() ? derive_outcome_side(fill.side, fill.action)
+													  : outcome_side("outcome_side");
+		const std::string canonical_book = extract_string(json, "book_side");
+		fill.book_side = canonical_book.empty() ? derive_book_side(fill.side, fill.action)
+												: book_side("book_side");
+		fill.timestamp = extract_int64(json, "ts");
+		fill.timestamp_ms = extract_int64(json, "ts_ms");
+		fill.client_order_id = extract_string(json, "client_order_id");
+		fill.post_position_fp = extract_string(json, "post_position_fp");
+		fill.purchased_side = side("purchased_side");
+		if (has_key("subaccount"))
+			fill.subaccount = extract_int64(json, "subaccount");
+		return fill;
+	}
+	if (type == "market_lifecycle" || type == "market_lifecycle_v2") {
+		LifecycleEnvelopeWire wire;
+		constexpr glz::opts read_options{.error_on_unknown_keys = false};
+		if (glz::read<read_options>(wire, json))
+			return std::nullopt;
+		MarketLifecycle lifecycle;
+		lifecycle.sid = wire.sid;
+		lifecycle.event_type = std::move(wire.msg.event_type);
+		lifecycle.market_ticker = std::move(wire.msg.market_ticker);
+		lifecycle.exchange_index = wire.msg.exchange_index;
+		lifecycle.open_ts = wire.msg.open_ts;
+		lifecycle.close_ts = wire.msg.close_ts;
+		lifecycle.determination_ts = wire.msg.determination_ts;
+		lifecycle.settled_ts = wire.msg.settled_ts;
+		lifecycle.result = std::move(wire.msg.result);
+		lifecycle.is_deactivated = wire.msg.is_deactivated;
+		lifecycle.yes_sub_title = std::move(wire.msg.yes_sub_title);
+		lifecycle.settlement_value_dollars = std::move(wire.msg.settlement_value);
+		lifecycle.price_level_structure = std::move(wire.msg.price_level_structure);
+		lifecycle.price_ranges.reserve(wire.msg.price_ranges.size());
+		for (LifecyclePriceRangeWire& range : wire.msg.price_ranges) {
+			lifecycle.price_ranges.push_back(
+				{std::move(range.start), std::move(range.end), std::move(range.step)});
+		}
+		lifecycle.strike_type = std::move(wire.msg.strike_type);
+		if (wire.msg.floor_strike)
+			lifecycle.floor_strike = std::move(wire.msg.floor_strike->str);
+		if (wire.msg.cap_strike)
+			lifecycle.cap_strike = std::move(wire.msg.cap_strike->str);
+		if (wire.msg.custom_strike)
+			lifecycle.custom_strike_json = std::move(wire.msg.custom_strike->str);
+		if (wire.msg.additional_metadata) {
+			LifecycleAdditionalMetadata metadata;
+			metadata.name = std::move(wire.msg.additional_metadata->name);
+			metadata.title = std::move(wire.msg.additional_metadata->title);
+			metadata.yes_sub_title = std::move(wire.msg.additional_metadata->yes_sub_title);
+			metadata.no_sub_title = std::move(wire.msg.additional_metadata->no_sub_title);
+			metadata.rules_primary = std::move(wire.msg.additional_metadata->rules_primary);
+			metadata.rules_secondary = std::move(wire.msg.additional_metadata->rules_secondary);
+			metadata.can_close_early = wire.msg.additional_metadata->can_close_early;
+			metadata.event_ticker = std::move(wire.msg.additional_metadata->event_ticker);
+			metadata.expected_expiration_ts = wire.msg.additional_metadata->expected_expiration_ts;
+			metadata.strike_type = std::move(wire.msg.additional_metadata->strike_type);
+			if (wire.msg.additional_metadata->floor_strike)
+				metadata.floor_strike = std::move(wire.msg.additional_metadata->floor_strike->str);
+			if (wire.msg.additional_metadata->cap_strike)
+				metadata.cap_strike = std::move(wire.msg.additional_metadata->cap_strike->str);
+			if (wire.msg.additional_metadata->custom_strike)
+				metadata.custom_strike_json =
+					std::move(wire.msg.additional_metadata->custom_strike->str);
+			lifecycle.additional_metadata = std::move(metadata);
+		}
+		return lifecycle;
+	}
+	return std::nullopt;
+}
+
+} // namespace detail
 
 // Forward declaration for the callback
 struct WsImplData;
@@ -115,11 +366,9 @@ struct WsImplData {
 	std::atomic<bool> connected{false};
 	std::atomic<bool> should_stop{false};
 
-	WsMessageCallback message_callback;
-	WsErrorCallback error_callback;
-	WsStateCallback state_callback;
-
-	std::mutex callback_mutex;
+	detail::CallbackSlot<void(const WsMessage&)> message_callback;
+	detail::CallbackSlot<void(const WsError&)> error_callback;
+	detail::CallbackSlot<void(bool)> state_callback;
 	std::atomic<std::int32_t> next_command_id{1};
 	std::atomic<std::uint16_t> reconnect_attempts{0}; ///< Current reconnect attempts (0-65535)
 
@@ -160,25 +409,12 @@ struct WsImplData {
 		}
 	}
 
-	void invoke_message_callback(const WsMessage& msg) {
-		std::lock_guard lock(callback_mutex);
-		if (message_callback) {
-			message_callback(msg);
-		}
-	}
+	void invoke_message_callback(const WsMessage& msg) noexcept { message_callback.invoke(msg); }
 
-	void invoke_error_callback(const WsError& err) {
-		std::lock_guard lock(callback_mutex);
-		if (error_callback) {
-			error_callback(err);
-		}
-	}
+	void invoke_error_callback(const WsError& err) noexcept { error_callback.invoke(err); }
 
-	void invoke_state_callback(bool connected_state) {
-		std::lock_guard lock(callback_mutex);
-		if (state_callback) {
-			state_callback(connected_state);
-		}
+	void invoke_state_callback(bool connected_state) noexcept {
+		state_callback.invoke(connected_state);
 	}
 
 	// Parse incoming JSON message and dispatch to appropriate callback
@@ -191,9 +427,11 @@ struct WebSocketClient::Impl {
 	Impl(const Signer& s, WsConfig c) : data(std::make_unique<WsImplData>(s, std::move(c))) {}
 };
 
-// libwebsockets callback
+// libwebsockets fixes this callback ABI, including the adjacent opaque pointers.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in,
 					   size_t len) {
+	(void)user;
 	WsImplData* impl = static_cast<WsImplData*>(lws_context_user(lws_get_context(wsi)));
 
 	if (!impl)
@@ -312,19 +550,6 @@ void WsImplData::handle_message(const std::string& json) {
 	// private to this translation unit.
 	auto extract_int = [&](const std::string& key) { return detail::extract_int(json, key); };
 
-	// Extract orderbook entries from "yes" or "no" arrays:
-	// [[price, quantity], ...] — implementation in detail/ws_json.hpp,
-	// returning PriceQty pairs we translate into the public
-	// OrderBookEntry struct.
-	auto extract_orderbook_entries = [&](const std::string& key) -> std::vector<OrderBookEntry> {
-		const std::vector<detail::PriceQty> pairs = detail::extract_orderbook_entries(json, key);
-		std::vector<OrderBookEntry> entries;
-		entries.reserve(pairs.size());
-		for (const detail::PriceQty& p : pairs)
-			entries.push_back(OrderBookEntry{p.price, p.quantity});
-		return entries;
-	};
-
 	auto extract_string = [&](const std::string& key) { return detail::extract_string(json, key); };
 
 	if (msg_type == "error") {
@@ -353,90 +578,23 @@ void WsImplData::handle_message(const std::string& json) {
 		if (client_id > 0 && server_sid > 0) {
 			subscriptions.register_ack(client_id, server_sid);
 		}
-	} else if (msg_type == "orderbook_snapshot") {
-		OrderbookSnapshot snap;
-		snap.sid = extract_int("sid");
-		snap.seq = extract_int("seq");
-		snap.market_ticker = extract_string("market_ticker");
-		snap.yes = extract_orderbook_entries("yes");
-		snap.no = extract_orderbook_entries("no");
-		invoke_message_callback(snap);
-	} else if (msg_type == "orderbook_delta") {
-		// Kalshi v2 wire format (as of 2026-04):
-		//   msg.price_dollars  = "0.4200"    -> 42 cents
-		//   msg.delta_fp       = "-30.87"    -> -31 (rounded)
-		//   msg.ts             = "2026-04-20T08:19:13.898Z"  (ISO, not int)
-		OrderbookDelta delta;
-		delta.sid = extract_int("sid");
-		delta.seq = extract_int("seq");
-		delta.market_ticker = extract_string("market_ticker");
-		delta.price = detail::extract_dollar_cents(json, "price_dollars");
-		delta.delta = detail::extract_fp_int(json, "delta_fp");
-		std::string side_str = extract_string("side");
-		delta.side = (side_str == "yes") ? Side::Yes : Side::No;
-		invoke_message_callback(delta);
-	} else if (msg_type == "trade") {
-		// Kalshi v2 wire format (as of 2026-04):
-		//   msg.yes_price_dollars = "0.3200"  -> 32 cents
-		//   msg.no_price_dollars  = "0.6800"  -> 68 cents
-		//   msg.count_fp          = "40.00"   -> 40 contracts (rounded)
-		WsTrade trade;
-		trade.sid = extract_int("sid");
-		trade.trade_id = extract_string("trade_id");
-		trade.market_ticker = extract_string("market_ticker");
-		trade.yes_price = detail::extract_dollar_cents(json, "yes_price_dollars");
-		trade.no_price = detail::extract_dollar_cents(json, "no_price_dollars");
-		trade.count = detail::extract_fp_int(json, "count_fp");
-		std::string side_str = extract_string("taker_side");
-		trade.taker_side = (side_str == "yes") ? Side::Yes : Side::No;
-		trade.timestamp = extract_int("ts");
-		invoke_message_callback(trade);
-	} else if (msg_type == "fill") {
-		// Fill messages (user-only) use the same _dollars / _fp suffix
-		// convention as trade frames in the v2 schema.
-		WsFill fill;
-		fill.sid = extract_int("sid");
-		fill.trade_id = extract_string("trade_id");
-		fill.order_id = extract_string("order_id");
-		fill.market_ticker = extract_string("market_ticker");
-		fill.is_taker = (extract_string("is_taker") == "true");
-		std::string side_str = extract_string("side");
-		fill.side = (side_str == "yes") ? Side::Yes : Side::No;
-		fill.yes_price = detail::extract_dollar_cents(json, "yes_price_dollars");
-		fill.no_price = detail::extract_dollar_cents(json, "no_price_dollars");
-		fill.count = detail::extract_fp_int(json, "count_fp");
-		std::string action_str = extract_string("action");
-		fill.action = (action_str == "buy") ? Action::Buy : Action::Sell;
-		fill.timestamp = extract_int("ts");
-		invoke_message_callback(fill);
-	} else if (msg_type == "market_lifecycle" || msg_type == "market_lifecycle_v2") {
-		MarketLifecycle lc;
-		lc.sid = extract_int("sid");
-		lc.market_ticker = extract_string("market_ticker");
-		lc.open_ts = extract_int("open_ts");
-		lc.close_ts = extract_int("close_ts");
-		std::int64_t det = extract_int("determination_ts");
-		if (det > 0)
-			lc.determination_ts = det;
-		std::int64_t set = extract_int("settled_ts");
-		if (set > 0)
-			lc.settled_ts = set;
-		std::string result = extract_string("result");
-		if (!result.empty())
-			lc.result = result;
-		lc.is_deactivated = (extract_string("is_deactivated") == "true");
-		// `yes_sub_title` is emitted only by the `metadata_updated` sub-event
-		// (added 2026-05-11). Non-empty here ⇒ the frame is a metadata
-		// update. Empty extraction ⇒ leave nullopt.
-		std::string yes_sub_title = extract_string("yes_sub_title");
-		if (!yes_sub_title.empty())
-			lc.yes_sub_title = yes_sub_title;
-		invoke_message_callback(lc);
+	} else if (std::optional<WsMessage> message = detail::parse_ws_data_message(json)) {
+		invoke_message_callback(*message);
 	}
 }
 
-static const struct lws_protocols protocols[] = {{"kalshi-ws", ws_callback, 0, 65536},
+#if defined(__GNUC__)
+#pragma GCC diagnostic push
+#pragma GCC diagnostic ignored "-Wmissing-field-initializers"
+#endif
+static const struct lws_protocols protocols[] = {{.name = "kalshi-ws",
+												  .callback = ws_callback,
+												  .per_session_data_size = 0,
+												  .rx_buffer_size = 65536},
 												 LWS_PROTOCOL_LIST_TERM};
+#if defined(__GNUC__)
+#pragma GCC diagnostic pop
+#endif
 
 WebSocketClient::WebSocketClient(const Signer& signer, WsConfig config)
 	: impl_(std::make_unique<Impl>(signer, std::move(config))) {}
@@ -471,7 +629,10 @@ Result<void> WebSocketClient::connect() {
 	// kalshi-websocket before this fix.
 	if (data->service_thread.joinable()) {
 		data->should_stop = true;
-		data->service_thread.join();
+		if (!detail::join_thread_unless_current(data->service_thread)) {
+			return std::unexpected(
+				Error::network("Cannot reconnect from the WebSocket service callback"));
+		}
 	}
 	if (data->context) {
 		lws_context_destroy(data->context);
@@ -544,8 +705,7 @@ Result<void> WebSocketClient::connect() {
 	conn_info.origin = nullptr;
 
 	if (use_ssl) {
-		conn_info.ssl_connection =
-			LCCSCF_USE_SSL | LCCSCF_ALLOW_SELFSIGNED | LCCSCF_SKIP_SERVER_CERT_HOSTNAME_CHECK;
+		conn_info.ssl_connection = LCCSCF_USE_SSL;
 	}
 
 	data->wsi = lws_client_connect_via_info(&conn_info);
@@ -598,7 +758,10 @@ void WebSocketClient::disconnect() {
 	data->subscriptions.clear();
 
 	if (data->service_thread.joinable()) {
-		data->service_thread.join();
+		if (!detail::join_thread_unless_current(data->service_thread)) {
+			data->invoke_state_callback(false);
+			return;
+		}
 	}
 
 	if (data->context) {
@@ -760,32 +923,30 @@ void WebSocketClient::on_message(WsMessageCallback callback) {
 	if (!impl_) {
 		return;
 	}
-	std::lock_guard lock(impl_->data->callback_mutex);
-	impl_->data->message_callback = std::move(callback);
+	impl_->data->message_callback.set(std::move(callback));
 }
 
 void WebSocketClient::on_error(WsErrorCallback callback) {
 	if (!impl_) {
 		return;
 	}
-	std::lock_guard lock(impl_->data->callback_mutex);
-	impl_->data->error_callback = std::move(callback);
+	impl_->data->error_callback.set(std::move(callback));
 }
 
 void WebSocketClient::on_state_change(WsStateCallback callback) {
 	if (!impl_) {
 		return;
 	}
-	std::lock_guard lock(impl_->data->callback_mutex);
-	impl_->data->state_callback = std::move(callback);
+	impl_->data->state_callback.set(std::move(callback));
 }
 
-const WsConfig& WebSocketClient::config() const noexcept {
+const WsConfig& WebSocketClient::config() const noexcept { // NOLINT(bugprone-exception-escape)
 	// Returning a reference into a nullptr would crash; surface a
 	// static empty config so accessors stay safe on moved-from
 	// instances (matches the null-guard pattern in disconnect() /
 	// is_connected()).
 	if (!impl_) {
+		// NOLINTNEXTLINE(bugprone-exception-escape)
 		static const WsConfig kEmpty{};
 		return kEmpty;
 	}
