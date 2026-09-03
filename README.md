@@ -76,6 +76,10 @@ order.time_in_force = "good_till_canceled";
 order.self_trade_prevention_type = "taker_at_cross";
 order.exchange_index = -1;
 
+// For an ask that intentionally replaces the default legacy Yes/Buy direction:
+// order.book_side = kalshi::BookSide::Ask;
+// order.discard_legacy_direction = true;
+
 auto result = client.create_order(order);
 if (!result) std::cerr << result.error().message << '\n';
 ```

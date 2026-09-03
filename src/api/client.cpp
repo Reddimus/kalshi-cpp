@@ -72,15 +72,15 @@ Result<void> validate_create_order_v2(const CreateOrderParams& params) {
 		return std::unexpected(
 			Error{ErrorCode::InvalidRequest, "V2 order count or price is not fixed-point"});
 	}
-	if (params.side != Side::Yes || params.action != Action::Buy || params.type != "limit" ||
-		params.count != 0 || params.yes_price || params.no_price || params.yes_price_dollars ||
-		params.no_price_dollars || params.expiration_ts || params.sell_position_floor ||
-		params.buy_max_cost) {
-		return std::unexpected(Error{
-			ErrorCode::InvalidRequest,
-			"V2 order cannot be combined with legacy direction, count, price, or type fields"});
+	if (params.type != "limit" || params.count != 0 || params.yes_price || params.no_price ||
+		params.yes_price_dollars || params.no_price_dollars || params.expiration_ts ||
+		params.sell_position_floor || params.buy_max_cost) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest,
+				  "V2 order cannot be combined with legacy count, price, or type fields"});
 	}
-	if (derive_book_side(params.side, params.action) != *params.book_side) {
+	if (!params.discard_legacy_direction &&
+		derive_book_side(params.side, params.action) != *params.book_side) {
 		return std::unexpected(
 			Error{ErrorCode::InvalidRequest,
 				  "legacy side and action contradict the canonical V2 book_side"});
@@ -389,17 +389,6 @@ std::string extract_cursor(const std::string& json) {
 	return extract_string(json, "cursor");
 }
 
-// Find the start of a JSON object by key
-size_t find_object_start(const std::string& json, const std::string& key) {
-	std::string search = "\"" + key + "\"";
-	size_t pos = json.find(search);
-	if (pos == std::string::npos)
-		return std::string::npos;
-
-	pos = json.find('{', pos);
-	return pos;
-}
-
 // Find matching closing brace (tracks strings to avoid false matches)
 size_t find_object_end(const std::string& json, size_t start) {
 	if (start >= json.size() || json[start] != '{')
@@ -486,6 +475,26 @@ std::string extract_object_json(const std::string& json, const std::string& key)
 		return {};
 	const std::size_t end = find_object_end(json, pos);
 	return end == std::string::npos ? std::string{} : json.substr(pos, end - pos);
+}
+
+std::string extract_top_level_string(const std::string& json, const std::string& key) {
+	const std::size_t start = find_top_level_value(json, key);
+	if (start == std::string::npos || json[start] != '"')
+		return {};
+
+	bool escaped = false;
+	for (std::size_t pos = start + 1; pos < json.size(); ++pos) {
+		if (json[pos] == '"' && !escaped) {
+			const std::string_view encoded{json.data() + start, pos - start + 1};
+			const glz::expected<std::string, glz::error_ctx> parsed =
+				glz::read_json<std::string>(encoded);
+			return parsed ? *parsed : std::string{};
+		}
+		escaped = json[pos] == '\\' && !escaped;
+		if (json[pos] != '\\')
+			escaped = false;
+	}
+	return {};
 }
 
 // Find matching closing bracket
@@ -945,13 +954,8 @@ namespace api_detail {
 
 Market parse_market_response(std::string_view body) {
 	const std::string response_body{body};
-	// Find market object (may be nested under "market" key or at root)
-	size_t market_start = find_object_start(response_body, "market");
-	std::string market_json =
-		market_start != std::string::npos
-			? response_body.substr(market_start,
-								   find_object_end(response_body, market_start) - market_start)
-			: response_body;
+	const std::string wrapped = extract_object_json(response_body, "market");
+	const std::string& market_json = wrapped.empty() ? response_body : wrapped;
 
 	Market market;
 	market.ticker = extract_string(market_json, "ticker");
@@ -1038,12 +1042,8 @@ std::vector<Market> parse_markets_response(std::string_view body) {
 
 Event parse_event_response(std::string_view body) {
 	const std::string response_body{body};
-	const std::size_t event_start = find_object_start(response_body, "event");
-	const std::string event_json =
-		event_start == std::string::npos
-			? response_body
-			: response_body.substr(event_start,
-								   find_object_end(response_body, event_start) - event_start);
+	const std::string wrapped = extract_object_json(response_body, "event");
+	const std::string& event_json = wrapped.empty() ? response_body : wrapped;
 
 	Event event;
 	event.event_ticker = extract_string(event_json, "event_ticker");
@@ -1061,7 +1061,7 @@ Event parse_event_response(std::string_view body) {
 			.name = extract_string(source, "name"), .url = extract_string(source, "url")});
 	}
 	event.markets = parse_markets_response(event_json);
-	if (event.markets.empty() && event_start != std::string::npos) {
+	if (event.markets.empty() && !wrapped.empty()) {
 		event.markets = parse_markets_response(response_body);
 	}
 	return event;
@@ -1069,12 +1069,8 @@ Event parse_event_response(std::string_view body) {
 
 Series parse_series_response(std::string_view body) {
 	const std::string response_body{body};
-	const std::size_t series_start = find_object_start(response_body, "series");
-	const std::string series_json =
-		series_start == std::string::npos
-			? response_body
-			: response_body.substr(series_start,
-								   find_object_end(response_body, series_start) - series_start);
+	const std::string wrapped = extract_object_json(response_body, "series");
+	const std::string& series_json = wrapped.empty() ? response_body : wrapped;
 
 	Series series;
 	series.ticker = extract_string(series_json, "ticker");
@@ -1100,23 +1096,18 @@ Series parse_series_response(std::string_view body) {
 
 Milestone parse_milestone_response(std::string_view body) {
 	const std::string response_body{body};
-	const std::size_t milestone_start = find_object_start(response_body, "milestone");
-	const std::string json =
-		milestone_start == std::string::npos
-			? response_body
-			: response_body.substr(milestone_start,
-								   find_object_end(response_body, milestone_start) -
-									   milestone_start);
+	const std::string wrapped = extract_object_json(response_body, "milestone");
+	const std::string& json = wrapped.empty() ? response_body : wrapped;
 	Milestone milestone;
-	milestone.id = extract_string(json, "id");
-	milestone.category = extract_string(json, "category");
-	milestone.type = extract_string(json, "type");
-	milestone.start_date = extract_string(json, "start_date");
-	milestone.end_date = extract_string(json, "end_date");
-	milestone.title = extract_string(json, "title");
-	milestone.notification_message = extract_string(json, "notification_message");
-	milestone.source_id = extract_string(json, "source_id");
-	milestone.last_updated_ts = extract_string(json, "last_updated_ts");
+	milestone.id = extract_top_level_string(json, "id");
+	milestone.category = extract_top_level_string(json, "category");
+	milestone.type = extract_top_level_string(json, "type");
+	milestone.start_date = extract_top_level_string(json, "start_date");
+	milestone.end_date = extract_top_level_string(json, "end_date");
+	milestone.title = extract_top_level_string(json, "title");
+	milestone.notification_message = extract_top_level_string(json, "notification_message");
+	milestone.source_id = extract_top_level_string(json, "source_id");
+	milestone.last_updated_ts = extract_top_level_string(json, "last_updated_ts");
 	milestone.related_event_tickers = extract_string_array(json, "related_event_tickers");
 	milestone.primary_event_tickers = extract_string_array(json, "primary_event_tickers");
 	milestone.source_ids_json = extract_object_json(json, "source_ids");
@@ -1128,24 +1119,17 @@ OrderBook parse_orderbook_response(std::string_view body) {
 	const std::string response_body{body};
 	OrderBook book;
 
-	const size_t orderbook_start = find_object_start(response_body, "orderbook");
-	const std::string orderbook_json =
-		orderbook_start != std::string::npos
-			? response_body.substr(orderbook_start,
-								   find_object_end(response_body, orderbook_start) -
-									   orderbook_start)
-			: response_body;
+	const std::string wrapped_orderbook = extract_object_json(response_body, "orderbook");
+	const std::string& orderbook_json =
+		wrapped_orderbook.empty() ? response_body : wrapped_orderbook;
 
 	book.market_ticker = extract_string(orderbook_json, "market_ticker");
 	if (book.market_ticker.empty()) {
 		book.market_ticker = extract_string(response_body, "ticker");
 	}
 
-	const size_t fp_start = find_object_start(orderbook_json, "orderbook_fp");
-	const std::string fp_json =
-		fp_start != std::string::npos
-			? orderbook_json.substr(fp_start, find_object_end(orderbook_json, fp_start) - fp_start)
-			: orderbook_json;
+	const std::string wrapped_fp = extract_object_json(orderbook_json, "orderbook_fp");
+	const std::string& fp_json = wrapped_fp.empty() ? orderbook_json : wrapped_fp;
 
 	if (fp_json.find("\"yes_dollars\"") != std::string::npos ||
 		fp_json.find("\"no_dollars\"") != std::string::npos) {
@@ -1335,20 +1319,16 @@ OrderCancelResult parse_order_cancel_result_response(std::string_view body) {
 	result.ts_ms = extract_int(obj, "ts_ms");
 	result.client_order_id = extract_string(obj, "client_order_id");
 
-	const size_t error_start = find_object_start(obj, "error");
-	if (error_start != std::string::npos) {
-		const size_t error_end = find_object_end(obj, error_start);
-		if (error_end != std::string::npos && error_end > error_start) {
-			const std::string error_obj = obj.substr(error_start, error_end - error_start);
-			OrderCancelError error;
-			error.code = extract_string(error_obj, "code");
-			error.message = extract_string(error_obj, "message");
-			error.details = extract_string(error_obj, "details");
-			error.service = extract_string(error_obj, "service");
-			if (!error.code.empty() || !error.message.empty() || !error.details.empty() ||
-				!error.service.empty()) {
-				result.error = std::move(error);
-			}
+	const std::string error_obj = extract_object_json(obj, "error");
+	if (!error_obj.empty()) {
+		OrderCancelError error;
+		error.code = extract_string(error_obj, "code");
+		error.message = extract_string(error_obj, "message");
+		error.details = extract_string(error_obj, "details");
+		error.service = extract_string(error_obj, "service");
+		if (!error.code.empty() || !error.message.empty() || !error.details.empty() ||
+			!error.service.empty()) {
+			result.error = std::move(error);
 		}
 	}
 
@@ -1371,25 +1351,16 @@ AccountApiLimits parse_account_api_limits_response(std::string_view body) {
 	AccountApiLimits result;
 	result.usage_tier = extract_string(response_body, "usage_tier");
 
-	const size_t read_start = find_object_start(response_body, "read");
-	if (read_start != std::string::npos) {
-		const size_t read_end = find_object_end(response_body, read_start);
-		if (read_end != std::string::npos && read_end > read_start) {
-			const std::string read_json = response_body.substr(read_start, read_end - read_start);
-			result.read.refill_rate = extract_int(read_json, "refill_rate");
-			result.read.bucket_capacity = extract_int(read_json, "bucket_capacity");
-		}
+	const std::string read_json = extract_object_json(response_body, "read");
+	if (!read_json.empty()) {
+		result.read.refill_rate = extract_int(read_json, "refill_rate");
+		result.read.bucket_capacity = extract_int(read_json, "bucket_capacity");
 	}
 
-	const size_t write_start = find_object_start(response_body, "write");
-	if (write_start != std::string::npos) {
-		const size_t write_end = find_object_end(response_body, write_start);
-		if (write_end != std::string::npos && write_end > write_start) {
-			const std::string write_json =
-				response_body.substr(write_start, write_end - write_start);
-			result.write.refill_rate = extract_int(write_json, "refill_rate");
-			result.write.bucket_capacity = extract_int(write_json, "bucket_capacity");
-		}
+	const std::string write_json = extract_object_json(response_body, "write");
+	if (!write_json.empty()) {
+		result.write.refill_rate = extract_int(write_json, "refill_rate");
+		result.write.bucket_capacity = extract_int(write_json, "bucket_capacity");
 	}
 
 	return result;
@@ -1984,12 +1955,8 @@ std::string KalshiClient::build_orders_query(const GetOrdersParams& params) {
 }
 
 Result<Order> KalshiClient::parse_order(const std::string& json) {
-	// Find order object
-	size_t order_start = find_object_start(json, "order");
-	std::string order_json =
-		order_start != std::string::npos
-			? json.substr(order_start, find_object_end(json, order_start) - order_start)
-			: json;
+	const std::string wrapped = extract_object_json(json, "order");
+	const std::string& order_json = wrapped.empty() ? json : wrapped;
 
 	Order order;
 	order.order_id = extract_string(order_json, "order_id");
@@ -2591,12 +2558,8 @@ Result<BatchResponse<Order>> KalshiClient::batch_create_orders(const BatchOrderR
 	result.results.reserve(objects.size());
 	for (std::size_t index = 0; index < objects.size(); ++index) {
 		const std::string& object = objects[index];
-		const std::size_t error_start = find_object_start(object, "error");
-		if (error_start != std::string::npos) {
-			const std::size_t error_end = find_object_end(object, error_start);
-			const std::string error = error_end == std::string::npos
-										  ? object
-										  : object.substr(error_start, error_end - error_start);
+		const std::string error = extract_object_json(object, "error");
+		if (!error.empty()) {
 			const std::string message = extract_string(error, "message");
 			result.errors.push_back(message.empty() ? extract_string(error, "code") : message);
 			continue;
@@ -2700,12 +2663,8 @@ Result<Schedule> KalshiClient::get_exchange_schedule() {
 	}
 
 	Schedule schedule;
-	const std::size_t schedule_start = find_object_start(response->body, "schedule");
-	const std::string schedule_json =
-		schedule_start == std::string::npos
-			? response->body
-			: response->body.substr(
-				  schedule_start, find_object_end(response->body, schedule_start) - schedule_start);
+	const std::string wrapped_schedule = extract_object_json(response->body, "schedule");
+	const std::string& schedule_json = wrapped_schedule.empty() ? response->body : wrapped_schedule;
 	const auto parse_daily_schedules = [](const std::string& json, const std::string& day) {
 		std::vector<DailySchedule> sessions;
 		for (const std::string& obj : extract_array_objects(json, day)) {

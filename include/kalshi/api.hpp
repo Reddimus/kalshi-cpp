@@ -895,6 +895,9 @@ struct CreateOrderParams {
 	/// Canonical V2 fixed-point price. Required by create_order().
 	std::optional<std::string> price_dollars;
 	std::optional<std::int64_t> expiration_time;
+	/// Set when the canonical book_side intentionally replaces the default
+	/// legacy Yes/Buy direction. Required only when the two directions differ.
+	bool discard_legacy_direction{false};
 };
 
 /// Parameters for amending an order

@@ -56,6 +56,19 @@ TEST(OperationContracts, ExchangeSchedulePreservesEffectiveRangesAndDailySession
 	EXPECT_EQ(schedule->maintenance_windows[0].start_datetime, "2026-09-04T07:00:00Z");
 }
 
+TEST(OperationContracts, ExchangeScheduleUsesTopLevelWrapper) {
+	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
+	transport->response_body =
+		R"({"metadata":{"schedule":{"standard_hours":[{"start_time":"wrong"}]}},"schedule":{"standard_hours":[{"start_time":"2026-01-01T00:00:00Z","end_time":"2026-12-31T23:59:59Z","monday":[],"tuesday":[],"wednesday":[],"thursday":[],"friday":[],"saturday":[],"sunday":[]}],"maintenance_windows":[]}})";
+	kalshi::KalshiClient client(transport);
+
+	const kalshi::Result<kalshi::Schedule> schedule = client.get_exchange_schedule();
+
+	ASSERT_TRUE(schedule.has_value());
+	ASSERT_EQ(schedule->standard_hours.size(), 1U);
+	EXPECT_EQ(schedule->standard_hours[0].start_time, "2026-01-01T00:00:00Z");
+}
+
 TEST(OperationContracts, InjectedTransportIsInspectableWithoutUndefinedBehavior) {
 	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
 	kalshi::KalshiClient client(transport);
@@ -629,6 +642,24 @@ TEST(OperationContracts, OrderMutationsUseExactV2Bodies) {
 	EXPECT_EQ(created->outcome_side, kalshi::OutcomeSide::Yes);
 	EXPECT_TRUE(created->has_canonical_direction);
 
+	create.book_side = kalshi::BookSide::Ask;
+	create.discard_legacy_direction = true;
+	const kalshi::Result<kalshi::Order> ask_created = client.create_order(create);
+	ASSERT_TRUE(ask_created.has_value());
+	EXPECT_EQ(
+		transport->body,
+		R"({"ticker":"KXTEST","side":"ask","count":"1.25","price":"0.125000","time_in_force":"good_till_canceled","self_trade_prevention_type":"taker_at_cross","exchange_index":-1})");
+
+	kalshi::BatchOrderRequest ask_batch{.orders = {create}};
+	transport->response_body = R"({"orders":[]})";
+	ASSERT_TRUE(client.batch_create_orders(ask_batch).has_value());
+	EXPECT_NE(transport->body.find(R"("side":"ask")"), std::string::npos);
+
+	create.discard_legacy_direction = false;
+	create.side = kalshi::Side::No;
+	ASSERT_TRUE(client.create_order(create).has_value());
+	EXPECT_NE(transport->body.find(R"("side":"ask")"), std::string::npos);
+
 	transport->response_body =
 		R"({"order_id":"o1","remaining_count":"0.75","fill_count":"0.50","average_fill_price":"0.875000","average_fee_paid":"0.002500","ts_ms":1770000000001})";
 	kalshi::AmendOrderParams amend;
@@ -853,9 +884,12 @@ TEST(OperationContracts, CurrentStringArrayFieldsAreParsedWithoutJsonFragments) 
 	EXPECT_EQ(transport->path, "/portfolio/order_groups/group-1");
 
 	transport->response_body =
-		R"({"milestone":{"id":"m1","category":"Sports","type":"football_game","start_date":"2026-09-03T00:00:00Z","related_event_tickers":["E1","E2"],"title":"Game","notification_message":"Starts soon","details":{},"primary_event_tickers":["E1"],"last_updated_ts":"2026-09-03T01:00:00Z"}})";
+		R"({"metadata":{"milestone":{"id":"wrong-wrapper"}},"milestone":{"details":{"id":"wrong-details","title":"Wrong title","type":"wrong-type"},"id":"m1","category":"Sports","type":"football_game","start_date":"2026-09-03T00:00:00Z","related_event_tickers":["E1","E2"],"title":"Game","notification_message":"Starts soon","primary_event_tickers":["E1"],"last_updated_ts":"2026-09-03T01:00:00Z"}})";
 	const kalshi::Result<kalshi::Milestone> milestone = client.get_milestone("m1");
 	ASSERT_TRUE(milestone.has_value());
+	EXPECT_EQ(milestone->id, "m1");
+	EXPECT_EQ(milestone->title, "Game");
+	EXPECT_EQ(milestone->type, "football_game");
 	EXPECT_EQ(milestone->related_event_tickers, (std::vector<std::string>{"E1", "E2"}));
 	EXPECT_EQ(milestone->primary_event_tickers, (std::vector<std::string>{"E1"}));
 }
