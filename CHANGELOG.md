@@ -6,13 +6,17 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
-## [0.5.2] - 2026-09-03
+## [0.5.2] - 2026-09-04
 
 ### Fixed
 
 - Validate WebSocket schemes, hosts, ports, IPv6 literals, and fragments before
   opening a connection. Invalid configuration now returns `InvalidRequest`
   instead of throwing from `std::stoi` or reaching the network.
+- Guard the libwebsockets connection handle with the send-queue mutex, and
+  retire it before the context that owns it is destroyed. Calling `connect()`
+  or `disconnect()` while another thread queued a subscription was a data race,
+  and could hand libwebsockets a handle from a destroyed context.
 - Sign WebSocket paths without query parameters, matching Kalshi's current
   authentication contract while preserving the query in the upgrade request.
 - Keep moved-from `Signer` and `HttpClient` objects safe to inspect and reject
