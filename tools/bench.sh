@@ -141,7 +141,10 @@ benchmark_one() {
         (( i % 50 == 0 )) && echo -e "    Progress: $i/$iters" >&2
     done
     
-    IFS=$'\n' sorted=($(sort -n <<<"${times[*]}")); unset IFS
+    local -a sorted=()
+    while IFS= read -r elapsed; do
+        sorted+=("$elapsed")
+    done < <(printf '%s\n' "${times[@]}" | sort -n)
     
     local sum=0
     for t in "${times[@]}"; do sum=$((sum + t)); done
@@ -215,9 +218,6 @@ run_single_benchmark() {
 #------------------------------------------------------------------------------
 
 run_comparison() {
-    local build_old="${PROJECT_DIR}/build_old"
-    local build_new="${PROJECT_DIR}/build_new"
-    
     cd "$PROJECT_DIR"
     
     # Check for uncommitted changes
@@ -246,45 +246,46 @@ run_comparison() {
     echo "Iterations: $ITERATIONS"
     echo ""
     
-    # Save state for cleanup (use global-ish variables for trap access)
-    local original_ref
-    original_ref=$(git rev-parse --abbrev-ref HEAD 2>/dev/null || git rev-parse HEAD)
-    _BENCH_DID_STASH=false
-    _BENCH_ORIGINAL_REF="$original_ref"
-    _BENCH_BUILD_OLD="$build_old"
-    _BENCH_BUILD_NEW="$build_new"
-    
+    local scratch_dir
+    scratch_dir=$(mktemp -d "${TMPDIR:-/tmp}/kalshi-bench.XXXXXX")
+    local source_old="$scratch_dir/source-old"
+    local source_new="$scratch_dir/source-new"
+    local build_old="$scratch_dir/build-old"
+    local build_new="$scratch_dir/build-new"
+    local old_is_worktree=false
+    local new_is_worktree=false
+
     cleanup() {
         echo -e "\n${BLUE}Cleaning up...${NC}"
-        [[ "${_BENCH_DID_STASH:-false}" == "true" ]] && git stash pop --quiet 2>/dev/null || true
-        [[ -n "${_BENCH_ORIGINAL_REF:-}" ]] && git checkout --quiet "$_BENCH_ORIGINAL_REF" 2>/dev/null || true
-        rm -rf "${_BENCH_BUILD_OLD:-}" "${_BENCH_BUILD_NEW:-}"
+        [[ "$old_is_worktree" == "true" ]] && \
+            git -C "$PROJECT_DIR" worktree remove --force "$source_old" 2>/dev/null || true
+        [[ "$new_is_worktree" == "true" ]] && \
+            git -C "$PROJECT_DIR" worktree remove --force "$source_new" 2>/dev/null || true
+        rm -rf "$scratch_dir"
     }
     trap cleanup EXIT
-    
+
     # Build old version
     echo -e "${BLUE}Building OLD ($OLD_REF)...${NC}"
-    if [[ "$OLD_REF" != "WORKTREE" ]]; then
-        if [[ "$has_changes" == "true" ]]; then
-            git stash push --quiet -m "bench temp stash"
-            _BENCH_DID_STASH=true
-        fi
-        git checkout --quiet "$OLD_REF"
+    if [[ "$OLD_REF" == "WORKTREE" ]]; then
+        source_old="$PROJECT_DIR"
+    else
+        git worktree add --quiet --detach "$source_old" "$OLD_REF"
+        old_is_worktree=true
     fi
-    rm -rf "$build_old"
-    cmake -S . -B "$build_old" -DCMAKE_BUILD_TYPE=Release > /dev/null 2>&1
+    cmake -S "$source_old" -B "$build_old" -DCMAKE_BUILD_TYPE=Release > /dev/null 2>&1
     cmake --build "$build_old" -j"$(nproc 2>/dev/null || echo 4)" > /dev/null 2>&1
     echo -e "${GREEN}  Done${NC}"
-    
+
     # Build new version
     echo -e "${BLUE}Building NEW ($NEW_REF)...${NC}"
     if [[ "$NEW_REF" == "WORKTREE" ]]; then
-        [[ "$_BENCH_DID_STASH" == "true" ]] && { git stash pop --quiet; _BENCH_DID_STASH=false; }
+        source_new="$PROJECT_DIR"
     else
-        git checkout --quiet "$NEW_REF"
+        git worktree add --quiet --detach "$source_new" "$NEW_REF"
+        new_is_worktree=true
     fi
-    rm -rf "$build_new"
-    cmake -S . -B "$build_new" -DCMAKE_BUILD_TYPE=Release > /dev/null 2>&1
+    cmake -S "$source_new" -B "$build_new" -DCMAKE_BUILD_TYPE=Release > /dev/null 2>&1
     cmake --build "$build_new" -j"$(nproc 2>/dev/null || echo 4)" > /dev/null 2>&1
     echo -e "${GREEN}  Done${NC}"
     echo ""
@@ -345,6 +346,7 @@ run_comparison() {
     printf "%-25s %12s %12s %18s\n" "-------" "---" "---" "-----"
     
     local total_old=0 total_new=0
+    local -a library_rows=()
     for name in "${!old_lib_sizes[@]}"; do
         local old_val=${old_lib_sizes[$name]:-0}
         local new_val=${new_lib_sizes[$name]:-0}
@@ -364,9 +366,12 @@ run_comparison() {
             delta_str="--"
         fi
         
-        printf "%-25s %12s %12s " "$name" "$(format_bytes "$old_val")" "$(format_bytes "$new_val")"
-        echo -e "$delta_str"
-    done | sort
+        local row
+        printf -v row "%-25s %12s %12s %s" "$name" "$(format_bytes "$old_val")" \
+            "$(format_bytes "$new_val")" "$delta_str"
+        library_rows+=("$row")
+    done
+    printf '%b\n' "${library_rows[@]}" | sort
     
     local delta=$((total_new - total_old))
     local pct=0
@@ -442,6 +447,9 @@ run_comparison() {
     
     echo ""
     echo -e "${GREEN}Done!${NC}"
+
+    cleanup
+    trap - EXIT
 }
 
 #------------------------------------------------------------------------------

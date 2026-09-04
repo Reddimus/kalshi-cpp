@@ -17,59 +17,24 @@
 /// scope here (no creds, no exchange round-trip on CI). These tests
 /// don't connect, so they don't need network access.
 
+#include <atomic>
 #include <future>
 #include <gtest/gtest.h>
 #include <kalshi/detail/callback_slot.hpp>
+#include <kalshi/detail/http_path.hpp>
 #include <kalshi/signer.hpp>
 #include <kalshi/websocket.hpp>
+#include <thread>
 #include <utility>
+#include <vector>
+
+#include "test_signer_fixture.hpp"
+#include "ws_endpoint.hpp"
 
 namespace {
 
-/// Throwaway 2048-bit RSA key generated specifically for these tests.
-/// Used to make ``Signer::from_pem`` succeed so we can construct a
-/// ``WebSocketClient`` and exercise its move + destruct paths. Never
-/// signs live traffic.
-const char* TEST_RSA_KEY = R"(-----BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEA3ZNc4DAP9V2Rq8H1zNNb2X7x7hxQrCtWt6D7EnuFXsOLMJ0B
-2WPDUVlvVlsF5EofNM0Tejf3BP6x1qtPxY+LC1oGcvVPJhQp3AiCRjt1fpZeEqaR
-H9/pSatURcb+E/M4kL4F4IK1vn6RnqA/VqO2WQiKCMfQgL9h+XCNi12wX9l+sH+8
-6mIX2yan0UeKGKvLBgNjdqxaD9QElo0lz+APvNF9bTSHe4zSycr8MQvWVmY+/CG9
-6JzIid/SFChYJjZ5btDRZy8/iHftf99lo1pJ80I/NKiHk/wlsiQpJpAVmBYBfOxp
-4YS3Uy3uEnWvTvbGl1zT4aZAa1jOmGGvZiHUUQIDAQABAoIBAC7/w09NepEX9h55
-36bA/WZawjv41xbSAYylUaRXvZA+h5956kq/mc4/W3m0iIEmRMzJJDTEOrodQUEw
-6NSV0E9J2vzW8mE4HTHuPx3hHljJ0e4AVV+uudf1xsQfQ8UdDfZLzEjVSPI9fCtq
-v8yjoLntcQQQSDaLAd/sYyW464DE50pUwgt3wGyIHx19m+TF8ntULzZv/e0P++hW
-ox8L1Ytfd5h1augQ0K3rD27i9QSOauesLN4cc2eZZ8ow1rr6pR38++NHyrYO/NaR
-nm6qU6W0EqUgyZdRaApD89UK1lGvt9rq++Yg2kAtw3MPsFoK2lFTYjEyGphyadBN
-dG9jym0CgYEA8PF7m6C+LcPdKk1BoN2b3mt9FvV0AJu/3yIijHd2RCSmr2OVV2py
-SZ0J9xWQi95eSU0y5RUiA3k82AFHlPJSsCpLqfeAS8fJcYHo09mMM6+xKv8E6KEW
-Laxt6GsIeaJRLkcn4pO2ZAq4aTk79lhNHXc7rg0kKNokgvMBamPIN60CgYEA62wL
-MKpGfUp6Hl1jOszbXt867XbTSX2eoK1HQ8mkeGlxJgBI7UrIKIaArbU1Ov/gAfu5
-gDWiLcxZtl8gHRjlEaSl01wKM6AXbEl+3jU1lOATscdsRyeyJ48dk5IWPZygnVUo
-+amtQyet07Bht90Q3ULsDPaFXVtZAJDxj0vHM7UCgYEAlsg4d6M3gMJjBNcGLBqj
-MaUIyjZfGwZdI9Fj143nGCvrmDT0v5jg3sqE8viu1akaTjsej5gTCiNz/SWH22Fu
-d8pwQXSe+E2V9g+7WeB5ydq4P9UKCF7O11RiD6Hz0tLOhOyIvFV+PcsrrsXfjYGi
-+L6mPX0B1QL2+HAEwcSiBp0CgYA82hSaY6kMwa+HIcSAcmtRvonQz6IVoO7bwW5m
-SzzEEx04IWK4U1ghgYLJY8l6kqEoYhS02ygshmG6DiSS4Nh1EwX5+BR6+6qSRv0Q
-GtjavoDYtx951Pzr1MZkWqJ9EntBr72DqyQp85uu2CyqBe5SAvZY82/NjcsXpl+K
-FqBK8QKBgQDeSgsq3ljKeIuLBl9yYzc9rEGnMZJl33wcVgAG6jTr+qZ5iEToiRTu
-TSBYZgwgMJTq7i4blpsYJCoHcQynRJgSmIvSLuCw/ovyBHmHvJDDjrFsCutQYXA9
-Y2lRUoypd9DhH64Hki9kaqKd23817XEXR9kwu7QdrzWYWST5l+cTAg==
------END RSA PRIVATE KEY-----
-)";
-
 kalshi::Signer make_test_signer() {
-	kalshi::Result<kalshi::Signer> result =
-		kalshi::Signer::from_pem("test-api-key-id", TEST_RSA_KEY);
-	// If this skips it means the OpenSSL build can't parse the embedded
-	// PEM — the lifecycle tests below have nothing meaningful to assert
-	// without a valid signer. We don't want to silently pass.
-	if (!result.has_value()) {
-		ADD_FAILURE() << "Embedded test RSA key failed to parse — "
-						 "regenerate via openssl genrsa -traditional 2048";
-	}
-	return std::move(result.value());
+	return kalshi::test::make_signer();
 }
 
 } // namespace
@@ -86,6 +51,100 @@ TEST(WsLifecycle, ConfigAccessorReturnsConfig) {
 	cfg.url = "wss://example.test/ws";
 	kalshi::WebSocketClient ws(signer, cfg);
 	EXPECT_EQ(ws.config().url, "wss://example.test/ws");
+}
+
+TEST(WsLifecycle, InvalidUrlReturnsErrorWithoutNetworkOrExceptions) {
+	kalshi::Signer signer = make_test_signer();
+
+	for (const std::string& url :
+		 {"https://example.test/ws", "wss://", "wss:///ws", "wss://user@example.test/ws",
+		  "wss://example.test:/ws", "wss://example.test:not-a-port/ws", "wss://example.test:0/ws",
+		  "wss://example.test:65536/ws", "wss://example.test:70000/ws", "wss://::1/ws",
+		  "wss://[::1/ws", "wss://[]/ws", "wss://[::1]x/ws", "wss://exa mple.test/ws",
+		  "wss://example.test/ws#fragment", "wss://example.test?token=value#fragment"}) {
+		kalshi::WsConfig cfg;
+		cfg.url = url;
+		kalshi::WebSocketClient ws(signer, cfg);
+		kalshi::Result<void> result;
+		EXPECT_NO_THROW(result = ws.connect()) << url;
+		ASSERT_FALSE(result.has_value()) << url;
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest) << url;
+	}
+}
+
+TEST(WsLifecycle, UrlParserPreservesConnectionPathAndCustomPort) {
+	const kalshi::Result<kalshi::detail::WsEndpoint> result =
+		kalshi::detail::parse_ws_endpoint("wss://example.test:8443/ws/v2?token=value");
+	ASSERT_TRUE(result.has_value());
+	EXPECT_EQ(result->host, "example.test");
+	EXPECT_EQ(result->path, "/ws/v2?token=value");
+	EXPECT_EQ(result->port, 8443);
+	EXPECT_TRUE(result->use_ssl);
+}
+
+TEST(WsLifecycle, UrlParserSupportsBracketedIpv6AndQueryOnlyPath) {
+	const kalshi::Result<kalshi::detail::WsEndpoint> result =
+		kalshi::detail::parse_ws_endpoint("ws://[::1]?token=value");
+	ASSERT_TRUE(result.has_value());
+	EXPECT_EQ(result->host, "::1");
+	EXPECT_EQ(result->path, "/?token=value");
+	EXPECT_EQ(result->port, 80);
+	EXPECT_FALSE(result->use_ssl);
+}
+
+TEST(WsLifecycle, DefaultConfigUrlParsesToTheProductionEndpoint) {
+	// The shipped default is what almost every consumer connects with, so
+	// pin the whole tuple it decomposes into — including the implicit 443
+	// that no explicit-port case covers.
+	const kalshi::WsConfig defaults;
+	const kalshi::Result<kalshi::detail::WsEndpoint> result =
+		kalshi::detail::parse_ws_endpoint(defaults.url);
+	ASSERT_TRUE(result.has_value());
+	EXPECT_EQ(result->host, "external-api-ws.kalshi.com");
+	EXPECT_EQ(result->path, "/trade-api/ws/v2");
+	EXPECT_EQ(result->port, 443);
+	EXPECT_TRUE(result->use_ssl);
+
+	// The upgrade request carries the parsed path; the signature covers the
+	// same path with any query string removed. For the default URL the two
+	// are identical, which is what keeps signatures byte-compatible with
+	// every release before the URL parser existed.
+	EXPECT_EQ(kalshi::detail::request_signing_path("", result->path), "/trade-api/ws/v2");
+}
+
+TEST(WsLifecycle, ConcurrentConnectAttemptsSerializeHandleAccess) {
+	// Regression: the libwebsockets connection handle was a plain `lws*`
+	// written by connect()/disconnect() while queue_send() read it under
+	// send_mutex — an unsynchronized write to a pointer other threads
+	// dereference. ThreadSanitizer reports a write/write data race on that
+	// field for this test before the handle moved under send_mutex.
+	//
+	// An invalid URL keeps the body of connect() on its pre-parse reap
+	// path, where the handle is the only non-atomic shared field touched,
+	// so a report here names that field and nothing else.
+	kalshi::Signer signer = make_test_signer();
+	kalshi::WsConfig cfg;
+	cfg.url = "not-a-websocket-url";
+	kalshi::WebSocketClient ws(signer, cfg);
+
+	std::atomic<int> unexpected_successes{0};
+	std::vector<std::thread> threads;
+	threads.reserve(8);
+	for (int worker = 0; worker < 8; ++worker) {
+		threads.emplace_back([&ws, &unexpected_successes]() {
+			for (int attempt = 0; attempt < 200; ++attempt) {
+				if (ws.connect().has_value()) {
+					unexpected_successes.fetch_add(1);
+				}
+			}
+		});
+	}
+	for (std::thread& thread : threads) {
+		thread.join();
+	}
+
+	EXPECT_EQ(unexpected_successes.load(), 0);
+	EXPECT_FALSE(ws.is_connected());
 }
 
 TEST(WsLifecycle, MoveConstructLeavesMovedFromSafe) {

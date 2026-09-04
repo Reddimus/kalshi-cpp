@@ -29,7 +29,7 @@ printf '%s\n' \
 cmake -S "$scratch_dir/consumer" -B "$scratch_dir/consumer-build" \
   -DCMAKE_PREFIX_PATH="$scratch_dir/prefix"
 cmake --build "$scratch_dir/consumer-build" --parallel
-test "$("$scratch_dir/consumer-build/consumer")" = "0.5.1"
+test "$("$scratch_dir/consumer-build/consumer")" = "0.5.2"
 
 mkdir -p "$scratch_dir/fetch-consumer"
 printf '%s\n' \
@@ -47,4 +47,4 @@ printf '%s\n' \
 cp "$scratch_dir/consumer/main.cpp" "$scratch_dir/fetch-consumer/main.cpp"
 cmake -S "$scratch_dir/fetch-consumer" -B "$scratch_dir/fetch-build"
 cmake --build "$scratch_dir/fetch-build" --parallel
-test "$("$scratch_dir/fetch-build/fetch_consumer")" = "0.5.1"
+test "$("$scratch_dir/fetch-build/fetch_consumer")" = "0.5.2"

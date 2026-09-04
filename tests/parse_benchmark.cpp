@@ -1,18 +1,13 @@
 // Copyright (c) 2026 PredictionMarketsAI
 // SPDX-License-Identifier: MIT
 //
-// Microbenchmark + ctest regression guard for the outgoing-JSON
-// serializers migrated to Glaze in this branch.
+// Microbenchmarks + ctest regression guards for outgoing JSON
+// serialization and incoming WebSocket parsing.
 //
-// kalshi-cpp's hot paths are the WS *receive* loop and the REST
-// *response* parser. Neither uses a JSON library — both are
-// hand-rolled string scanners — so a parse benchmark of the kind
-// open-meteo-cpp shipped (deserializer-focused) wouldn't measure
-// anything Glaze touches in this repo. The migration scope here is
-// outgoing-body serialization (WS subscribe frames + the dozen REST
-// `serialize_*` request bodies), so this bench measures the
-// equivalent: rendering a representative payload 1000 times and
-// asserting us/op stays under a regression cap.
+// The outgoing case renders a representative 50-order batch. The
+// incoming case parses a representative trade frame. Both assert
+// generous ceilings that catch order-of-magnitude regressions without
+// turning normal CI timing variance into failures.
 //
 // The representative payload is a 50-order batch-create body — that's
 // the largest payload the SDK regularly emits (kalshi-trader sends
@@ -30,6 +25,8 @@
 // here); the speedup is dominated by avoiding the JSON-AST
 // allocation overhead since the previous batch path round-tripped
 // each inner order through `ordered_json::parse(serialize_one(...))`.
+
+#include "kalshi/detail/ws_message.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -107,6 +104,42 @@ int main() {
 	if (us_per_op > kMaxUsPerOp) {
 		std::fprintf(stderr, "REGRESSION: %.3f us/op exceeds cap of %.0f us/op\n", us_per_op,
 					 kMaxUsPerOp);
+		return 1;
+	}
+
+	constexpr std::string_view kTradeFrame =
+		R"({"type":"trade","sid":7,"msg":{"trade_id":"trade-1","market_ticker":"KXTEST-YES","yes_price_dollars":"0.4200","no_price_dollars":"0.5800","count_fp":"12.00","is_block_trade":false,"taker_side":"yes","taker_outcome_side":"yes","taker_book_side":"bid","ts":1788000000,"ts_ms":1788000000123}})";
+	constexpr int kParseIterations = 10000;
+	std::chrono::nanoseconds parse_total{0};
+	std::int64_t parse_checksum = 0;
+	for (int i = 0; i < kParseIterations; ++i) {
+		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
+		const std::optional<kalshi::WsMessage> message =
+			kalshi::detail::parse_ws_data_message(kTradeFrame);
+		const std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
+		parse_total += t1 - t0;
+		if (!message) {
+			std::fprintf(stderr, "WebSocket parser rejected the benchmark frame\n");
+			return 1;
+		}
+		const kalshi::WsTrade* trade = std::get_if<kalshi::WsTrade>(&*message);
+		if (!trade) {
+			std::fprintf(stderr, "WebSocket parser returned the wrong message type\n");
+			return 1;
+		}
+		parse_checksum += trade->yes_price + trade->count;
+	}
+	if (parse_checksum == 0) {
+		std::fprintf(stderr, "WebSocket parser checksum is zero\n");
+		return 1;
+	}
+	const double parse_us_per_op = (parse_total.count() / 1e3) / kParseIterations;
+	std::printf("  WebSocket (parse): %8.3f ms total  (%8.3f us/op)\n", parse_total.count() / 1e6,
+				parse_us_per_op);
+	constexpr double kMaxParseUsPerOp = 500.0;
+	if (parse_us_per_op > kMaxParseUsPerOp) {
+		std::fprintf(stderr, "REGRESSION: %.3f us/op exceeds WebSocket cap of %.0f us/op\n",
+					 parse_us_per_op, kMaxParseUsPerOp);
 		return 1;
 	}
 	return 0;

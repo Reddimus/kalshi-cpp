@@ -33,7 +33,7 @@ Signer::Signer(Signer&&) noexcept = default;
 Signer& Signer::operator=(Signer&&) noexcept = default;
 
 std::string_view Signer::api_key_id() const noexcept {
-	return impl_->api_key_id;
+	return impl_ ? std::string_view{impl_->api_key_id} : std::string_view{};
 }
 
 namespace {
@@ -106,6 +106,9 @@ Result<AuthHeaders> Signer::sign(std::string_view method, std::string_view path)
 
 Result<AuthHeaders> Signer::sign_with_timestamp(std::string_view method, std::string_view path,
 												std::int64_t timestamp_ms) const {
+	if (!impl_) {
+		return std::unexpected(Error::signing("Signer moved-from"));
+	}
 	// Build message: timestamp + method + path
 	std::string timestamp_str = std::to_string(timestamp_ms);
 	std::string message = timestamp_str + std::string(method) + std::string(path);

@@ -1,6 +1,6 @@
 # API coverage
 
-This table compares kalshi-cpp v0.5.1 with the official Predictions OpenAPI
+This table compares kalshi-cpp v0.5.2 with the official Predictions OpenAPI
 3.29.0 and AsyncAPI 2.0.0 documents fetched September 3, 2026. Margin and
 Perpetuals use a separate API and remain outside this library.
 
@@ -11,7 +11,7 @@ reads, portfolio reads, V2 orders, subaccounts, order groups, RFQs, both generic
 and RFQ-scoped quote routes, API keys, milestones, structured targets,
 multivariate collection reads, and incentive programs.
 
-These Predictions operations are not typed in v0.5.1:
+These Predictions operations are not typed in v0.5.2:
 
 | Area | Method and path |
 | --- | --- |
@@ -59,7 +59,7 @@ before transport when their upstream route was removed.
 
 ## WebSocket
 
-| Surface | v0.5.1 status |
+| Surface | v0.5.2 status |
 | --- | --- |
 | `orderbook_delta` | Supported, including current snapshot/delta exact fields |
 | `trade` | Supported, including canonical direction and `ts_ms` |

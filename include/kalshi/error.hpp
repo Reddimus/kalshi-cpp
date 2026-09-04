@@ -23,7 +23,7 @@ enum class ErrorCode {
 
 /// Error information returned by SDK operations
 struct Error {
-	ErrorCode code;
+	ErrorCode code{ErrorCode::Unknown};
 	std::string message;
 	int http_status{0};
 

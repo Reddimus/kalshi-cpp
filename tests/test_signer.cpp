@@ -1,47 +1,16 @@
 #include "kalshi/detail/http_path.hpp"
+#include "kalshi/http_client.hpp"
 #include "kalshi/signer.hpp"
 
+#include <cstddef>
 #include <gtest/gtest.h>
+#include <openssl/evp.h>
+#include <openssl/pem.h>
+#include <openssl/rsa.h>
 #include <string>
+#include <vector>
 
-// Throwaway 2048-bit RSA private key for tests only. Generated via
-// ``openssl genrsa -traditional 2048``. Never used to sign live
-// traffic.
-//
-// Replaces a previous hand-crafted PEM whose private-key components
-// were structured nonsense (only the public part decoded as base64).
-// OpenSSL's ``d2i_RSAPrivateKey`` rejected it, so
-// ``Signer::SignProducesHeaders`` was permanently ``GTEST_SKIP``'d
-// — the signing path therefore had **no test coverage** and a
-// regression in ``Signer::sign()`` could ship without surfacing.
-const char* TEST_RSA_KEY = R"(-----BEGIN RSA PRIVATE KEY-----
-MIIEpAIBAAKCAQEA3ZNc4DAP9V2Rq8H1zNNb2X7x7hxQrCtWt6D7EnuFXsOLMJ0B
-2WPDUVlvVlsF5EofNM0Tejf3BP6x1qtPxY+LC1oGcvVPJhQp3AiCRjt1fpZeEqaR
-H9/pSatURcb+E/M4kL4F4IK1vn6RnqA/VqO2WQiKCMfQgL9h+XCNi12wX9l+sH+8
-6mIX2yan0UeKGKvLBgNjdqxaD9QElo0lz+APvNF9bTSHe4zSycr8MQvWVmY+/CG9
-6JzIid/SFChYJjZ5btDRZy8/iHftf99lo1pJ80I/NKiHk/wlsiQpJpAVmBYBfOxp
-4YS3Uy3uEnWvTvbGl1zT4aZAa1jOmGGvZiHUUQIDAQABAoIBAC7/w09NepEX9h55
-36bA/WZawjv41xbSAYylUaRXvZA+h5956kq/mc4/W3m0iIEmRMzJJDTEOrodQUEw
-6NSV0E9J2vzW8mE4HTHuPx3hHljJ0e4AVV+uudf1xsQfQ8UdDfZLzEjVSPI9fCtq
-v8yjoLntcQQQSDaLAd/sYyW464DE50pUwgt3wGyIHx19m+TF8ntULzZv/e0P++hW
-ox8L1Ytfd5h1augQ0K3rD27i9QSOauesLN4cc2eZZ8ow1rr6pR38++NHyrYO/NaR
-nm6qU6W0EqUgyZdRaApD89UK1lGvt9rq++Yg2kAtw3MPsFoK2lFTYjEyGphyadBN
-dG9jym0CgYEA8PF7m6C+LcPdKk1BoN2b3mt9FvV0AJu/3yIijHd2RCSmr2OVV2py
-SZ0J9xWQi95eSU0y5RUiA3k82AFHlPJSsCpLqfeAS8fJcYHo09mMM6+xKv8E6KEW
-Laxt6GsIeaJRLkcn4pO2ZAq4aTk79lhNHXc7rg0kKNokgvMBamPIN60CgYEA62wL
-MKpGfUp6Hl1jOszbXt867XbTSX2eoK1HQ8mkeGlxJgBI7UrIKIaArbU1Ov/gAfu5
-gDWiLcxZtl8gHRjlEaSl01wKM6AXbEl+3jU1lOATscdsRyeyJ48dk5IWPZygnVUo
-+amtQyet07Bht90Q3ULsDPaFXVtZAJDxj0vHM7UCgYEAlsg4d6M3gMJjBNcGLBqj
-MaUIyjZfGwZdI9Fj143nGCvrmDT0v5jg3sqE8viu1akaTjsej5gTCiNz/SWH22Fu
-d8pwQXSe+E2V9g+7WeB5ydq4P9UKCF7O11RiD6Hz0tLOhOyIvFV+PcsrrsXfjYGi
-+L6mPX0B1QL2+HAEwcSiBp0CgYA82hSaY6kMwa+HIcSAcmtRvonQz6IVoO7bwW5m
-SzzEEx04IWK4U1ghgYLJY8l6kqEoYhS02ygshmG6DiSS4Nh1EwX5+BR6+6qSRv0Q
-GtjavoDYtx951Pzr1MZkWqJ9EntBr72DqyQp85uu2CyqBe5SAvZY82/NjcsXpl+K
-FqBK8QKBgQDeSgsq3ljKeIuLBl9yYzc9rEGnMZJl33wcVgAG6jTr+qZ5iEToiRTu
-TSBYZgwgMJTq7i4blpsYJCoHcQynRJgSmIvSLuCw/ovyBHmHvJDDjrFsCutQYXA9
-Y2lRUoypd9DhH64Hki9kaqKd23817XEXR9kwu7QdrzWYWST5l+cTAg==
------END RSA PRIVATE KEY-----
-)";
+#include "test_signer_fixture.hpp"
 
 TEST(Signer, FromInvalidPemFails) {
 	kalshi::Result<kalshi::Signer> result =
@@ -50,17 +19,16 @@ TEST(Signer, FromInvalidPemFails) {
 }
 
 TEST(Signer, ApiKeyIdStored) {
-	kalshi::Result<kalshi::Signer> result = kalshi::Signer::from_pem("my_api_key", TEST_RSA_KEY);
-	ASSERT_TRUE(result.has_value()) << "TEST_RSA_KEY failed to parse — regenerate via "
-									   "openssl genrsa -traditional 2048";
+	kalshi::Result<kalshi::Signer> result =
+		kalshi::Signer::from_pem("my_api_key", kalshi::test::private_key_pem());
+	ASSERT_TRUE(result.has_value());
 	ASSERT_EQ(std::string(result->api_key_id()), std::string("my_api_key"));
 }
 
 TEST(Signer, SignProducesHeaders) {
 	kalshi::Result<kalshi::Signer> signer_result =
-		kalshi::Signer::from_pem("test_key", TEST_RSA_KEY);
-	ASSERT_TRUE(signer_result.has_value()) << "TEST_RSA_KEY failed to parse — regenerate via "
-											  "openssl genrsa -traditional 2048";
+		kalshi::Signer::from_pem("test_key", kalshi::test::private_key_pem());
+	ASSERT_TRUE(signer_result.has_value());
 
 	kalshi::Result<kalshi::AuthHeaders> headers_result =
 		signer_result->sign_with_timestamp("GET", "/trade-api/v2/markets", 1234567890000);
@@ -70,6 +38,35 @@ TEST(Signer, SignProducesHeaders) {
 	ASSERT_EQ(headers.access_key, std::string("test_key"));
 	ASSERT_EQ(headers.timestamp, std::string("1234567890000"));
 	ASSERT_FALSE(headers.signature.empty());
+}
+
+TEST(Signer, MovedFromInstanceRemainsSafe) {
+	kalshi::Result<kalshi::Signer> signer_result =
+		kalshi::Signer::from_pem("test_key", kalshi::test::private_key_pem());
+	ASSERT_TRUE(signer_result.has_value());
+	kalshi::Signer signer = std::move(*signer_result);
+	kalshi::Signer moved_to = std::move(signer);
+
+	EXPECT_TRUE(signer.api_key_id().empty());
+	const kalshi::Result<kalshi::AuthHeaders> headers =
+		signer.sign_with_timestamp("GET", "/trade-api/v2/markets", 1234567890000);
+	ASSERT_FALSE(headers.has_value());
+	EXPECT_EQ(headers.error().code, kalshi::ErrorCode::SigningError);
+	EXPECT_EQ(moved_to.api_key_id(), "test_key");
+}
+
+TEST(HttpClient, MovedFromInstanceRemainsSafe) {
+	kalshi::Result<kalshi::Signer> signer_result =
+		kalshi::Signer::from_pem("test_key", kalshi::test::private_key_pem());
+	ASSERT_TRUE(signer_result.has_value());
+	kalshi::HttpClient client(std::move(*signer_result));
+	kalshi::HttpClient moved_to(std::move(client));
+
+	EXPECT_NO_THROW((void)client.config());
+	const kalshi::Result<kalshi::HttpResponse> response = client.get("/markets");
+	ASSERT_FALSE(response.has_value());
+	EXPECT_EQ(response.error().code, kalshi::ErrorCode::NetworkError);
+	EXPECT_FALSE(moved_to.config().base_url.empty());
 }
 
 TEST(HttpSigningPath, UsesFullApiPathAndOmitsQuery) {
@@ -85,4 +82,86 @@ TEST(HttpSigningPath, RequestUrlUsesTheSameNormalizedJoin) {
 	EXPECT_EQ(kalshi::detail::request_url("https://example.test/trade-api/v2/",
 										  "/portfolio/orders?limit=5"),
 			  "https://example.test/trade-api/v2/portfolio/orders?limit=5");
+}
+
+TEST(HttpSigningPath, WebSocketCallSitePassesAnEmptyBaseUrl) {
+	// WebSocketClient::connect() signs `request_signing_path("", endpoint.path)`
+	// because the WS URL already carries the full path from the host root.
+	// Pin that empty-base behaviour: the path is passed through untouched
+	// and any query string is dropped, matching the REST contract above.
+	EXPECT_EQ(kalshi::detail::request_signing_path("", "/trade-api/ws/v2"), "/trade-api/ws/v2");
+	EXPECT_EQ(kalshi::detail::request_signing_path("", "/trade-api/ws/v2?token=value"),
+			  "/trade-api/ws/v2");
+	EXPECT_EQ(kalshi::detail::request_signing_path("", "/"), "/");
+	EXPECT_EQ(kalshi::detail::request_signing_path("", "/?token=value"), "/");
+}
+
+namespace {
+
+/// Verify an RSA-PSS/SHA-256 signature the way Kalshi's gateway does.
+///
+/// RSA-PSS salts every signature, so two calls over the same input are
+/// never byte-identical and cannot be pinned with a golden string. What
+/// *is* stable, and what a signing regression would break, is that the
+/// emitted signature verifies against the key over exactly
+/// `timestamp + method + path`.
+bool signature_verifies(const std::string& pem, const std::string& message,
+						const std::string& base64_signature) {
+	BIO* key_bio = BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size()));
+	if (!key_bio)
+		return false;
+	EVP_PKEY* key = PEM_read_bio_PrivateKey(key_bio, nullptr, nullptr, nullptr);
+	BIO_free(key_bio);
+	if (!key)
+		return false;
+
+	std::vector<unsigned char> signature(base64_signature.size());
+	const int decoded_with_padding = EVP_DecodeBlock(
+		signature.data(), reinterpret_cast<const unsigned char*>(base64_signature.data()),
+		static_cast<int>(base64_signature.size()));
+	if (decoded_with_padding < 0) {
+		EVP_PKEY_free(key);
+		return false;
+	}
+	std::size_t padding = 0;
+	while (padding < base64_signature.size() &&
+		   base64_signature[base64_signature.size() - 1 - padding] == '=')
+		++padding;
+	signature.resize(static_cast<std::size_t>(decoded_with_padding) - padding);
+
+	EVP_MD_CTX* ctx = EVP_MD_CTX_new();
+	EVP_PKEY_CTX* pkey_ctx = nullptr;
+	const bool verified = ctx &&
+						  EVP_DigestVerifyInit(ctx, &pkey_ctx, EVP_sha256(), nullptr, key) == 1 &&
+						  EVP_PKEY_CTX_set_rsa_padding(pkey_ctx, RSA_PKCS1_PSS_PADDING) == 1 &&
+						  EVP_PKEY_CTX_set_rsa_pss_saltlen(pkey_ctx, RSA_PSS_SALTLEN_DIGEST) == 1 &&
+						  EVP_DigestVerify(ctx, signature.data(), signature.size(),
+										   reinterpret_cast<const unsigned char*>(message.data()),
+										   message.size()) == 1;
+	EVP_MD_CTX_free(ctx);
+	EVP_PKEY_free(key);
+	return verified;
+}
+
+} // namespace
+
+TEST(Signer, SignatureVerifiesOverTimestampMethodAndPath) {
+	const std::string& pem = kalshi::test::private_key_pem();
+	kalshi::Result<kalshi::Signer> signer_result = kalshi::Signer::from_pem("test_key", pem);
+	ASSERT_TRUE(signer_result.has_value());
+
+	// The WebSocket handshake signs the endpoint path with no query string.
+	const std::string path = "/trade-api/ws/v2";
+	const kalshi::Result<kalshi::AuthHeaders> headers =
+		signer_result->sign_with_timestamp("GET", path, 1234567890000);
+	ASSERT_TRUE(headers.has_value());
+	EXPECT_EQ(headers->timestamp, "1234567890000");
+
+	EXPECT_TRUE(signature_verifies(pem, "1234567890000GET" + path, headers->signature));
+	// A different path, method, or timestamp must not verify — otherwise
+	// the assertion above would pass for any signed message.
+	EXPECT_FALSE(
+		signature_verifies(pem, "1234567890000GET" + path + "?token=value", headers->signature));
+	EXPECT_FALSE(signature_verifies(pem, "1234567890000POST" + path, headers->signature));
+	EXPECT_FALSE(signature_verifies(pem, "1234567890001GET" + path, headers->signature));
 }

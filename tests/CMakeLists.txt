@@ -34,14 +34,13 @@ include(GoogleTest)
 # tests on macOS runners.
 gtest_discover_tests(kalshi_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30)
 
-# Serialize-throughput regression guard. Renders a representative
-# 50-order batch-create body 1k times and asserts us/op stays under
-# a cap. ctest --timeout = 30s; actual wall-clock is ~50-100ms.
+# Throughput regression guard. It renders a representative 50-order batch and
+# parses a representative trade frame under generous per-operation caps.
 add_executable(kalshi_parse_benchmark
     parse_benchmark.cpp
 )
 target_link_libraries(kalshi_parse_benchmark PRIVATE
-    kalshi_api kalshi_core
+    kalshi_api kalshi_core kalshi_ws
 )
 target_include_directories(kalshi_parse_benchmark PRIVATE
     $<BUILD_INTERFACE:${glaze_SOURCE_DIR}/include>

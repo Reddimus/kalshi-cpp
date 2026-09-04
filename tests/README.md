@@ -1,42 +1,19 @@
-# Tests Directory
+# Tests
 
-Unit tests for the Kalshi C++ SDK.
+GoogleTest covers models, request serialization, response parsing, query
+builders, WebSocket state and parsing, and injected-transport operation
+contracts. `parse_benchmark.cpp` guards request serialization and WebSocket
+receive performance. `test_signer_fixture.hpp` generates its RSA key in memory;
+tests do not store or use live credentials.
 
-## Test Files
-
-| File | Tests |
-| ---- | ----- |
-| `test_main.cpp` | Test framework and runner |
-| `test_signer.cpp` | RSA-PSS signing tests |
-| `test_models.cpp` | Data model tests |
-
-## Running Tests
-
-From this directory:
+Run the complete suite from the repository root:
 
 ```bash
-make test
+cmake -S . -B build -DKALSHI_BUILD_TESTS=ON
+cmake --build build --parallel
+ctest --test-dir build --output-on-failure
 ```
 
-Or from the repository root:
-
-```bash
-make test
-```
-
-## Test Framework
-
-Uses a minimal built-in test framework with macros:
-
-- `TEST(name)` - Define a test
-- `ASSERT_TRUE(expr)` - Assert expression is true
-- `ASSERT_FALSE(expr)` - Assert expression is false
-- `ASSERT_EQ(a, b)` - Assert equality
-- `ASSERT_NE(a, b)` - Assert inequality
-
-## Adding Tests
-
-1. Create a new `test_*.cpp` file
-2. Include the test macros (see existing files)
-3. Add to `tests/CMakeLists.txt`
-4. Run `make test`
+Add new `test_*.cpp` files to `tests/CMakeLists.txt`. Prefer an injected
+`HttpTransport` for operation tests so requests remain offline and their method,
+path, body, and response model are all observable.
