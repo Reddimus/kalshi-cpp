@@ -1,6 +1,6 @@
 # kalshi-cpp
 
-[![CI](https://github.com/Reddimus/kalshi-cpp/actions/workflows/ci.yml/badge.svg)](https://github.com/Reddimus/kalshi-cpp/actions/workflows/ci.yml)
+[![CI](https://github.com/Reddimus/kalshi-cpp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Reddimus/kalshi-cpp/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Reddimus/kalshi-cpp)](https://github.com/Reddimus/kalshi-cpp/releases)
 
 A C++23 client for Kalshi's Predictions REST API and WebSocket feeds. It uses
