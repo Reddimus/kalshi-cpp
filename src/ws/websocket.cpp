@@ -476,13 +476,21 @@ struct WsImplData {
 
 	// libwebsockets context and connection
 	lws_context* context{nullptr};
-	lws* wsi{nullptr};
 	std::thread service_thread;
 
 	// Send queue - deque provides contiguous storage and efficient front removal
 	std::mutex send_mutex;
 	std::deque<std::string> send_queue;
 	std::string current_send_buffer;
+	/// Live libwebsockets connection handle. Guarded by ``send_mutex``.
+	///
+	/// Callers queue sends from their own threads while connect() and
+	/// disconnect() replace this handle. Leaving it unsynchronized was a
+	/// data race (ThreadSanitizer flags it), and it also let a queued send
+	/// hand libwebsockets a handle whose context had already been
+	/// destroyed. Clearing it under the same lock the senders hold, and
+	/// before the owning context is torn down, closes both.
+	lws* wsi{nullptr};
 
 	// Receive buffer
 	std::string recv_buffer;
@@ -736,11 +744,15 @@ Result<void> WebSocketClient::connect() {
 				Error::network("Cannot reconnect from the WebSocket service callback"));
 		}
 	}
+	// Retire the stale handle before destroying the context that owns it.
+	{
+		const std::lock_guard<std::mutex> lock(data->send_mutex);
+		data->wsi = nullptr;
+	}
 	if (data->context) {
 		lws_context_destroy(data->context);
 		data->context = nullptr;
 	}
-	data->wsi = nullptr;
 	data->should_stop = false;
 
 	const Result<detail::WsEndpoint> endpoint_result = detail::parse_ws_endpoint(data->config.url);
@@ -787,11 +799,15 @@ Result<void> WebSocketClient::connect() {
 		conn_info.ssl_connection = LCCSCF_USE_SSL;
 	}
 
-	data->wsi = lws_client_connect_via_info(&conn_info);
-	if (!data->wsi) {
+	lws* connection = lws_client_connect_via_info(&conn_info);
+	if (!connection) {
 		lws_context_destroy(data->context);
 		data->context = nullptr;
 		return std::unexpected(Error::network("Failed to initiate WebSocket connection"));
+	}
+	{
+		const std::lock_guard<std::mutex> lock(data->send_mutex);
+		data->wsi = connection;
 	}
 
 	// Start service thread
@@ -835,6 +851,12 @@ void WebSocketClient::disconnect() {
 	data->should_stop = true;
 	data->connected = false;
 	data->subscriptions.clear();
+	// Retire the handle first: a queue_send() racing this teardown must
+	// see nullptr rather than a handle whose context is about to go away.
+	{
+		const std::lock_guard<std::mutex> lock(data->send_mutex);
+		data->wsi = nullptr;
+	}
 
 	if (data->service_thread.joinable()) {
 		if (!detail::join_thread_unless_current(data->service_thread)) {
@@ -847,7 +869,6 @@ void WebSocketClient::disconnect() {
 		lws_context_destroy(data->context);
 		data->context = nullptr;
 	}
-	data->wsi = nullptr;
 
 	data->invoke_state_callback(false);
 }
