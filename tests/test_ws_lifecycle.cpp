@@ -17,12 +17,16 @@
 /// scope here (no creds, no exchange round-trip on CI). These tests
 /// don't connect, so they don't need network access.
 
+#include <atomic>
 #include <future>
 #include <gtest/gtest.h>
 #include <kalshi/detail/callback_slot.hpp>
+#include <kalshi/detail/http_path.hpp>
 #include <kalshi/signer.hpp>
 #include <kalshi/websocket.hpp>
+#include <thread>
 #include <utility>
+#include <vector>
 
 #include "test_signer_fixture.hpp"
 #include "ws_endpoint.hpp"
@@ -53,9 +57,11 @@ TEST(WsLifecycle, InvalidUrlReturnsErrorWithoutNetworkOrExceptions) {
 	kalshi::Signer signer = make_test_signer();
 
 	for (const std::string& url :
-		 {"https://example.test/ws", "wss:///ws", "wss://user@example.test/ws",
-		  "wss://example.test:/ws", "wss://example.test:not-a-port/ws",
-		  "wss://example.test:70000/ws", "wss://::1/ws", "wss://example.test/ws#fragment"}) {
+		 {"https://example.test/ws", "wss://", "wss:///ws", "wss://user@example.test/ws",
+		  "wss://example.test:/ws", "wss://example.test:not-a-port/ws", "wss://example.test:0/ws",
+		  "wss://example.test:65536/ws", "wss://example.test:70000/ws", "wss://::1/ws",
+		  "wss://[::1/ws", "wss://[]/ws", "wss://[::1]x/ws", "wss://exa mple.test/ws",
+		  "wss://example.test/ws#fragment", "wss://example.test?token=value#fragment"}) {
 		kalshi::WsConfig cfg;
 		cfg.url = url;
 		kalshi::WebSocketClient ws(signer, cfg);
@@ -84,6 +90,61 @@ TEST(WsLifecycle, UrlParserSupportsBracketedIpv6AndQueryOnlyPath) {
 	EXPECT_EQ(result->path, "/?token=value");
 	EXPECT_EQ(result->port, 80);
 	EXPECT_FALSE(result->use_ssl);
+}
+
+TEST(WsLifecycle, DefaultConfigUrlParsesToTheProductionEndpoint) {
+	// The shipped default is what almost every consumer connects with, so
+	// pin the whole tuple it decomposes into — including the implicit 443
+	// that no explicit-port case covers.
+	const kalshi::WsConfig defaults;
+	const kalshi::Result<kalshi::detail::WsEndpoint> result =
+		kalshi::detail::parse_ws_endpoint(defaults.url);
+	ASSERT_TRUE(result.has_value());
+	EXPECT_EQ(result->host, "external-api-ws.kalshi.com");
+	EXPECT_EQ(result->path, "/trade-api/ws/v2");
+	EXPECT_EQ(result->port, 443);
+	EXPECT_TRUE(result->use_ssl);
+
+	// The upgrade request carries the parsed path; the signature covers the
+	// same path with any query string removed. For the default URL the two
+	// are identical, which is what keeps signatures byte-compatible with
+	// every release before the URL parser existed.
+	EXPECT_EQ(kalshi::detail::request_signing_path("", result->path), "/trade-api/ws/v2");
+}
+
+TEST(WsLifecycle, ConcurrentConnectAttemptsSerializeHandleAccess) {
+	// Regression: the libwebsockets connection handle was a plain `lws*`
+	// written by connect()/disconnect() while queue_send() read it under
+	// send_mutex — an unsynchronized write to a pointer other threads
+	// dereference. ThreadSanitizer reports a write/write data race on that
+	// field for this test before the handle moved under send_mutex.
+	//
+	// An invalid URL keeps the body of connect() on its pre-parse reap
+	// path, where the handle is the only non-atomic shared field touched,
+	// so a report here names that field and nothing else.
+	kalshi::Signer signer = make_test_signer();
+	kalshi::WsConfig cfg;
+	cfg.url = "not-a-websocket-url";
+	kalshi::WebSocketClient ws(signer, cfg);
+
+	std::atomic<int> unexpected_successes{0};
+	std::vector<std::thread> threads;
+	threads.reserve(8);
+	for (int worker = 0; worker < 8; ++worker) {
+		threads.emplace_back([&ws, &unexpected_successes]() {
+			for (int attempt = 0; attempt < 200; ++attempt) {
+				if (ws.connect().has_value()) {
+					unexpected_successes.fetch_add(1);
+				}
+			}
+		});
+	}
+	for (std::thread& thread : threads) {
+		thread.join();
+	}
+
+	EXPECT_EQ(unexpected_successes.load(), 0);
+	EXPECT_FALSE(ws.is_connected());
 }
 
 TEST(WsLifecycle, MoveConstructLeavesMovedFromSafe) {

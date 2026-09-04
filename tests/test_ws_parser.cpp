@@ -67,6 +67,12 @@ TEST(ExtractString, MissingKeyReturnsEmpty) {
 }
 
 TEST(ExtractString, IgnoresMatchingTextInsideAValue) {
+	// A string *value* that happens to equal the key name used to win the
+	// find-first race: the pre-fix scanner searched for the bare quoted
+	// token, matched the value here, then took the *next* colon and read
+	// the neighbouring field. Only a token followed by ':' is a key.
+	EXPECT_EQ(extract_string(R"({"a":"name","b":"wrong","name":"actual"})", "name"), "actual");
+	EXPECT_EQ(extract_int(R"({"a":"seq","b":7,"seq":42})", "seq"), 42);
 	EXPECT_EQ(
 		extract_string(R"({"description":"embedded \"name\":\"wrong\"","name":"actual"})", "name"),
 		"actual");
