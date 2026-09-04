@@ -160,6 +160,18 @@ Result<WsEndpoint> parse_ws_endpoint(std::string_view url) {
 
 namespace {
 
+/// Sentinel returned by ``config()`` on a moved-from client.
+///
+/// It lives at namespace scope rather than as a function-local static so
+/// that constructing it — ``WsConfig`` holds ``std::string`` members and
+/// therefore allocates — happens during this translation unit's dynamic
+/// initialization instead of inside a ``noexcept`` accessor, where a
+/// ``std::bad_alloc`` (or a throwing thread-safe-init guard) would call
+/// ``std::terminate``. The previous function-local static needed two
+/// ``NOLINT(bugprone-exception-escape)`` comments to build; removing the
+/// throwing construct removes the need to suppress the warning about it.
+const WsConfig kMovedFromConfig{};
+
 std::int32_t exact_ws_integer(std::string_view wire, std::uint8_t scale) {
 	const Result<FixedPoint> parsed = FixedPoint::parse(wire);
 	if (!parsed)
@@ -1040,17 +1052,11 @@ void WebSocketClient::on_state_change(WsStateCallback callback) {
 	impl_->data->state_callback.set(std::move(callback));
 }
 
-const WsConfig& WebSocketClient::config() const noexcept { // NOLINT(bugprone-exception-escape)
-	// Returning a reference into a nullptr would crash; surface a
-	// static empty config so accessors stay safe on moved-from
-	// instances (matches the null-guard pattern in disconnect() /
-	// is_connected()).
-	if (!impl_) {
-		// NOLINTNEXTLINE(bugprone-exception-escape)
-		static const WsConfig kEmpty{};
-		return kEmpty;
-	}
-	return impl_->data->config;
+const WsConfig& WebSocketClient::config() const noexcept {
+	// Returning a reference through a nullptr would crash; surface the
+	// moved-from sentinel instead so accessors stay safe (matches the
+	// null-guard pattern in disconnect() / is_connected()).
+	return impl_ ? impl_->data->config : kMovedFromConfig;
 }
 
 } // namespace kalshi

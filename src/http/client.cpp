@@ -24,6 +24,16 @@ CurlRuntime& curl_runtime() {
 	return runtime;
 }
 
+/// Sentinel returned by ``config()`` on a moved-from client.
+///
+/// It lives at namespace scope rather than as a function-local static so
+/// that constructing it — ``ClientConfig`` holds a ``std::string`` and
+/// therefore allocates — happens during this translation unit's dynamic
+/// initialization instead of inside a ``noexcept`` accessor, where a
+/// ``std::bad_alloc`` (or a throwing thread-safe-init guard) would call
+/// ``std::terminate``.
+const ClientConfig kMovedFromConfig{};
+
 } // namespace
 
 struct HttpClient::Impl {
@@ -88,8 +98,7 @@ HttpClient::HttpClient(HttpClient&&) noexcept = default;
 HttpClient& HttpClient::operator=(HttpClient&&) noexcept = default;
 
 const ClientConfig& HttpClient::config() const noexcept {
-	static const ClientConfig empty{};
-	return impl_ ? impl_->config : empty;
+	return impl_ ? impl_->config : kMovedFromConfig;
 }
 
 Result<HttpResponse> HttpClient::get(std::string_view path) const {

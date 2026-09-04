@@ -21,6 +21,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   authentication contract while preserving the query in the upgrade request.
 - Keep moved-from `Signer` and `HttpClient` objects safe to inspect and reject
   work through them with typed errors.
+- Stop allocating inside the `noexcept` `HttpClient::config()` and
+  `WebSocketClient::config()` accessors. Their moved-from sentinels were
+  function-local statics whose construction could throw, which would call
+  `std::terminate` rather than return.
 - Give public error, HTTP response, order-book entry, and retry-result
   aggregates deterministic scalar defaults.
 - Preserve library-size totals in `tools/bench.sh`; piping the prior loop into
