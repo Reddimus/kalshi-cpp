@@ -94,6 +94,17 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `batch_create_orders`). Methods for routes Kalshi removed are gone.
 - Path parameters are percent-encoded, and an empty one fails with
   `InvalidRequest` instead of silently calling a different route.
+- `ErrorCode::Ok`, `Error::ok()`, and `Error::is_ok()` are gone; a `Result`
+  holds either a value or an error. `ErrorCode::NotFound` is new, so the
+  enumerators' numeric values changed. Any other 4xx is `InvalidRequest`, and
+  408 is `NetworkError`.
+- `KalshiClient` takes a `std::shared_ptr<const HttpTransport>`, and
+  `http_client()` and the non-const `transport()` are gone.
+- `collect_pages()` replaces `PaginatedIterator`, `Cursor`,
+  `PaginationParams`, and `PaginatedResponse`.
+- `derive_outcome_side()` and `derive_book_side()` are now `outcome_side()`
+  and `book_side()`, in `kalshi/helpers.hpp`. They return `Unknown` when the
+  side or action is `Unknown`.
 - `Signer` is copyable, and `WebSocketClient` stores its own copy, so the
   signer no longer has to outlive the client.
 - `HttpResponse::status_code` is an `int`. `ClientConfig::timeout` is in

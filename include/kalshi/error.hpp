@@ -8,9 +8,9 @@
 namespace kalshi {
 
 enum class ErrorCode : std::uint8_t {
-	NetworkError,		 ///< The request did not complete (DNS, TLS, timeout, reset).
+	NetworkError,		 ///< The request did not complete (DNS, TLS, timeout, reset), or HTTP 408.
 	AuthenticationError, ///< HTTP 401 or 403.
-	InvalidRequest,		 ///< Rejected before sending, or HTTP 400, 409, or 422.
+	InvalidRequest,		 ///< Rejected before sending, or another HTTP 4xx.
 	NotFound,			 ///< HTTP 404.
 	RateLimited,		 ///< HTTP 429, or a local rate limit that would wait too long.
 	ServerError,		 ///< HTTP 5xx.

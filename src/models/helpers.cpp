@@ -1,18 +1,22 @@
 #include "kalshi/helpers.hpp"
 
-#include <charconv>
-
 namespace kalshi {
 
 namespace {
 
+// Reads exactly `count` ASCII digits. std::from_chars alone would accept a sign.
 bool read_digits(std::string_view text, std::size_t pos, std::size_t count, int& out) {
 	if (pos + count > text.size()) {
 		return false;
 	}
-	const char* first = text.data() + pos;
-	const std::from_chars_result parsed = std::from_chars(first, first + count, out);
-	return parsed.ec == std::errc{} && parsed.ptr == first + count;
+	out = 0;
+	for (const char c : text.substr(pos, count)) {
+		if (c < '0' || c > '9') {
+			return false;
+		}
+		out = out * 10 + (c - '0');
+	}
+	return true;
 }
 
 Result<Timestamp> invalid(std::string_view text) {

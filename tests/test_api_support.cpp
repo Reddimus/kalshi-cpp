@@ -53,7 +53,10 @@ TEST(ApiSupport, HttpStatusesMapToErrorCodes) {
 				 {401, kalshi::ErrorCode::AuthenticationError},
 				 {403, kalshi::ErrorCode::AuthenticationError},
 				 {404, kalshi::ErrorCode::NotFound},
+				 {405, kalshi::ErrorCode::InvalidRequest},
+				 {408, kalshi::ErrorCode::NetworkError},
 				 {409, kalshi::ErrorCode::InvalidRequest},
+				 {413, kalshi::ErrorCode::InvalidRequest},
 				 {422, kalshi::ErrorCode::InvalidRequest},
 				 {429, kalshi::ErrorCode::RateLimited},
 				 {500, kalshi::ErrorCode::ServerError},
@@ -132,6 +135,14 @@ TEST(ApiSupport, NullsForNonNullableFieldsReadAsEmpty) {
 	ASSERT_TRUE(metadata.has_value()) << metadata.error().message;
 	EXPECT_TRUE(metadata->market_details.empty());
 	EXPECT_EQ(metadata->image_url, "x.webp");
+}
+
+TEST(ApiSupport, WellFormedBodiesKeepNullsInsideRawJson) {
+	const kalshi::Result<kalshi::Market> market = kalshi::detail::decode<kalshi::Market>(
+		response(200, R"({"ticker":"A","custom_strike":{"a":null}})"));
+	ASSERT_TRUE(market.has_value()) << market.error().message;
+	ASSERT_TRUE(market->custom_strike.has_value());
+	EXPECT_EQ(market->custom_strike->text, R"({"a":null})");
 }
 
 TEST(ApiSupport, RawJsonRoundTripsVerbatim) {

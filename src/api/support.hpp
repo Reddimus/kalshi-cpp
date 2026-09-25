@@ -102,11 +102,15 @@ template <class T>
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
-	std::string json = response->body.find("null") == std::string::npos
-						   ? std::move(response->body)
-						   : strip_null_members(response->body);
-	T value{};
 	constexpr glz::opts options{.error_on_unknown_keys = false};
+	T value{};
+	if (!glz::read<options>(value, response->body)) {
+		return value;
+	}
+	// Kalshi sometimes sends null for fields its spec marks non-null. Retry
+	// without null members only then, so well-formed bodies parse in one pass.
+	const std::string json = strip_null_members(response->body);
+	value = T{};
 	if (const glz::error_ctx error = glz::read<options>(value, json)) {
 		return std::unexpected(Error{ErrorCode::ParseError,
 									 "Unexpected response body: " + glz::format_error(error, json),

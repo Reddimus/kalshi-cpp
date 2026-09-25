@@ -25,6 +25,7 @@ Mapping rules:
 from __future__ import annotations
 
 import argparse
+import os
 import re
 import shutil
 import subprocess
@@ -564,9 +565,11 @@ class Generator:
                 elif m.required and m.base_kind == "string":
                     out.append(f'\tif ({access}.empty()) {{\n\t\treturn invalid("{name}", "{m.json_name}", "is required");\n\t}}\n')
                 elif m.element in order and m.base_kind == "struct":
-                    target = f"*{access}" if opt else access
-                    guard = f"{access} && " if opt else ""
-                    out.append(f"\tif ({guard}!validate({target})) {{\n\t\treturn validate({target});\n\t}}\n")
+                    if opt:
+                        out.append(f"\tif ({access}) {{\n\t\tif (Result<void> valid = validate(*{access}); !valid) {{\n"
+                                   "\t\t\treturn valid;\n\t\t}\n\t}\n")
+                    else:
+                        out.append(f"\tif (Result<void> valid = validate({access}); !valid) {{\n\t\treturn valid;\n\t}}\n")
                 elif m.element in order and m.base_kind == "vector":
                     rng = f"*{access}" if opt else access
                     guard_open = f"\tif ({access}) {{\n" if opt else ""
@@ -676,7 +679,8 @@ def outputs(gen: Generator) -> dict[Path, str]:
 
 def clang_format(path: Path, text: str) -> str:
     """Formats generated C++ with the repository style so lint and --check agree."""
-    binary = shutil.which("clang-format-18") or shutil.which("clang-format")
+    # `make` passes the clang-format it checks with, so both steps use one binary.
+    binary = os.environ.get("CLANG_FORMAT") or shutil.which("clang-format-18") or shutil.which("clang-format")
     if binary is None:
         sys.exit("clang-format 18 is required to generate C++ sources")
     version = subprocess.run([binary, "--version"], capture_output=True, text=True, check=True).stdout

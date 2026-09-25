@@ -37,16 +37,27 @@ using Timestamp = std::chrono::sys_time<std::chrono::milliseconds>;
 [[nodiscard]] Result<Timestamp> parse_timestamp(std::string_view text);
 
 /// The outcome a (side, action) pair is exposed to: buying yes or selling no
-/// is yes exposure.
+/// is yes exposure. Unknown if either input is Unknown.
 [[nodiscard]] constexpr OutcomeSide outcome_side(Side side, Action action) noexcept {
-	const bool yes = (side == Side::Yes && action == Action::Buy) ||
-					 (side == Side::No && action == Action::Sell);
+	if (side == Side::Unknown || action == Action::Unknown) {
+		return OutcomeSide::Unknown;
+	}
+	const bool yes = (side == Side::Yes) == (action == Action::Buy);
 	return yes ? OutcomeSide::Yes : OutcomeSide::No;
 }
 
 /// The single-book side for a (side, action) pair: yes exposure bids.
+/// Unknown if either input is Unknown.
 [[nodiscard]] constexpr BookSide book_side(Side side, Action action) noexcept {
-	return outcome_side(side, action) == OutcomeSide::Yes ? BookSide::Bid : BookSide::Ask;
+	switch (outcome_side(side, action)) {
+		case OutcomeSide::Yes:
+			return BookSide::Bid;
+		case OutcomeSide::No:
+			return BookSide::Ask;
+		case OutcomeSide::Unknown:
+			break;
+	}
+	return BookSide::Unknown;
 }
 
 } // namespace kalshi

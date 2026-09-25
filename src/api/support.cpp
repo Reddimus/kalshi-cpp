@@ -189,14 +189,16 @@ void Query::add(std::string_view key, double value) {
 Error http_error(const HttpResponse& response, std::string_view operation) {
 	const int status = response.status_code;
 	ErrorCode code = ErrorCode::Unknown;
-	if (status == 400 || status == 409 || status == 422) {
-		code = ErrorCode::InvalidRequest;
-	} else if (status == 401 || status == 403) {
+	if (status == 401 || status == 403) {
 		code = ErrorCode::AuthenticationError;
 	} else if (status == 404) {
 		code = ErrorCode::NotFound;
+	} else if (status == 408) {
+		code = ErrorCode::NetworkError;
 	} else if (status == 429) {
 		code = ErrorCode::RateLimited;
+	} else if (status >= 400 && status <= 499) {
+		code = ErrorCode::InvalidRequest;
 	} else if (status >= 500 && status <= 599) {
 		code = ErrorCode::ServerError;
 	}

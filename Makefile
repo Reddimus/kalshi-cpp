@@ -50,7 +50,7 @@ consumers:
 
 # Needs PyYAML and clang-format 18.
 codegen:
-	$(PYTHON) tools/codegen/generate.py
+	CLANG_FORMAT="$(CLANG_FORMAT)" $(PYTHON) tools/codegen/generate.py
 
 lint:
 	@test -n "$(CLANG_FORMAT)" || { echo "clang-format $(CLANG_FORMAT_MAJOR) is required"; exit 1; }
@@ -59,7 +59,7 @@ lint:
 		{ echo "clang-format $(CLANG_FORMAT_MAJOR) is required; found $$major"; exit 1; }
 	$(CPP_SOURCES) | xargs -0 $(CLANG_FORMAT) --dry-run --Werror
 	$(PYTHON) tools/cpp_auto_audit.py
-	$(PYTHON) tools/codegen/generate.py --check
+	CLANG_FORMAT="$(CLANG_FORMAT)" $(PYTHON) tools/codegen/generate.py --check
 
 lint-docs:
 	markdownlint-cli2
