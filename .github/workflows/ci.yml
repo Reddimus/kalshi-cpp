@@ -79,8 +79,11 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force .vcpkg-cache | Out-Null
-          # The manifest baseline can be newer than the runner's vcpkg checkout.
+          # vcpkg reads port versions from its working tree, which can be older
+          # than the manifest baseline. Update it; the baseline still pins versions.
           git -C "$env:VCPKG_INSTALLATION_ROOT" fetch --quiet origin master
+          git -C "$env:VCPKG_INSTALLATION_ROOT" reset --quiet --hard origin/master
+          & "$env:VCPKG_INSTALLATION_ROOT/bootstrap-vcpkg.bat" -disableMetrics
           cmake -S . -B build `
             "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
             -DVCPKG_TARGET_TRIPLET=x64-windows `
