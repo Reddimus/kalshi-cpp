@@ -1,30 +1,9 @@
 #include "kalshi/http_client.hpp"
-#include "kalshi/pagination.hpp"
 #include "kalshi/websocket.hpp"
 
 #include <chrono>
 #include <gtest/gtest.h>
 #include <string>
-
-// --- Pagination tests ---
-
-TEST(Pagination, CursorEmpty) {
-	kalshi::Cursor cursor;
-	ASSERT_TRUE(cursor.empty());
-
-	cursor.value = "abc123";
-	ASSERT_FALSE(cursor.empty());
-}
-
-TEST(Pagination, ResponseHasMore) {
-	kalshi::PaginatedResponse<int> response;
-	response.items = {1, 2, 3};
-	response.next_cursor = std::nullopt;
-	ASSERT_FALSE(response.has_more());
-
-	response.next_cursor = kalshi::Cursor{"next"};
-	ASSERT_TRUE(response.has_more());
-}
 
 // --- WebSocket model tests ---
 

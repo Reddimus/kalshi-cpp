@@ -44,17 +44,9 @@
 #include <thread>
 #include <vector>
 
-// ===== Glaze serializers for outgoing WS commands =====
-//
-// Shim structs + glz::meta live in `src/ws/ws_cmd_bodies.hpp` (not
-// installed). The WS server rejects frames whose top-level keys are
-// not in the documented order; the meta there pins it. Byte-exact
-// equivalence vs the pre-migration `nlohmann::ordered_json` output is
-// pinned by `tests/test_json_serialize.cpp`.
-//
-// Only outgoing command builders use Glaze. The incoming hot path uses the
-// allocation-conscious scanners in `kalshi/detail/ws_json.hpp`; parser and
-// benchmark tests pin their behavior and throughput.
+// Outgoing commands serialize through the Glaze structs in `ws_cmd_bodies.hpp`,
+// whose key order `tests/test_ws_commands.cpp` pins. Incoming frames use the
+// scanners in `kalshi/detail/ws_json.hpp`.
 
 namespace kalshi {
 
@@ -344,10 +336,10 @@ std::optional<WsMessage> parse_ws_data_message(std::string_view input) {
 		fill.count = exact_ws_integer(fill.count_fp, 0);
 		fill.action = action("action");
 		const std::string canonical_outcome = extract_string(json, "outcome_side");
-		fill.outcome_side = canonical_outcome.empty() ? derive_outcome_side(fill.side, fill.action)
+		fill.outcome_side = canonical_outcome.empty() ? kalshi::outcome_side(fill.side, fill.action)
 													  : outcome_side("outcome_side");
 		const std::string canonical_book = extract_string(json, "book_side");
-		fill.book_side = canonical_book.empty() ? derive_book_side(fill.side, fill.action)
+		fill.book_side = canonical_book.empty() ? kalshi::book_side(fill.side, fill.action)
 												: book_side("book_side");
 		fill.timestamp = extract_int64(json, "ts");
 		fill.timestamp_ms = extract_int64(json, "ts_ms");

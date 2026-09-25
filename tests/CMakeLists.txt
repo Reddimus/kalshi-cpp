@@ -1,28 +1,28 @@
 add_executable(kalshi_tests
-    test_signer.cpp
-    test_models.cpp
+    test_api_support.cpp
     test_features.cpp
-    test_api.cpp
-    test_version.cpp
-    test_ws_parser.cpp
-    test_ws_subscription_registry.cpp
-    test_ws_lifecycle.cpp
-    test_json_serialize.cpp
-    test_response_parsers.cpp
-    test_query_builders.cpp
-    test_operation_contracts.cpp
     test_fixed_point.cpp
+    test_helpers.cpp
+    test_http_client.cpp
+    test_operation_routes.cpp
+    test_operations.cpp
+    test_signer.cpp
     test_transports.cpp
-    test_http_client.cpp)
+    test_version.cpp
+    test_ws_commands.cpp
+    test_ws_lifecycle.cpp
+    test_ws_parser.cpp
+    test_ws_subscription_registry.cpp)
 # Tests reach implementation headers under src/, which include Glaze.
 target_include_directories(kalshi_tests PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/api
     ${PROJECT_SOURCE_DIR}/src/ws)
 target_link_libraries(kalshi_tests PRIVATE
     kalshi::kalshi glaze::glaze OpenSSL::Crypto GTest::gtest_main GTest::gmock)
 kalshi_configure_target(kalshi_tests)
-# Contract tests deliberately call deprecated compatibility overloads.
-set_source_files_properties(test_operation_contracts.cpp PROPERTIES COMPILE_OPTIONS
+# The generated route tests also cover operations Kalshi marks deprecated.
+set_source_files_properties(test_operation_routes.cpp PROPERTIES COMPILE_OPTIONS
     "$<IF:$<CXX_COMPILER_ID:MSVC>,/wd4996,-Wno-deprecated-declarations>")
 
 include(GoogleTest)

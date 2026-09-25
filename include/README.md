@@ -1,23 +1,21 @@
 # Public headers
 
-Include the complete SDK with:
+`#include <kalshi/kalshi.hpp>` brings in everything.
 
-```cpp
-#include <kalshi/kalshi.hpp>
-```
-
-| Header | Purpose |
+| Header | Contents |
 | --- | --- |
-| `kalshi/api.hpp` | Typed Predictions REST client and models |
-| `kalshi/error.hpp` | `Error` and `Result<T>` |
-| `kalshi/fixed_point.hpp` | Checked decimal conversion |
-| `kalshi/http_client.hpp` | Signed libcurl transport |
-| `kalshi/pagination.hpp` | Cursor pagination helpers |
-| `kalshi/rate_limit.hpp` | Token-bucket rate limiting |
-| `kalshi/retry.hpp` | Retry policy and backoff |
-| `kalshi/signer.hpp` | RSA-PSS request signing |
-| `kalshi/websocket.hpp` | WebSocket client and message models |
-| `kalshi/models/` | Market and order models |
+| `kalshi/api.hpp` | `KalshiClient`, one method per REST operation (generated) |
+| `kalshi/models.hpp` | Request, response, and enum types from the OpenAPI spec (generated) |
+| `kalshi/helpers.hpp` | Fixed-point to cents or contracts, timestamps, order directions |
+| `kalshi/http_client.hpp` | Transport interface, libcurl client, `ClientConfig` |
+| `kalshi/retry.hpp` | `RetryingTransport` and `RetryPolicy` |
+| `kalshi/rate_limit.hpp` | `TokenBucket` and `RateLimitedTransport` |
+| `kalshi/pagination.hpp` | `collect_pages` |
+| `kalshi/signer.hpp` | API key loading and request signing |
+| `kalshi/websocket.hpp` | Streaming client and message types |
+| `kalshi/error.hpp` | `Error`, `ErrorCode`, and `Result<T>` |
+| `kalshi/environment.hpp` | Production and demo URLs |
+| `kalshi/fixed_point.hpp` | Exact decimal parsing |
 
 Headers under `kalshi/detail/` support the implementation and tests. They are
-not stable consumer interfaces.
+not a stable interface.

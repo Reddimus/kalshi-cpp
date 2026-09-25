@@ -1,52 +1,35 @@
-# Upstream contract provenance
+# Upstream contract
 
-kalshi-cpp targets Kalshi's Predictions API. The contract was revalidated on
-2026-09-03 against the official primary sources below.
+kalshi-cpp follows Kalshi's published Predictions contracts. The copies in
+`spec/` are byte-identical to what Kalshi served on 2026-09-25.
 
-| Contract | Version | SHA-256 |
+| File | Version | SHA-256 |
 | --- | --- | --- |
-| [Predictions OpenAPI](https://docs.kalshi.com/openapi.yaml) | 3.29.0 | `75d99f2579b890cc1ae3d8b4c194722415bccf2e79cbde0a2f09d9e8835ce680` |
-| [Predictions AsyncAPI](https://docs.kalshi.com/asyncapi.yaml) | 2.0.0 | `343e6ac4bd8a087088baf7e1d4e4d075a774de7c519ae8c3c1a29907dcaf49c6` |
-| [Margin OpenAPI](https://docs.kalshi.com/perps_openapi.yaml) | 0.0.1 | `ba4d1e724a7fc66306f3e2fe4a892d8551e69fc577886735b026580f4313921c` |
+| `spec/openapi.yaml` from <https://docs.kalshi.com/openapi.yaml> | 3.31.0 | `7a870e939ec61793ff31d04e89c40a85246a82d5a60e0f3803a45806444baa97` |
+| `spec/asyncapi.yaml` from <https://docs.kalshi.com/asyncapi.yaml> | 2.0.0 | `1fe32a4b7c63fe6b98b09cdb8a2510ae14cc09764c0679feb7d2fe772a023537` |
 
-The contracts are separate products. Margin endpoints are deliberately not
-mixed into `KalshiClient`; they have different host, authentication, and risk
-semantics.
+Kalshi's Margin API (<https://docs.kalshi.com/perps_openapi.yaml>) has its own
+host, authentication, and risk model, so this client leaves it out.
 
-## Contract rules
+## Authentication
 
-- Treat OpenAPI route, verb, parameter name, and required-body declarations as
-  authoritative.
-- Preserve fixed-point dollar and count strings exactly.
-- Convert to legacy integer fields only when conversion is exact and in range.
-- Include `exchange_index` in portfolio filters and models where documented.
-- Fail locally when a removed operation cannot be represented safely.
-- Test supported operations through an injected `HttpTransport`; no live
-  trading credential is required for contract tests.
+Each request signs `timestamp_ms + METHOD + path` with the account's key. The
+path starts at `/trade-api/v2` (REST) or `/trade-api/ws/v2` (WebSocket) and
+excludes the query string. The signature goes in `KALSHI-ACCESS-SIGNATURE`,
+next to `KALSHI-ACCESS-KEY` and `KALSHI-ACCESS-TIMESTAMP`. RSA keys sign with
+RSA-PSS and SHA-256; Ed25519 keys sign the message directly. See Kalshi's
+[API keys guide](https://docs.kalshi.com/getting_started/api_keys).
 
-## Authentication contract
-
-The [authenticated-request guide](https://docs.kalshi.com/getting_started/quick_start_authenticated_requests)
-defines the RSA-PSS message as the millisecond timestamp, uppercase HTTP
-method, and full API path concatenated without separators. The signed path
-starts with `/trade-api/v2` for REST or `/trade-api/ws/v2` for WebSocket and
-excludes the query string. Send the result through `KALSHI-ACCESS-KEY`,
-`KALSHI-ACCESS-SIGNATURE`, and `KALSHI-ACCESS-TIMESTAMP`.
-
-## Refresh procedure
+## Updating the contract
 
 ```bash
-curl --fail --silent --show-error \
-  https://docs.kalshi.com/openapi.yaml -o /tmp/kalshi-openapi.yaml
-shasum -a 256 /tmp/kalshi-openapi.yaml
-rg '^  /' /tmp/kalshi-openapi.yaml
+curl -fsS https://docs.kalshi.com/openapi.yaml -o spec/openapi.yaml
+curl -fsS https://docs.kalshi.com/asyncapi.yaml -o spec/asyncapi.yaml
+shasum -a 256 spec/*.yaml
+python3 tools/codegen/generate.py
+make test
 ```
 
-Compare the operation list and component schemas with `include/kalshi/api.hpp`,
-`src/api/client.cpp`, and `tests/test_operation_contracts.cpp`. Record a new
-date, version, and digest whenever the checked contract changes.
-
-The Predictions document currently contains 109 operations. The
-[coverage table](api-coverage.md) lists every deferred operation and WebSocket
-surface. Do not infer support from a route family alone; each public method
-needs a request, response, and injected transport contract test.
+Review the diff of the generated files, update the table above, and note
+user-visible changes in `CHANGELOG.md`. Kalshi's changelog at
+<https://docs.kalshi.com/changelog> explains most changes.

@@ -7,29 +7,26 @@
 
 namespace kalshi {
 
-/// Error codes for Kalshi SDK operations
-enum class ErrorCode {
-	Ok = 0,
-	NetworkError,
-	AuthenticationError,
-	InvalidRequest,
-	RateLimited,
-	ServerError,
-	ParseError,
-	SigningError,
-	InvalidKey,
+enum class ErrorCode : std::uint8_t {
+	NetworkError,		 ///< The request did not complete (DNS, TLS, timeout, reset).
+	AuthenticationError, ///< HTTP 401 or 403.
+	InvalidRequest,		 ///< Rejected before sending, or HTTP 400, 409, or 422.
+	NotFound,			 ///< HTTP 404.
+	RateLimited,		 ///< HTTP 429, or a local rate limit that would wait too long.
+	ServerError,		 ///< HTTP 5xx.
+	ParseError,			 ///< The response was not the JSON the API documents.
+	SigningError,		 ///< The request could not be signed.
+	InvalidKey,			 ///< The private key could not be loaded.
 	Unknown
 };
 
-/// Error information returned by SDK operations
 struct Error {
 	ErrorCode code{ErrorCode::Unknown};
 	std::string message;
+	/// HTTP status when the server answered; 0 otherwise.
 	int http_status{0};
-
-	[[nodiscard]] constexpr bool is_ok() const noexcept { return code == ErrorCode::Ok; }
-
-	[[nodiscard]] static Error ok() { return {ErrorCode::Ok, ""}; }
+	/// Kalshi's machine-readable error code, such as "market_not_found", when sent.
+	std::string api_code;
 
 	[[nodiscard]] static Error network(std::string msg) {
 		return {ErrorCode::NetworkError, std::move(msg)};

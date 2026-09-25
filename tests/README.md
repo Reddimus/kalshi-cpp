@@ -1,19 +1,18 @@
 # Tests
 
-GoogleTest covers models, request serialization, response parsing, query
-builders, WebSocket state and parsing, and injected-transport operation
-contracts. `parse_benchmark.cpp` guards request serialization and WebSocket
-receive performance. `test_signer_fixture.hpp` generates its RSA key in memory;
-tests do not store or use live credentials.
+GoogleTest suites run offline. Operation tests talk to an in-memory
+`HttpTransport`, `test_http_client.cpp` runs the real libcurl client against a
+loopback server, and signer tests generate throwaway keys in memory.
 
-Run the complete suite from the repository root:
+| File | Covers |
+| --- | --- |
+| `test_operation_routes.cpp` | Every REST operation's method and path (generated) |
+| `test_operations.cpp` | Request bodies and response parsing for common operations |
+| `test_api_support.cpp` | Encoding, error mapping, null handling, validation |
+| `test_http_client.cpp` | The libcurl transport, POSIX only |
+| `test_transports.cpp` | Retries, token buckets, rate limiting |
+| `test_signer.cpp` | Ed25519 and RSA-PSS signing |
+| `test_ws_*.cpp` | WebSocket parsing, commands, and lifecycle |
 
-```bash
-cmake -S . -B build -DKALSHI_BUILD_TESTS=ON
-cmake --build build --parallel
-ctest --test-dir build --output-on-failure
-```
-
-Add new `test_*.cpp` files to `tests/CMakeLists.txt`. Prefer an injected
-`HttpTransport` for operation tests so requests remain offline and their method,
-path, body, and response model are all observable.
+Response fixtures are synthetic and follow Kalshi Predictions OpenAPI 3.31.0;
+none come from a real account. Add new files to `tests/CMakeLists.txt`.

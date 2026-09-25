@@ -2,91 +2,53 @@
 
 #include "kalshi/error.hpp"
 
-#include <cstdint>
-#include <functional>
+#include <cstddef>
+#include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
+#include <type_traits>
+#include <utility>
 #include <vector>
 
 namespace kalshi {
 
-/// Cursor for pagination
-struct Cursor {
-	std::string value;
-
-	[[nodiscard]] bool empty() const noexcept { return value.empty(); }
-};
-
-/// Pagination parameters for list requests
-struct PaginationParams {
-	std::optional<std::int32_t> limit;
-	std::optional<Cursor> cursor;
-};
-
-/// Paginated response containing items and cursor for next page
-template <typename T>
-struct PaginatedResponse {
-	std::vector<T> items;
-	std::optional<Cursor> next_cursor;
-
-	[[nodiscard]] bool has_more() const noexcept {
-		return next_cursor.has_value() && !next_cursor->empty();
-	}
-};
-
-/// Iterator for paginated results
+/// Follows cursors through a list operation and collects every page's items.
 ///
-/// Automatically fetches next pages as needed.
-template <typename T>
-class PaginatedIterator {
-public:
-	using FetchFunction = std::function<Result<PaginatedResponse<T>>(const PaginationParams&)>;
-
-	PaginatedIterator(FetchFunction fetch, std::int32_t page_size = 100)
-		: fetch_(std::move(fetch)), page_size_(page_size) {}
-
-	/// Fetch the next page of results
-	[[nodiscard]] Result<std::vector<T>> next_page() {
-		PaginationParams params;
-		params.limit = page_size_;
-		if (current_cursor_) {
-			params.cursor = current_cursor_;
+/// `fetch` takes the cursor to request (empty for the first page) and returns
+/// the response; `items` names the response member that holds each page.
+///
+///     kalshi::GetMarketsParams params{.limit = 1000, .series_ticker = "KXHIGHNY"};
+///     kalshi::Result<std::vector<kalshi::Market>> markets = kalshi::collect_pages(
+///         [&](std::string_view cursor) {
+///             params.cursor = cursor.empty() ? std::nullopt : std::optional<std::string>(cursor);
+///             return client.get_markets(params);
+///         },
+///         &kalshi::GetMarketsResponse::markets);
+template <class Fetch, class Response, class Items>
+[[nodiscard]] Result<std::vector<typename Items::value_type>>
+collect_pages(Fetch&& fetch, Items Response::*items,
+			  std::size_t max_pages = std::numeric_limits<std::size_t>::max()) {
+	std::vector<typename Items::value_type> all;
+	std::string cursor;
+	for (std::size_t page = 0; page < max_pages; ++page) {
+		Result<Response> response = fetch(std::string_view{cursor});
+		if (!response) {
+			return std::unexpected(std::move(response.error()));
 		}
-
-		Result<PaginatedResponse<T>> result = fetch_(params);
-		if (!result) {
-			return std::unexpected(result.error());
+		Items& batch = (*response).*items;
+		all.insert(all.end(), std::make_move_iterator(batch.begin()),
+				   std::make_move_iterator(batch.end()));
+		if constexpr (std::is_same_v<decltype(response->cursor), std::optional<std::string>>) {
+			cursor = response->cursor.value_or("");
+		} else {
+			cursor = std::move(response->cursor);
 		}
-
-		current_cursor_ = result->next_cursor;
-		has_more_ = result->has_more();
-		return std::move(result->items);
+		if (cursor.empty()) {
+			break;
+		}
 	}
-
-	/// Check if there are more pages
-	[[nodiscard]] bool has_more() const noexcept { return has_more_; }
-
-	/// Fetch all remaining results (use with caution for large datasets)
-	[[nodiscard]] Result<std::vector<T>> fetch_all() {
-		std::vector<T> all_items;
-
-		do {
-			Result<std::vector<T>> page = next_page();
-			if (!page) {
-				return std::unexpected(page.error());
-			}
-			all_items.insert(all_items.end(), std::make_move_iterator(page->begin()),
-							 std::make_move_iterator(page->end()));
-		} while (has_more_);
-
-		return all_items;
-	}
-
-private:
-	FetchFunction fetch_;
-	std::int32_t page_size_;
-	std::optional<Cursor> current_cursor_;
-	bool has_more_{true};
-};
+	return all;
+}
 
 } // namespace kalshi
