@@ -97,9 +97,11 @@ TEST(ApiSupport, ErrorBodiesKeepKalshisCodeAndMessage) {
 TEST(ApiSupport, UnexpectedBodiesAreParseErrors) {
 	const kalshi::Result<kalshi::GetBalanceResponse> decoded =
 		kalshi::detail::decode<kalshi::GetBalanceResponse>(
-			response(200, R"({"balance":"not a number"})"));
+			response(200, R"({"balance":"secret-looking text"})"));
 	ASSERT_FALSE(decoded.has_value());
 	EXPECT_EQ(decoded.error().code, kalshi::ErrorCode::ParseError);
+	// Bodies can hold secrets, such as a newly generated private key.
+	EXPECT_EQ(decoded.error().message.find("secret"), std::string::npos) << decoded.error().message;
 }
 
 TEST(ApiSupport, UnknownEnumValuesAndFieldsDoNotFailParsing) {

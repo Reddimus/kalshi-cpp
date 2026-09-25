@@ -673,6 +673,8 @@ def outputs(gen: Generator) -> dict[Path, str]:
         ROOT / "docs" / "operations.md": gen.operations_doc(),
     }
     for tag, ops in gen.tags().items():
+        if not re.fullmatch(r"[a-z0-9_-]+", tag):
+            raise SystemExit(f"tag {tag!r} cannot name a source file")
         files[ROOT / "src" / "api" / "operations" / f"{tag.replace('-', '_')}.cpp"] = gen.operations_source(tag, ops)
     return files
 

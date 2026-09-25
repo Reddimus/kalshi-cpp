@@ -113,7 +113,9 @@ template <class T>
 	value = T{};
 	if (const glz::error_ctx error = glz::read<options>(value, json)) {
 		return std::unexpected(Error{ErrorCode::ParseError,
-									 "Unexpected response body: " + glz::format_error(error, json),
+									 // The error names the problem but quotes none of the
+									 // body, which can hold secrets (generate_api_key).
+									 "Unexpected response body: " + glz::format_error(error),
 									 response->status_code,
 									 {}});
 	}
