@@ -37,8 +37,8 @@ int main() {
 	kalshi::KalshiClient client{std::make_shared<OfflineTransport>()};
 	const kalshi::Result<kalshi::ExchangeStatus> status = client.get_exchange_status();
 	const bool ws_linked = !kalshi::detail::parse_ws_data_message("{}").has_value();
-	kalshi::RateLimiter limiter{kalshi::RateLimiter::Config{}};
-	if (signer || status || !ws_linked || limiter.available_tokens() == 0)
+	const kalshi::HttpClient http{kalshi::ClientConfig::for_environment(kalshi::Environment::Demo)};
+	if (signer || status || !ws_linked || http.config().base_url.empty())
 		return 1;
 	std::cout << kalshi::VERSION;
 }

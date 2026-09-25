@@ -11,7 +11,9 @@ add_executable(kalshi_tests
     test_response_parsers.cpp
     test_query_builders.cpp
     test_operation_contracts.cpp
-    test_fixed_point.cpp)
+    test_fixed_point.cpp
+    test_transports.cpp
+    test_http_client.cpp)
 # Tests reach implementation headers under src/, which include Glaze.
 target_include_directories(kalshi_tests PRIVATE
     ${PROJECT_SOURCE_DIR}/src/api

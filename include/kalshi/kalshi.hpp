@@ -4,6 +4,7 @@
 /// @brief Main include file for the Kalshi C++ SDK
 
 #include "kalshi/api.hpp"
+#include "kalshi/environment.hpp"
 #include "kalshi/error.hpp"
 #include "kalshi/fixed_point.hpp"
 #include "kalshi/http_client.hpp"

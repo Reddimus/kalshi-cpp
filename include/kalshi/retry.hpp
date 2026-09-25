@@ -5,141 +5,57 @@
 
 #include <chrono>
 #include <cstdint>
-#include <functional>
-#include <optional>
-#include <random>
-#include <thread>
+#include <memory>
+#include <string_view>
 
 namespace kalshi {
 
-/// Retry policy configuration
-/// Fields ordered for minimal padding; narrowed types reduce cache footprint.
 struct RetryPolicy {
 	std::chrono::milliseconds initial_delay{100};
-	std::chrono::milliseconds max_delay{10000};
+	std::chrono::milliseconds max_delay{std::chrono::seconds{10}};
 	double backoff_multiplier{2.0};
-	double jitter_factor{0.1};	  // Random jitter as fraction of delay
-	std::uint8_t max_attempts{3}; // max 255 attempts (UINT8_MAX)
+	/// Random spread applied to each delay, as a fraction of it. 0 disables jitter.
+	double jitter_factor{0.1};
+	/// Total attempts, including the first.
+	std::uint8_t max_attempts{3};
 	bool retry_on_network_error{true};
 	bool retry_on_rate_limit{true};
-	bool retry_on_server_error{true}; // 5xx errors
+	bool retry_on_server_error{true};
+	/// Also retry POST after network errors and 5xx responses. Off by default:
+	/// the first attempt may have reached the exchange, for example as a placed
+	/// order. A 429 always retries because the server rejected the request.
+	bool retry_non_idempotent{false};
 };
 
-/// Result of a retry operation
-/// Reordered for optimal packing.
-struct RetryResult {
-	std::chrono::milliseconds total_delay{0};
-	std::uint8_t attempts_made{0}; // max 255 attempts
-	bool succeeded{false};
-};
-
-/// Determines if a response should be retried
-[[nodiscard]] inline bool should_retry(const HttpResponse& response,
-									   const RetryPolicy& policy) noexcept {
-	// Rate limited (429)
-	if (policy.retry_on_rate_limit && response.status_code == 429) {
-		return true;
-	}
-	// Server errors (5xx)
-	if (policy.retry_on_server_error && response.status_code >= 500) {
-		return true;
-	}
-	return false;
+[[nodiscard]] constexpr bool is_idempotent(HttpMethod method) noexcept {
+	return method != HttpMethod::POST;
 }
 
-/// Determines if an error should be retried
-[[nodiscard]] inline bool should_retry(const Error& error, const RetryPolicy& policy) noexcept {
-	if (policy.retry_on_network_error && error.code == ErrorCode::NetworkError) {
-		return true;
-	}
-	return false;
-}
+[[nodiscard]] bool should_retry(HttpMethod method, const HttpResponse& response,
+								const RetryPolicy& policy) noexcept;
+[[nodiscard]] bool should_retry(HttpMethod method, const Error& error,
+								const RetryPolicy& policy) noexcept;
 
-/// Calculate delay for a retry attempt with exponential backoff and jitter
-[[nodiscard]] inline std::chrono::milliseconds calculate_retry_delay(std::uint8_t attempt,
-																	 const RetryPolicy& policy) {
-	// Exponential backoff
-	double delay_ms = static_cast<double>(policy.initial_delay.count());
-	for (std::uint8_t i = 1; i < attempt; ++i) {
-		delay_ms *= policy.backoff_multiplier;
-	}
+/// Backoff before the attempt after `attempt` (1-based), with jitter applied.
+[[nodiscard]] std::chrono::milliseconds retry_delay(std::uint8_t attempt,
+													const RetryPolicy& policy);
 
-	// Cap at max delay
-	delay_ms = std::min(delay_ms, static_cast<double>(policy.max_delay.count()));
-
-	// Add jitter
-	if (policy.jitter_factor > 0) {
-		static thread_local std::mt19937 rng{std::random_device{}()};
-		std::uniform_real_distribution<double> dist(1.0 - policy.jitter_factor,
-													1.0 + policy.jitter_factor);
-		delay_ms *= dist(rng);
-	}
-
-	return std::chrono::milliseconds{static_cast<std::int64_t>(delay_ms)};
-}
-
-/// Execute an HTTP request with retry logic
+/// Transport decorator that retries transient failures with exponential
+/// backoff. It honors a `Retry-After` header when the server sends one.
 ///
-/// @param operation Function that performs the HTTP request
-/// @param policy Retry configuration
-/// @return Result of the operation after retries
-template <typename Operation>
-[[nodiscard]] Result<HttpResponse> with_retry(Operation&& operation, const RetryPolicy& policy) {
-	std::chrono::milliseconds total_delay{0};
-
-	for (std::uint8_t attempt = 1; attempt <= policy.max_attempts; ++attempt) {
-		Result<HttpResponse> result = operation();
-
-		if (result.has_value()) {
-			// Check if we should retry based on response
-			if (should_retry(*result, policy) && attempt < policy.max_attempts) {
-				std::chrono::milliseconds delay = calculate_retry_delay(attempt, policy);
-				total_delay += delay;
-				std::this_thread::sleep_for(delay);
-				continue;
-			}
-			return result;
-		}
-
-		// Check if we should retry based on error
-		if (should_retry(result.error(), policy) && attempt < policy.max_attempts) {
-			std::chrono::milliseconds delay = calculate_retry_delay(attempt, policy);
-			total_delay += delay;
-			std::this_thread::sleep_for(delay);
-			continue;
-		}
-
-		return result;
-	}
-
-	return std::unexpected(Error::network("Max retry attempts exceeded"));
-}
-
-/// HTTP client wrapper with automatic retries
-class RetryingClient {
+///     auto http = std::make_shared<kalshi::HttpClient>(signer);
+///     kalshi::KalshiClient client{std::make_shared<kalshi::RetryingTransport>(http)};
+class RetryingTransport final : public HttpTransport {
 public:
-	RetryingClient(HttpClient& client, RetryPolicy policy = {});
+	explicit RetryingTransport(std::shared_ptr<const HttpTransport> inner, RetryPolicy policy = {});
 
-	/// Make a GET request with retries
-	[[nodiscard]] Result<HttpResponse> get(std::string_view path);
+	[[nodiscard]] Result<HttpResponse> request(HttpMethod method, std::string_view path,
+											   std::string_view body = {}) const override;
 
-	/// Make a POST request with retries
-	[[nodiscard]] Result<HttpResponse> post(std::string_view path, std::string_view body = {});
-
-	/// Make a PUT request with retries
-	[[nodiscard]] Result<HttpResponse> put(std::string_view path, std::string_view body = {});
-
-	/// Make a DELETE request with retries
-	[[nodiscard]] Result<HttpResponse> del(std::string_view path, std::string_view body = {});
-
-	/// Get the retry policy
-	[[nodiscard]] const RetryPolicy& policy() const noexcept;
-
-	/// Set the retry policy
-	void set_policy(RetryPolicy policy) noexcept;
+	[[nodiscard]] const RetryPolicy& policy() const noexcept { return policy_; }
 
 private:
-	HttpClient& client_;
+	std::shared_ptr<const HttpTransport> inner_;
 	RetryPolicy policy_;
 };
 

@@ -1,74 +1,105 @@
 #pragma once
 
 #include "kalshi/error.hpp"
+#include "kalshi/http_client.hpp"
 
 #include <chrono>
-#include <cstdint>
+#include <memory>
 #include <mutex>
 #include <optional>
-#include <thread>
+#include <string>
+#include <string_view>
+#include <vector>
 
 namespace kalshi {
 
-/// Token bucket rate limiter
-///
-/// Implements a token bucket algorithm to limit request rates.
-/// Thread-safe for concurrent access.
-class RateLimiter {
+/// Token bucket that refills continuously, the model Kalshi's rate limits use.
+/// A request proceeds when the bucket covers its cost. Thread-safe.
+class TokenBucket {
 public:
-	/// Configuration for rate limiting
 	struct Config {
-		std::uint16_t max_tokens = 10;					   ///< Maximum tokens (0-65535)
-		std::chrono::milliseconds refill_interval{1000};   // Time to add one token
-		std::uint16_t initial_tokens = 10;				   ///< Starting tokens (0-65535)
-		std::optional<std::chrono::milliseconds> max_wait; // Max time to wait
+		double capacity{0.0};
+		double refill_per_second{0.0};
+		/// Starting balance. Defaults to a full bucket.
+		std::optional<double> initial_tokens;
 	};
 
-	explicit RateLimiter(Config config);
+	explicit TokenBucket(Config config);
 
-	/// Try to acquire a token, returns true if successful
-	[[nodiscard]] bool try_acquire() noexcept;
+	/// Takes `cost` tokens if the bucket holds them.
+	[[nodiscard]] bool try_acquire(double cost = 1.0) noexcept;
 
-	/// Acquire a token, blocking if necessary
-	/// Returns false if max_wait exceeded
-	[[nodiscard]] bool acquire();
+	/// Waits up to `max_wait` for `cost` tokens. Returns false without taking
+	/// tokens if they would not arrive in time.
+	[[nodiscard]] bool acquire_for(double cost, std::chrono::nanoseconds max_wait);
 
-	/// Acquire a token, blocking up to max_wait
-	[[nodiscard]] bool acquire_for(std::chrono::milliseconds max_wait);
+	/// How long until `cost` tokens are available: zero if they are available
+	/// now, `nanoseconds::max()` if they never will be.
+	[[nodiscard]] std::chrono::nanoseconds wait_time(double cost) const noexcept;
 
-	/// Get current number of available tokens
-	[[nodiscard]] std::uint16_t available_tokens() const noexcept;
-
-	/// Reset the rate limiter to initial state
+	[[nodiscard]] double available() const noexcept;
 	void reset() noexcept;
-
-	/// Get the configuration
-	[[nodiscard]] const Config& config() const noexcept;
+	[[nodiscard]] const Config& config() const noexcept { return config_; }
 
 private:
-	void refill() noexcept;
+	using Clock = std::chrono::steady_clock;
+
+	void refill(Clock::time_point now) const noexcept;
+	[[nodiscard]] std::chrono::nanoseconds wait_time_locked(double cost) const noexcept;
 
 	Config config_;
 	mutable std::mutex mutex_;
-	std::uint16_t tokens_;
-	std::chrono::steady_clock::time_point last_refill_;
+	mutable double tokens_{0.0};
+	mutable Clock::time_point last_refill_;
 };
 
-/// Scoped rate limit acquisition
+/// Token cost of requests matching `method` and `path`. `{name}` segments in
+/// `path` match any single segment, as in `/portfolio/orders/{order_id}`.
+struct EndpointCostRule {
+	HttpMethod method{HttpMethod::GET};
+	std::string path;
+	double cost{0.0};
+};
+
+struct RateLimitConfig {
+	TokenBucket::Config read;
+	TokenBucket::Config write;
+	/// Cost of requests without a matching rule. Kalshi's default is 10.
+	double default_cost{10.0};
+	std::vector<EndpointCostRule> costs;
+	/// Longest wait for tokens before failing with ErrorCode::RateLimited.
+	std::chrono::milliseconds max_wait{std::chrono::seconds{5}};
+};
+
+/// Transport decorator that paces requests to Kalshi's Read and Write budgets
+/// so they are not rejected with 429.
 ///
-/// RAII wrapper that acquires a rate limit token on construction.
-class ScopedRateLimit {
+/// Writes are order, order-group, RFQ, quote, and block-trade mutations; every
+/// other request uses the Read budget. Batch requests cost their per-item cost
+/// times the number of items. Per-shard Write buckets are not modeled
+/// separately, so pacing is conservative when orders target several shards.
+///
+/// Build a config from the account's limits with `rate_limit_config()` in
+/// `kalshi/api.hpp`.
+class RateLimitedTransport final : public HttpTransport {
 public:
-	explicit ScopedRateLimit(RateLimiter& limiter);
+	RateLimitedTransport(std::shared_ptr<const HttpTransport> inner, RateLimitConfig config);
 
-	/// Check if acquisition was successful
-	[[nodiscard]] bool acquired() const noexcept;
+	[[nodiscard]] Result<HttpResponse> request(HttpMethod method, std::string_view path,
+											   std::string_view body = {}) const override;
 
-	/// Implicit conversion to bool for easy checking
-	explicit operator bool() const noexcept;
+	/// Whether a request draws from the Write budget.
+	[[nodiscard]] static bool is_write(HttpMethod method, std::string_view path) noexcept;
+
+	/// Token cost this transport charges for a request.
+	[[nodiscard]] double cost(HttpMethod method, std::string_view path,
+							  std::string_view body) const;
 
 private:
-	bool acquired_;
+	std::shared_ptr<const HttpTransport> inner_;
+	RateLimitConfig config_;
+	mutable TokenBucket read_;
+	mutable TokenBucket write_;
 };
 
 } // namespace kalshi

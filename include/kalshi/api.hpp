@@ -8,6 +8,7 @@
 #include "kalshi/models/market.hpp"
 #include "kalshi/models/order.hpp"
 #include "kalshi/pagination.hpp"
+#include "kalshi/rate_limit.hpp"
 
 #include <chrono>
 #include <cstdint>
@@ -1396,6 +1397,12 @@ private:
 	[[nodiscard]] std::string serialize_order_ids(const std::vector<std::string>& order_ids);
 	[[nodiscard]] std::string serialize_tickers(const std::vector<std::string>& tickers);
 };
+
+/// Builds a RateLimitedTransport config from the account's tier budgets and
+/// non-default endpoint costs (`get_account_api_limits()` and
+/// `get_endpoint_costs()`).
+[[nodiscard]] RateLimitConfig rate_limit_config(const AccountApiLimits& limits,
+												const EndpointCosts& costs);
 
 // Helper functions for enum conversion
 

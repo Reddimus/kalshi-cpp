@@ -474,7 +474,7 @@ std::string build_update_command(std::int32_t id, std::int32_t sid, const std::s
 
 // Implementation data structure - exposed for callback
 struct WsImplData {
-	const Signer* signer;
+	Signer signer;
 	WsConfig config;
 
 	std::atomic<bool> connected{false};
@@ -513,7 +513,7 @@ struct WsImplData {
 	// Auth headers for handshake
 	AuthHeaders auth_headers;
 
-	WsImplData(const Signer& s, WsConfig c) : signer(&s), config(std::move(c)) {}
+	WsImplData(Signer s, WsConfig c) : signer(std::move(s)), config(std::move(c)) {}
 
 	~WsImplData() {
 		if (context) {
@@ -546,7 +546,7 @@ struct WsImplData {
 struct WebSocketClient::Impl {
 	std::unique_ptr<WsImplData> data;
 
-	Impl(const Signer& s, WsConfig c) : data(std::make_unique<WsImplData>(s, std::move(c))) {}
+	Impl(Signer s, WsConfig c) : data(std::make_unique<WsImplData>(std::move(s), std::move(c))) {}
 };
 
 // libwebsockets fixes this callback ABI, including the adjacent opaque pointers.
@@ -711,8 +711,8 @@ static const struct lws_protocols protocols[] = {{.name = "kalshi-ws",
 												  .rx_buffer_size = 65536},
 												 LWS_PROTOCOL_LIST_TERM};
 
-WebSocketClient::WebSocketClient(const Signer& signer, WsConfig config)
-	: impl_(std::make_unique<Impl>(signer, std::move(config))) {}
+WebSocketClient::WebSocketClient(Signer signer, WsConfig config)
+	: impl_(std::make_unique<Impl>(std::move(signer), std::move(config))) {}
 
 WebSocketClient::~WebSocketClient() {
 	disconnect();
@@ -768,7 +768,7 @@ Result<void> WebSocketClient::connect() {
 
 	// Generate auth headers
 	const std::string signing_path = detail::request_signing_path("", endpoint.path);
-	Result<AuthHeaders> auth_result = data->signer->sign("GET", signing_path);
+	Result<AuthHeaders> auth_result = data->signer.sign("GET", signing_path);
 	if (!auth_result) {
 		return std::unexpected(auth_result.error());
 	}

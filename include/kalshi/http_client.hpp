@@ -1,9 +1,11 @@
 #pragma once
 
+#include "kalshi/environment.hpp"
 #include "kalshi/error.hpp"
 #include "kalshi/signer.hpp"
 
-#include <functional>
+#include <chrono>
+#include <cstdint>
 #include <memory>
 #include <optional>
 #include <string>
@@ -13,19 +15,10 @@
 
 namespace kalshi {
 
-/// HTTP methods.
-///
-/// Note: ``DEL`` (not ``DELETE``) is the enumerator for the wire
-/// verb ``"DELETE"``. ``<windows.h>`` defines ``DELETE`` as a macro
-/// for an access-rights constant (``0x00010000L``); any indirect
-/// inclusion (e.g. via libcurl pulled in by vcpkg) makes
-/// ``HttpMethod::DELETE`` expand to ``HttpMethod::0x00010000L`` and
-/// the build dies with C2589 / C2144 on MSVC. ``http_method_to_string``
-/// and the CURLOPT_CUSTOMREQUEST value still emit ``"DELETE"`` so the
-/// wire protocol is unchanged.
+/// HTTP methods. `DEL` avoids the `DELETE` macro from `<windows.h>`; it is sent
+/// as `DELETE`.
 enum class HttpMethod : std::uint8_t { GET, POST, PUT, DEL };
 
-/// Convert HTTP method to string
 [[nodiscard]] constexpr std::string_view to_string(HttpMethod method) noexcept {
 	switch (method) {
 		case HttpMethod::GET:
@@ -40,27 +33,37 @@ enum class HttpMethod : std::uint8_t { GET, POST, PUT, DEL };
 	return "GET";
 }
 
-/// HTTP response
-/// Uses contiguous vector storage for headers instead of unordered_map
-/// for better cache locality (typically <10 headers in a response).
 struct HttpResponse {
-	std::int16_t status_code{0}; // HTTP status codes fit in int16 (100-599)
+	int status_code{0};
 	std::string body;
 	std::vector<std::pair<std::string, std::string>> headers;
+
+	/// Case-insensitive header lookup. Returns the first match.
+	[[nodiscard]] std::optional<std::string_view> header(std::string_view name) const noexcept;
 };
 
-/// HTTP client configuration
 struct ClientConfig {
-	std::string base_url{"https://external-api.kalshi.com/trade-api/v2"};
-	std::chrono::seconds timeout{30};
+	/// Base URL including `/trade-api/v2`. See rest_base_url().
+	std::string base_url{rest_base_url(Environment::Production)};
+	/// Limit for the whole request, including the response body.
+	std::chrono::milliseconds timeout{std::chrono::seconds{30}};
+	std::chrono::milliseconds connect_timeout{std::chrono::seconds{10}};
 	bool verify_ssl{true};
+
+	[[nodiscard]] static ClientConfig for_environment(Environment environment) {
+		ClientConfig config;
+		config.base_url = std::string(rest_base_url(environment));
+		return config;
+	}
 };
 
-/// Injectable request boundary used by the typed REST client.
+/// Request boundary used by KalshiClient. Implement it to add logging,
+/// retries, or rate limiting, or to test without a network.
 class HttpTransport {
 public:
 	virtual ~HttpTransport() = default;
 
+	/// `path` is relative to the base URL and may carry a query string.
 	[[nodiscard]] virtual Result<HttpResponse> request(HttpMethod method, std::string_view path,
 													   std::string_view body = {}) const = 0;
 
@@ -81,42 +84,31 @@ public:
 	}
 };
 
-/// HTTP client for Kalshi API
+/// libcurl transport. Signs every request when constructed with a Signer;
+/// without one it sends unauthenticated requests, which is enough for public
+/// market data.
 ///
-/// @note Thread Safety: Calls on one instance are serialized because libcurl's
-/// easy handle cannot serve concurrent requests. Use separate clients when
-/// request concurrency matters.
+/// Requests on one client run one at a time because they share a libcurl
+/// handle and its connection cache. Use one client per thread for parallelism.
 class HttpClient final : public HttpTransport {
 public:
-	/// Create a client with the given signer and configuration
-	HttpClient(Signer signer, ClientConfig config = {});
+	explicit HttpClient(Signer signer, ClientConfig config = {});
+	explicit HttpClient(ClientConfig config = {});
 	~HttpClient() override;
 
 	HttpClient(HttpClient&&) noexcept;
 	HttpClient& operator=(HttpClient&&) noexcept;
-
-	// Non-copyable
 	HttpClient(const HttpClient&) = delete;
 	HttpClient& operator=(const HttpClient&) = delete;
 
-	/// Perform a GET request
-	[[nodiscard]] Result<HttpResponse> get(std::string_view path) const;
+	using HttpTransport::del;
+	using HttpTransport::get;
+	using HttpTransport::post;
+	using HttpTransport::put;
 
-	/// Perform a POST request
-	[[nodiscard]] Result<HttpResponse> post(std::string_view path,
-											std::string_view body = {}) const;
-
-	/// Perform a PUT request
-	[[nodiscard]] Result<HttpResponse> put(std::string_view path, std::string_view body = {}) const;
-
-	/// Perform a DELETE request
-	[[nodiscard]] Result<HttpResponse> del(std::string_view path, std::string_view body = {}) const;
-
-	/// Perform a request with custom method
 	[[nodiscard]] Result<HttpResponse> request(HttpMethod method, std::string_view path,
 											   std::string_view body = {}) const override;
 
-	/// Get the client configuration
 	[[nodiscard]] const ClientConfig& config() const noexcept;
 
 private:
