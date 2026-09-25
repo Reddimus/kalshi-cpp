@@ -31,13 +31,13 @@ bool should_retry(HttpMethod method, const HttpResponse& response,
 	if (response.status_code == 429) {
 		return policy.retry_on_rate_limit;
 	}
-	const bool may_repeat = is_idempotent(method) || policy.retry_non_idempotent;
+	const bool may_repeat = method == HttpMethod::GET || policy.retry_writes;
 	return policy.retry_on_server_error && may_repeat && response.status_code >= 500 &&
 		   response.status_code <= 599;
 }
 
 bool should_retry(HttpMethod method, const Error& error, const RetryPolicy& policy) noexcept {
-	const bool may_repeat = is_idempotent(method) || policy.retry_non_idempotent;
+	const bool may_repeat = method == HttpMethod::GET || policy.retry_writes;
 	return policy.retry_on_network_error && may_repeat && error.code == ErrorCode::NetworkError;
 }
 
@@ -76,7 +76,7 @@ Result<HttpResponse> RetryingTransport::request(HttpMethod method, std::string_v
 		std::chrono::milliseconds delay = retry_delay(attempt, policy_);
 		if (result) {
 			if (const std::optional<std::chrono::milliseconds> server = retry_after(*result)) {
-				delay = std::max(delay, *server);
+				delay = std::min(std::max(delay, *server), policy_.max_delay);
 			}
 		}
 		std::this_thread::sleep_for(delay);

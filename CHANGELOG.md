@@ -15,10 +15,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `Environment::{Production, Demo}` with `rest_base_url()`, `websocket_url()`,
   `ClientConfig::for_environment()`, and `WsConfig::for_environment()`.
 - `RetryingTransport`, a transport decorator that retries network errors, 429s,
-  and 5xx responses with backoff. POST retries only on 429 unless
-  `RetryPolicy::retry_non_idempotent` is set, so an order is never placed twice.
+  and 5xx responses with backoff. Writes (POST, PUT, DELETE) retry only on 429
+  unless `RetryPolicy::retry_writes` is set, so an order is never placed twice
+  and a canceled order never reports a spurious failure. `Retry-After` is
+  honored up to `max_delay`.
 - `TokenBucket` and `RateLimitedTransport`, which pace requests to Kalshi's
-  Read and Write token budgets. `rate_limit_config()` builds the config from
+  Read and Write token budgets. Waiters reserve tokens, so large batches are
+  served in order instead of being starved. Defaults match the Basic tier, and
+  `rate_limit_config()` builds the account's real budgets from
   `get_account_api_limits()` and `get_endpoint_costs()`.
 - `HttpResponse::header()` for case-insensitive header lookup.
 
@@ -66,6 +70,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   milliseconds (assigning `std::chrono::seconds` still works), and
   `ClientConfig::connect_timeout` is new.
 - `HttpClient`'s constructors are `explicit`.
+- OpenSSL 3.0 or newer is required.
+- Key-loading failures (unreadable file, malformed or encrypted PEM,
+  unsupported algorithm) return `ErrorCode::InvalidKey`.
 
 ### Fixed
 

@@ -87,8 +87,9 @@ Result<Signer> Signer::from_pem(std::string_view api_key_id, std::string_view pe
 	}
 	PkeyPtr key{PEM_read_bio_PrivateKey(bio.get(), nullptr, no_passphrase, nullptr)};
 	if (!key) {
-		return std::unexpected(signing_error("Failed to read the private key (it must be an "
-											 "unencrypted PEM key)"));
+		return std::unexpected(Error{ErrorCode::InvalidKey,
+									 openssl_error("Failed to read the private key (it must be an "
+												   "unencrypted PEM key)")});
 	}
 
 	KeyType type = KeyType::Rsa;
@@ -115,8 +116,8 @@ Result<Signer> Signer::from_pem(std::string_view api_key_id, std::string_view pe
 Result<Signer> Signer::from_pem_file(std::string_view api_key_id, std::string_view file_path) {
 	std::ifstream file{std::string(file_path), std::ios::binary};
 	if (!file) {
-		return std::unexpected(
-			Error::signing("Failed to open key file '" + std::string(file_path) + "'"));
+		return std::unexpected(Error{ErrorCode::InvalidKey,
+									 "Failed to open key file '" + std::string(file_path) + "'"});
 	}
 	std::string pem{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
 	Result<Signer> signer = from_pem(api_key_id, pem);

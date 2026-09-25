@@ -14,7 +14,9 @@
 namespace kalshi {
 
 /// Token bucket that refills continuously, the model Kalshi's rate limits use.
-/// A request proceeds when the bucket covers its cost. Thread-safe.
+/// A request proceeds when the bucket covers its cost. Thread-safe, and waiting
+/// callers are served in arrival order: a waiter reserves its tokens up front,
+/// so a large request is not starved by a stream of small ones.
 class TokenBucket {
 public:
 	struct Config {
@@ -30,13 +32,14 @@ public:
 	[[nodiscard]] bool try_acquire(double cost = 1.0) noexcept;
 
 	/// Waits up to `max_wait` for `cost` tokens. Returns false without taking
-	/// tokens if they would not arrive in time.
+	/// tokens if they would not arrive in time or `cost` exceeds the capacity.
 	[[nodiscard]] bool acquire_for(double cost, std::chrono::nanoseconds max_wait);
 
 	/// How long until `cost` tokens are available: zero if they are available
-	/// now, `nanoseconds::max()` if they never will be.
+	/// now, `nanoseconds::max()` if they never will be (cost above capacity).
 	[[nodiscard]] std::chrono::nanoseconds wait_time(double cost) const noexcept;
 
+	/// Tokens available now. Zero while earlier waiters hold reservations.
 	[[nodiscard]] double available() const noexcept;
 	void reset() noexcept;
 	[[nodiscard]] const Config& config() const noexcept { return config_; }
@@ -61,13 +64,17 @@ struct EndpointCostRule {
 	double cost{0.0};
 };
 
+/// Defaults match Kalshi's Basic tier. Use `rate_limit_config()` for your
+/// account's actual budgets.
 struct RateLimitConfig {
-	TokenBucket::Config read;
-	TokenBucket::Config write;
+	TokenBucket::Config read{.capacity = 600.0, .refill_per_second = 200.0, .initial_tokens = {}};
+	TokenBucket::Config write{.capacity = 100.0, .refill_per_second = 100.0, .initial_tokens = {}};
 	/// Cost of requests without a matching rule. Kalshi's default is 10.
 	double default_cost{10.0};
 	std::vector<EndpointCostRule> costs;
-	/// Longest wait for tokens before failing with ErrorCode::RateLimited.
+	/// Longest wait for tokens before failing with ErrorCode::RateLimited. A
+	/// request that costs more than its bucket holds fails with InvalidRequest,
+	/// because Kalshi rejects it too; split large batches.
 	std::chrono::milliseconds max_wait{std::chrono::seconds{5}};
 };
 

@@ -4108,12 +4108,17 @@ KalshiClient::lookup_multivariate_bundle(const std::string& collection_ticker,
 
 RateLimitConfig rate_limit_config(const AccountApiLimits& limits, const EndpointCosts& costs) {
 	RateLimitConfig config;
-	config.read = {.capacity = static_cast<double>(limits.read.bucket_capacity),
-				   .refill_per_second = static_cast<double>(limits.read.refill_rate),
-				   .initial_tokens = std::nullopt};
-	config.write = {.capacity = static_cast<double>(limits.write.bucket_capacity),
-					.refill_per_second = static_cast<double>(limits.write.refill_rate),
-					.initial_tokens = std::nullopt};
+	// Keep the Basic-tier defaults for any bucket the response did not describe.
+	if (limits.read.bucket_capacity > 0 && limits.read.refill_rate > 0) {
+		config.read = {.capacity = static_cast<double>(limits.read.bucket_capacity),
+					   .refill_per_second = static_cast<double>(limits.read.refill_rate),
+					   .initial_tokens = std::nullopt};
+	}
+	if (limits.write.bucket_capacity > 0 && limits.write.refill_rate > 0) {
+		config.write = {.capacity = static_cast<double>(limits.write.bucket_capacity),
+						.refill_per_second = static_cast<double>(limits.write.refill_rate),
+						.initial_tokens = std::nullopt};
+	}
 	if (costs.default_cost > 0) {
 		config.default_cost = static_cast<double>(costs.default_cost);
 	}

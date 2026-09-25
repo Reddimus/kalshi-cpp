@@ -54,7 +54,7 @@ std::size_t write_header(char* data, std::size_t size, std::size_t count, void* 
 	const std::size_t colon = line.find(':');
 	if (colon != std::string_view::npos) {
 		std::string_view value = line.substr(colon + 1);
-		const std::size_t first = value.find_first_not_of(" \t");
+		const std::size_t first = value.find_first_not_of(" \t\r\n");
 		const std::size_t last = value.find_last_not_of(" \t\r\n");
 		value = first == std::string_view::npos ? std::string_view{}
 												: value.substr(first, last - first + 1);

@@ -109,9 +109,16 @@ Result<HttpResponse> RateLimitedTransport::request(HttpMethod method, std::strin
 		return std::unexpected(Error::network("RateLimitedTransport has no inner transport"));
 	}
 	TokenBucket& bucket = is_write(method, path) ? write_ : read_;
-	if (!bucket.acquire_for(cost(method, path, body), config_.max_wait)) {
+	const double tokens = cost(method, path, body);
+	if (tokens > bucket.config().capacity) {
+		return std::unexpected(Error{
+			ErrorCode::InvalidRequest,
+			"Request costs " + std::to_string(tokens) + " tokens but the rate-limit bucket holds " +
+				std::to_string(bucket.config().capacity) + "; split the batch"});
+	}
+	if (!bucket.acquire_for(tokens, config_.max_wait)) {
 		return std::unexpected(Error{ErrorCode::RateLimited,
-									 "Rate limit budget would not refill within max_wait", 429});
+									 "Rate-limit tokens would not refill within max_wait", 429});
 	}
 	return inner_->request(method, path, body);
 }
