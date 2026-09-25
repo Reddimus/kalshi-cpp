@@ -46,11 +46,20 @@ make docs            # Doxygen API reference in build-docs/html (needs Doxygen)
 make bench           # Google Benchmark suite
 make consumers       # Build installed and FetchContent consumers
 make coverage        # lcov report (needs lcov)
+make lint-docs       # markdownlint (needs markdownlint-cli2)
 ```
 
-Run `make format lint test` before pushing. `make install-hooks` runs format
-and lint on every commit. CI adds the sanitizers, clang-tidy, and the consumer
-check, on Linux, macOS, and Windows.
+Run `make format lint test` before pushing, and `make lint-docs` (needs
+`markdownlint-cli2`) after editing Markdown. `make install-hooks` runs
+`make lint` on every commit. CI builds and tests on Linux, macOS, and Windows,
+and runs the sanitizers, clang-tidy, and the consumer check on Linux.
+
+`make tidy` needs clang-tidy 18. On Ubuntu, build with the matching clang and
+libc++, as CI does:
+
+```bash
+make tidy CMAKE_ARGS="-DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_CXX_FLAGS=-stdlib=libc++"
+```
 
 ## Generated code
 
@@ -90,7 +99,9 @@ explains how to refresh the specs.
 ## Releases
 
 1. Set `VERSION` in `CMakeLists.txt`, move the `[Unreleased]` notes into a new
-   `[X.Y.Z]` section, and update the `GIT_TAG` in `README.md`.
+   `[X.Y.Z]` section, update the compare links at the bottom of
+   `CHANGELOG.md`, and update the `GIT_TAG` in `README.md`. Release notes
+   come from that section, so link with absolute URLs.
 2. Merge that change to `main`.
 3. Run `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` publishes the
    GitHub release after CI passes on the tagged commit, and `docs.yml`

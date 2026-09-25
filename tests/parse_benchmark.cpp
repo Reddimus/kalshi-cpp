@@ -62,7 +62,7 @@ int main(int argc, char** argv) {
 	}
 
 	if (glaze_checksum == 0) {
-		std::fprintf(stderr, "checksum is zero — render_body emitted nothing\n");
+		std::fprintf(stderr, "checksum is zero: encode() produced nothing\n");
 		return 1;
 	}
 
@@ -73,10 +73,7 @@ int main(int argc, char** argv) {
 	std::printf("parse_benchmark: payload=%zuB iters=%d\n", sample.size(), kIterations);
 	std::printf("  glaze (serialize): %8.3f ms total  (%8.3f us/op)\n", glaze_ms, us_per_op);
 
-	// Regression guard: at migration time, Glaze rendered a 50-order
-	// batch in ~30-60 us/op on x86_64-v3 / -O3 / LTO. Cap at 500 us/op
-	// — that's ~10x the measured baseline and accounts for slower CI
-	// runners, Debug builds, and AddressSanitizer overhead.
+	// About 10x the measured cost of encoding a 50-order batch, to absorb slow runners.
 	constexpr double kMaxUsPerOp = 500.0;
 	if (check_timing && us_per_op > kMaxUsPerOp) {
 		std::fprintf(stderr, "REGRESSION: %.3f us/op exceeds cap of %.0f us/op\n", us_per_op,

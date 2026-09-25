@@ -15,6 +15,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `error.hpp` and `fixed_point.hpp` left a field uninitialized, which
   `-Wmissing-field-initializers` reported. The consumer check now builds with
   those flags.
+- A request refused by the local rate limiter reports `http_status` 0, since
+  no server answered; it reported 429.
+- README's examples copy the `Signer` instead of moving it, so later snippets
+  still have a key, and its Ubuntu setup installs a compiler and a new enough
+  CMake. The docs, comments, and pre-commit hook were corrected where the
+  final review found them out of date.
 
 ## [0.6.0] - 2026-09-25
 
@@ -32,7 +38,7 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
   document: all 13 channels, `update_subscription` for markets, snapshots, CF
   Benchmarks indices, and Pyth underlyings, and `list_subscriptions`. Message
   types in `kalshi/ws_models.hpp` are generated from `spec/asyncapi.yaml`, and
-  [docs/channels.md](docs/channels.md) maps channels to them.
+  [docs/channels.md](https://github.com/Reddimus/kalshi-cpp/blob/main/docs/channels.md) maps channels to them.
 - The WebSocket client reconnects with backoff after a dropped connection,
   signs each attempt, and resubscribes with each subscription's current
   markets. `ws::Subscription` handles survive reconnects, and every
@@ -50,7 +56,7 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
   up from 70. New areas include historical data, live data, fee changes, event
   candlesticks and forecasts, order-group triggers and limits, intra-exchange
   transfers, target balance allocation, block trades, API usage levels, search
-  filters, and FCM. [docs/operations.md](docs/operations.md) lists every one.
+  filters, and FCM. [docs/operations.md](https://github.com/Reddimus/kalshi-cpp/blob/main/docs/operations.md) lists every one.
 - `tools/codegen/generate.py` generates the client, models, route tests, and
   operation list from the vendored `spec/openapi.yaml`. CI fails if they drift.
 - Requests are validated before sending: required fields must be set and

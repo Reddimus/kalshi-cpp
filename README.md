@@ -18,11 +18,14 @@ scope.
 ## Build
 
 You need a C++23 compiler, CMake 3.31+, OpenSSL 3, libcurl, and libwebsockets.
-Ubuntu 24.04's apt CMake is older; `pipx install cmake` gets a current one.
 
 ```bash
-brew install cmake openssl curl libwebsockets pkg-config    # macOS
-sudo apt install cmake libssl-dev libcurl4-openssl-dev libwebsockets-dev pkg-config   # Ubuntu
+# macOS
+brew install cmake openssl curl libwebsockets pkg-config
+
+# Ubuntu 24.04, whose apt CMake is older than 3.31
+sudo apt install build-essential pkg-config pipx libssl-dev libcurl4-openssl-dev libwebsockets-dev
+pipx install cmake && pipx ensurepath   # then open a new shell
 
 cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
 cmake --build build --parallel
@@ -73,9 +76,10 @@ int main() {
 
 ## Authenticate
 
-Create a key under API keys at <https://kalshi.com/account/profile>. Kalshi
-recommends Ed25519; generating the pair yourself keeps the private key off the
-website:
+Create a key under API keys at <https://kalshi.com/account/profile> and save
+the private key file Kalshi gives you. Kalshi recommends Ed25519 keys. If the
+page offers to use your own public key, you can generate the pair locally so
+the private key never leaves your machine:
 
 ```bash
 openssl genpkey -algorithm ed25519 -out kalshi.key
@@ -84,7 +88,11 @@ openssl pkey -in kalshi.key -pubout    # paste this public key into Kalshi
 
 ```cpp
 kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem_file(key_id, "kalshi.key");
-kalshi::KalshiClient client{kalshi::HttpClient{std::move(*signer)}};
+if (!signer) {
+    std::cerr << signer.error().message << '\n';
+    return 1;
+}
+kalshi::KalshiClient client{kalshi::HttpClient{*signer}};   // Signer is cheap to copy
 kalshi::Result<kalshi::GetBalanceResponse> balance = client.get_balance();
 ```
 
@@ -121,7 +129,7 @@ Kalshi's status and error code, and `Error::message` includes its explanation.
 Both are transports you stack under the client:
 
 ```cpp
-std::shared_ptr<kalshi::HttpClient> http = std::make_shared<kalshi::HttpClient>(std::move(*signer));
+std::shared_ptr<kalshi::HttpClient> http = std::make_shared<kalshi::HttpClient>(*signer);
 std::shared_ptr<kalshi::RateLimitedTransport> paced =
     std::make_shared<kalshi::RateLimitedTransport>(http, kalshi::RateLimitConfig{});
 kalshi::KalshiClient client{std::make_shared<kalshi::RetryingTransport>(paced)};
