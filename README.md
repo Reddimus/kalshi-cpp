@@ -33,7 +33,7 @@ Add the library to your CMake project:
 include(FetchContent)
 FetchContent_Declare(kalshi
   GIT_REPOSITORY https://github.com/Reddimus/kalshi-cpp.git
-  GIT_TAG v0.6.1)
+  GIT_TAG v0.6.2)
 FetchContent_MakeAvailable(kalshi)
 target_link_libraries(myapp PRIVATE kalshi::kalshi)
 ```
