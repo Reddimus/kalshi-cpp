@@ -101,6 +101,12 @@ public:
 		reject_ = value;
 	}
 
+	/// Accepts new connections and closes them right away when true.
+	void drop_on_connect(bool value) {
+		const std::lock_guard lock(mutex_);
+		drop_on_connect_ = value;
+	}
+
 	[[nodiscard]] std::map<std::string, std::string> headers() const {
 		const std::lock_guard lock(mutex_);
 		return headers_;
@@ -156,14 +162,20 @@ private:
 					0) {
 					seen["path"] = uri.data();
 				}
+				bool drop_now = false;
 				{
 					const std::lock_guard lock(mutex_);
 					headers_ = std::move(seen);
 					client_ = wsi;
 					++connections_;
 					outgoing_.clear();
+					drop_ = drop_on_connect_;
+					drop_now = drop_on_connect_;
 				}
 				changed_.notify_all();
+				if (drop_now) {
+					lws_callback_on_writable(wsi);
+				}
 				return 0;
 			}
 			case LWS_CALLBACK_RECEIVE: {
@@ -242,6 +254,7 @@ private:
 	int connections_{0};
 	bool drop_{false};
 	bool reject_{false};
+	bool drop_on_connect_{false};
 };
 
 } // namespace kalshi::test

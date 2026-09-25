@@ -120,8 +120,11 @@ class WsGenerator:
                 message.discriminator = const
                 if const is None:
                     defaults.append(message)
-            if len(defaults) > 1:
-                raise SystemExit(f"messages of type {type_value} cannot be told apart")
+            if len(defaults) != 1:
+                # Without exactly one default, a new discriminator value would have
+                # nowhere to go and every such frame would fail to parse.
+                raise SystemExit(f"messages of type {type_value} need exactly one without a const "
+                                 f"discriminator; found {len(defaults)}")
             # The default message is tried last.
             group.sort(key=lambda m: m.discriminator is None)
             self.messages = [m for m in self.messages if m not in group] + group

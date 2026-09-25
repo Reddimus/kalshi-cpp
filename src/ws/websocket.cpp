@@ -36,8 +36,33 @@ Error moved_from() {
 	return Error::network("WebSocketClient was moved from");
 }
 
+// A connection that drops sooner than this counts as a failed attempt, so a
+// server that accepts and then closes at once still backs off and gives up.
+constexpr std::chrono::seconds kStableConnection{10};
+
 std::uint16_t seconds_field(std::chrono::seconds value) {
 	return static_cast<std::uint16_t>(std::clamp<std::int64_t>(value.count(), 1, 65535));
+}
+
+/// libwebsockets calls OPENSSL_cleanup() when the last context created with
+/// LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT is destroyed (4.4 and later). OpenSSL
+/// cannot start again after that, so every later TLS connection in the
+/// process would fail, REST calls included. One idle context that is never
+/// destroyed keeps that count above zero. The static pointer keeps it
+/// reachable, so leak checkers do not report it.
+void keep_openssl_initialized() {
+	static lws_context* const keeper = [] {
+		static const std::array<lws_protocols, 2> protocols{{
+			{"kalshi-keeper", lws_callback_http_dummy, 0, 0, 0, nullptr, 0},
+			{nullptr, nullptr, 0, 0, 0, nullptr, 0},
+		}};
+		lws_context_creation_info info{};
+		info.port = CONTEXT_PORT_NO_LISTEN;
+		info.protocols = protocols.data();
+		info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+		return lws_create_context(&info);
+	}();
+	(void)keeper;
 }
 
 /// Network threads of clients destroyed inside their own callbacks. Such a
@@ -139,6 +164,8 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 	AuthHeaders headers;
 	detail::WsEndpoint endpoint;
 	std::uint32_t failures{0};
+	bool open{false}; // the current connection finished its handshake
+	std::chrono::steady_clock::time_point opened_at;
 	std::minstd_rand rng;
 	Timer timer{};
 	lws_retry_bo_t retry{};
@@ -196,6 +223,8 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 		info.port = CONTEXT_PORT_NO_LISTEN;
 		info.protocols = protocols.data();
 		info.user = this;
+		// Needed for client TLS; keep_openssl_initialized() stops its cleanup.
+		keep_openssl_initialized();
 		info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
 		lws_context* created = lws_create_context(&info);
 		if (created == nullptr) {
@@ -211,6 +240,8 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 			outbox.clear();
 			failures = 0;
 		}
+		wsi = nullptr; // no service thread runs yet
+		open = false;
 
 		if (Result<void> started = attempt(); !started) {
 			std::optional<Error> reason;
@@ -219,11 +250,13 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 				reason = connect_error; // libwebsockets may have reported why
 			}
 			stop();
-			lws_context_destroy(created);
 			{
+				// Clear the shared pointer first so a concurrent stop() cannot wake
+				// a destroyed context.
 				const std::lock_guard lock(mutex);
 				context = nullptr;
 			}
+			lws_context_destroy(created);
 			return std::unexpected(reason ? std::move(*reason) : std::move(started.error()));
 		}
 		{
@@ -234,9 +267,11 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 
 		std::unique_lock lock(mutex);
 		const bool settled = changed.wait_for(lock, config.connect_timeout, [&] {
-			return state == WsState::Connected || connect_error.has_value() || stopping;
+			return state == WsState::Connected || connect_error.has_value() || stopping ||
+				   established;
 		});
-		if (state == WsState::Connected) {
+		// A connection that opened and dropped at once is reconnecting already.
+		if (state == WsState::Connected || (established && !stopping && config.auto_reconnect)) {
 			return {};
 		}
 		Error error =
@@ -244,6 +279,8 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 						   " ms waiting for the WebSocket handshake");
 		if (connect_error) {
 			error = *connect_error;
+		} else if (established && !stopping) {
+			error = Error::network("The WebSocket connection closed right after it opened");
 		} else if (settled) {
 			error = Error::network("Disconnected while connecting");
 		}
@@ -293,9 +330,11 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 	}
 
 	void disconnect() {
-		const bool was_up = stop(true);
+		bool was_up = stop(true); // also interrupts a connect() in progress
 		if (!on_service_thread()) {
 			const std::lock_guard lifecycle_lock(lifecycle);
+			// A connect() may have started a new session before we got the lock.
+			was_up = stop(true) || was_up;
 			reap();
 		} // else the thread exits once this callback returns; connect() or ~Impl reaps it
 		if (was_up) {
@@ -330,6 +369,7 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 			return;
 		}
 		const std::lock_guard lifecycle_lock(lifecycle);
+		stop(true); // in case a connect() started a session before we got the lock
 		reap();
 		Orphans::instance().reap();
 	}
@@ -354,6 +394,8 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 		lws_sul_cancel(&timer.sul);
 		lws_context_destroy(active);
 		timer.sul = lws_sorted_usec_list_t{};
+		wsi = nullptr;
+		open = false;
 	}
 
 	// ----- connection attempts (service thread, or before it starts) ---------
@@ -381,6 +423,7 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 		info.origin = nullptr;
 		info.ssl_connection = endpoint.use_ssl ? LCCSCF_USE_SSL : 0;
 		info.retry_and_idle_policy = &retry;
+		open = false;
 		wsi = lws_client_connect_via_info(&info);
 		if (wsi == nullptr) {
 			return std::unexpected(Error::network("Failed to start the WebSocket connection"));
@@ -430,7 +473,10 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 		if (self->stopping) {
 			return;
 		}
-		if (Result<void> started = self->attempt(); !started) {
+		const std::uint32_t before = self->failures;
+		// A synchronous failure may already have gone through on_failed(), which
+		// reported it and scheduled the next attempt.
+		if (Result<void> started = self->attempt(); !started && self->failures == before) {
 			self->deliver(WsError{0, started.error().message, std::nullopt, std::nullopt,
 								  std::nullopt, std::nullopt});
 			self->schedule_reconnect();
@@ -518,12 +564,13 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 			wsi = connection;
 			state = WsState::Connected;
 			established = true;
-			failures = 0;
 			registry.on_connected(frames);
 			outbox.assign(std::make_move_iterator(frames.begin()),
 						  std::make_move_iterator(frames.end()));
 		}
 		rx.clear();
+		open = true;
+		opened_at = std::chrono::steady_clock::now();
 		changed.notify_all();
 		if (!frames.empty()) {
 			lws_callback_on_writable(connection);
@@ -557,7 +604,14 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 		if (connection != wsi) {
 			return;
 		}
+		if (!open) {
+			// Some platforms report a refused upgrade as a close, not an error.
+			on_failed(connection, "the server closed the connection during the handshake");
+			return;
+		}
+		open = false;
 		wsi = nullptr;
+		const bool stable = std::chrono::steady_clock::now() - opened_at >= kStableConnection;
 		WsState next = WsState::Disconnected;
 		{
 			const std::lock_guard lock(mutex);
@@ -569,9 +623,12 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 			next = config.auto_reconnect ? WsState::Reconnecting : WsState::Disconnected;
 			state = next;
 		}
+		changed.notify_all();
 		report(next);
 		if (next == WsState::Reconnecting) {
-			failures = 0;
+			if (stable) {
+				failures = 0;
+			}
 			schedule_reconnect();
 		}
 	}
@@ -743,7 +800,8 @@ Result<void> WebSocketClient::update_subscription(ws::Subscription subscription,
 	}
 	std::vector<std::string> frames;
 	const std::lock_guard lock(impl_->mutex);
-	Result<void> result = impl_->registry.update(subscription, params, frames);
+	Result<void> result =
+		impl_->registry.update(subscription, params, impl_->state == WsState::Connected, frames);
 	impl_->queue(frames);
 	return result;
 }

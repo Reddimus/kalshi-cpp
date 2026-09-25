@@ -33,14 +33,18 @@ public:
 	ws::Subscription subscribe(ws::Channel channel, ws::SubscribeParams params, bool connected,
 							   std::vector<std::string>& frames);
 	Result<void> unsubscribe(ws::Subscription subscription, std::vector<std::string>& frames);
+	/// Changes a subscription. The change reaches the parameters used to
+	/// resubscribe once the server confirms it, so a rejected change is dropped.
 	Result<void> update(ws::Subscription subscription, const ws::UpdateSubscriptionParams& params,
-						std::vector<std::string>& frames);
+						bool connected, std::vector<std::string>& frames);
 	/// Returns the command's ID, which the reply's SubscriptionList carries.
 	std::int64_t list_subscriptions(std::vector<std::string>& frames);
 
-	/// Subscribes everything again on a new connection.
+	/// Subscribes everything again on a new connection, except subscriptions
+	/// whose market filter is now empty.
 	void on_connected(std::vector<std::string>& frames);
 	/// Forgets the server's state; subscriptions resend on the next connection.
+	/// Changes still awaiting confirmation are kept, since their outcome is unknown.
 	void on_disconnected();
 	void clear();
 
@@ -68,17 +72,24 @@ private:
 		/// update_subscription calls made before the server confirmed.
 		std::vector<ws::UpdateSubscriptionParams> held;
 		bool unsubscribe_held{false};
+		/// Subscribed with a market filter. Once every market is removed, it is
+		/// not resubscribed, which would stream every market instead.
+		bool filtered{false};
 	};
 
 	struct InFlight {
 		Kind kind{Kind::Subscribe};
 		std::int64_t subscription{0};
+		/// For Kind::Update: the change to apply when the server confirms it.
+		std::optional<ws::UpdateSubscriptionParams> update;
 	};
 
 	std::int64_t next_id() { return next_id_++; }
 	Entry* find(std::int64_t subscription);
 	void erase(std::int64_t subscription);
 	std::optional<InFlight> take(std::optional<std::int64_t> command);
+	/// Frames such as `ok` also take a sequence number on sequenced channels.
+	void note_seq(std::optional<std::int64_t> sid, std::optional<std::int64_t> seq);
 	std::string subscribe_frame(Entry& entry);
 	std::string update_frame(Entry& entry, const ws::UpdateSubscriptionParams& params);
 	std::string unsubscribe_frame(Entry& entry);
@@ -86,7 +97,7 @@ private:
 	std::int64_t next_id_{1};
 	std::map<std::int64_t, Entry> entries_; // by Subscription::id
 	std::unordered_map<std::int64_t, std::int64_t> by_sid_;
-	std::unordered_map<std::int64_t, InFlight> commands_; // in flight, by command ID
+	std::map<std::int64_t, InFlight> commands_; // in flight, in the order sent
 };
 
 } // namespace kalshi::detail

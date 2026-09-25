@@ -21,6 +21,7 @@ struct SubscribedWire {
 struct OkWire {
 	std::optional<std::int64_t> id;
 	std::optional<std::int64_t> sid;
+	std::optional<std::int64_t> seq;
 	glz::raw_json msg{"{}"};
 };
 
@@ -66,7 +67,7 @@ Frame parse_frame(const std::string& json) {
 		if (glz::read<kWsReadOptions>(wire, json)) {
 			return MalformedFrame{std::string(type)};
 		}
-		return OkFrame{wire.id, wire.sid, std::move(wire.msg.str)};
+		return OkFrame{wire.id, wire.sid, wire.seq, std::move(wire.msg.str)};
 	}
 	if (type == "error") {
 		ErrorWire wire;

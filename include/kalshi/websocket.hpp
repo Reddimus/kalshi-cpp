@@ -59,7 +59,8 @@ struct WsConfig {
 	/// wait, with jitter, up to `max_reconnect_delay`.
 	std::chrono::milliseconds reconnect_delay{std::chrono::milliseconds{500}};
 	std::chrono::milliseconds max_reconnect_delay{std::chrono::seconds{30}};
-	/// Stop after this many failed attempts in a row; 0 keeps trying.
+	/// Stop after this many failed attempts in a row; 0 keeps trying. A
+	/// connection that drops within 10 seconds of opening counts as failed.
 	std::uint32_t max_reconnect_attempts{0};
 	/// Ping after this much silence, and drop the connection after
 	/// `idle_timeout` without a reply. Kalshi pings every 10 seconds.

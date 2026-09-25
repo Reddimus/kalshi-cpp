@@ -217,6 +217,19 @@ TEST_F(WsClient, ConnectTimesOutWhenTheHandshakeNeverFinishes) {
 }
 #endif
 
+TEST_F(WsClient, OpenSslStillWorksAfterASessionEnds) {
+	{
+		kalshi::WebSocketClient ws(kalshi::test::make_signer(), local(server));
+		ASSERT_TRUE(ws.connect().has_value());
+		ws.disconnect();
+	}
+	// libwebsockets 4.4+ shuts OpenSSL down when its last TLS context goes away.
+	const kalshi::Result<kalshi::Signer> signer =
+		kalshi::Signer::from_pem("key", kalshi::test::ed25519_private_key_pem());
+	ASSERT_TRUE(signer.has_value()) << signer.error().message;
+	EXPECT_TRUE(signer->sign("GET", "/trade-api/v2/portfolio/balance").has_value());
+}
+
 TEST_F(WsClient, DataCarriesTheSubscriptionThatProducedIt) {
 	Recorder recorder;
 	kalshi::WebSocketClient ws(kalshi::test::make_signer(), local(server));
@@ -422,6 +435,22 @@ TEST_F(WsClient, GivesUpAfterMaxReconnectAttempts) {
 	ASSERT_TRUE(error.has_value());
 	EXPECT_TRUE(has(error->message, "after 2 attempts")) << error->message;
 	EXPECT_EQ(ws.state(), kalshi::WsState::Disconnected);
+}
+
+TEST_F(WsClient, ConnectionsThatDropAtOnceCountAsFailedAttempts) {
+	kalshi::WsConfig config = local(server);
+	config.max_reconnect_attempts = 2;
+	Recorder recorder;
+	kalshi::WebSocketClient ws(kalshi::test::make_signer(), config);
+	recorder.attach(ws);
+	ASSERT_TRUE(ws.connect().has_value());
+	ASSERT_TRUE(server.wait_for_connections(1));
+
+	recorder.forget_states();
+	server.drop_on_connect(true); // accepted, then closed: no backoff reset
+	server.drop();
+	ASSERT_TRUE(recorder.reached(kalshi::WsState::Disconnected));
+	EXPECT_EQ(server.connections(), 3); // the first connection and two attempts
 }
 
 TEST_F(WsClient, DestroyingTheClientInsideItsCallbackIsSafe) {

@@ -155,6 +155,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Sends from other threads no longer call libwebsockets directly, which it
   does not allow; they wake the network thread instead.
 - Destroying a `WebSocketClient` inside one of its own callbacks is safe.
+- With libwebsockets 4.4 or newer, ending a WebSocket session no longer shuts
+  down OpenSSL for the whole process. Every later TLS connection failed after
+  that, REST calls included.
 - A POST with an empty body (for example `create_subaccount()`) no longer makes
   libcurl read the request body from standard input.
 - Timeouts pass `long` values to libcurl; the `int64` passed before was

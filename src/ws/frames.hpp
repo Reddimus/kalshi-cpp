@@ -20,6 +20,7 @@ struct SubscribedFrame {
 struct UnsubscribedFrame {
 	std::optional<std::int64_t> id;
 	std::optional<std::int64_t> sid;
+	std::optional<std::int64_t> seq;
 };
 
 /// An `ok` reply. `msg` stays raw because its shape depends on the command:
@@ -27,6 +28,7 @@ struct UnsubscribedFrame {
 struct OkFrame {
 	std::optional<std::int64_t> id;
 	std::optional<std::int64_t> sid;
+	std::optional<std::int64_t> seq;
 	std::string msg;
 };
 

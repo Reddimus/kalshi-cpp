@@ -35,7 +35,7 @@ void merge(std::vector<std::string>& list, const std::vector<std::string>& value
 	}
 }
 
-// Keeps the parameters a resubscribe sends in step with successful updates.
+// Keeps the parameters a resubscribe sends in step with confirmed updates.
 void apply(ws::SubscribeParams& params, const ws::UpdateSubscriptionParams& update) {
 	switch (update.action) {
 		case ws::UpdateAction::AddMarkets:
@@ -68,6 +68,11 @@ void apply(ws::SubscribeParams& params, const ws::UpdateSubscriptionParams& upda
 	}
 }
 
+bool has_markets(const ws::SubscribeParams& params) {
+	return params.market_ticker || !params.market_tickers.empty() || params.market_id ||
+		   !params.market_ids.empty();
+}
+
 Error unknown_subscription(ws::Subscription subscription) {
 	return Error{ErrorCode::InvalidRequest,
 				 "Unknown subscription " + std::to_string(subscription.id),
@@ -83,6 +88,7 @@ ws::Subscription SubscriptionRegistry::subscribe(ws::Channel channel, ws::Subscr
 	Entry& entry = entries_[handle.id];
 	entry.handle = handle;
 	entry.params = std::move(params);
+	entry.filtered = has_markets(entry.params);
 	if (connected) {
 		frames.push_back(subscribe_frame(entry));
 	}
@@ -114,7 +120,7 @@ Result<void> SubscriptionRegistry::unsubscribe(ws::Subscription subscription,
 
 Result<void> SubscriptionRegistry::update(ws::Subscription subscription,
 										  const ws::UpdateSubscriptionParams& params,
-										  std::vector<std::string>& frames) {
+										  bool connected, std::vector<std::string>& frames) {
 	if (params.action == ws::UpdateAction::Unknown) {
 		return std::unexpected(
 			Error{ErrorCode::InvalidRequest, "UpdateSubscriptionParams.action is required", 0, {}});
@@ -123,16 +129,22 @@ Result<void> SubscriptionRegistry::update(ws::Subscription subscription,
 	if (entry == nullptr) {
 		return std::unexpected(unknown_subscription(subscription));
 	}
-	apply(entry->params, params);
 	switch (entry->state) {
-		case State::Unsent: // the next subscribe carries the change
-		case State::Unsubscribing:
+		case State::Unsent:
+			// No server subscription to change; the next subscribe carries it. A
+			// subscription left out for having no markets starts again here.
+			apply(entry->params, params);
+			if (connected && (!entry->filtered || has_markets(entry->params))) {
+				frames.push_back(subscribe_frame(*entry));
+			}
 			break;
 		case State::Pending:
 			entry->held.push_back(params);
 			break;
 		case State::Active:
 			frames.push_back(update_frame(*entry, params));
+			break;
+		case State::Unsubscribing:
 			break;
 	}
 	return {};
@@ -148,11 +160,23 @@ std::int64_t SubscriptionRegistry::list_subscriptions(std::vector<std::string>& 
 void SubscriptionRegistry::on_connected(std::vector<std::string>& frames) {
 	on_disconnected();
 	for (std::pair<const std::int64_t, Entry>& item : entries_) {
-		frames.push_back(subscribe_frame(item.second));
+		Entry& entry = item.second;
+		if (!entry.filtered || has_markets(entry.params)) {
+			frames.push_back(subscribe_frame(entry));
+		}
 	}
 }
 
 void SubscriptionRegistry::on_disconnected() {
+	// The server may have applied these before the connection dropped; keep
+	// what the caller asked for, in the order it was sent.
+	for (const std::pair<const std::int64_t, InFlight>& item : commands_) {
+		if (item.second.update) {
+			if (Entry* entry = find(item.second.subscription)) {
+				apply(entry->params, *item.second.update);
+			}
+		}
+	}
 	commands_.clear();
 	by_sid_.clear();
 	std::erase_if(entries_, [](const std::pair<const std::int64_t, Entry>& item) {
@@ -163,7 +187,10 @@ void SubscriptionRegistry::on_disconnected() {
 		entry.state = State::Unsent;
 		entry.sid = 0;
 		entry.last_seq.reset();
-		entry.held.clear(); // `params` already includes them
+		for (const ws::UpdateSubscriptionParams& params : entry.held) {
+			apply(entry.params, params); // never sent; the next subscribe carries them
+		}
+		entry.held.clear();
 	}
 }
 
@@ -235,6 +262,10 @@ Reaction SubscriptionRegistry::on_ok(const OkFrame& frame) {
 	if (entry == nullptr) {
 		return reaction;
 	}
+	note_seq(frame.sid, frame.seq);
+	if (command->update) {
+		apply(entry->params, *command->update);
+	}
 	ws::Updated updated = parse_updated(frame.msg);
 	updated.subscription = entry->handle;
 	// The reply lists every market afterwards; trust it over local bookkeeping.
@@ -252,6 +283,7 @@ Reaction SubscriptionRegistry::on_ok(const OkFrame& frame) {
 
 Reaction SubscriptionRegistry::on_error(const ErrorFrame& frame) {
 	Reaction reaction;
+	note_seq(frame.sid, frame.seq);
 	WsError error{frame.code, frame.message, frame.id, frame.sid, frame.seq, std::nullopt};
 	if (error.message.empty()) {
 		error.message = std::string{ws::error_code_name(frame.code)};
@@ -346,16 +378,30 @@ void SubscriptionRegistry::erase(std::int64_t subscription) {
 	entries_.erase(found);
 }
 
+void SubscriptionRegistry::note_seq(std::optional<std::int64_t> sid,
+									std::optional<std::int64_t> seq) {
+	if (!sid || !seq) {
+		return;
+	}
+	const std::unordered_map<std::int64_t, std::int64_t>::const_iterator found = by_sid_.find(*sid);
+	if (found == by_sid_.end()) {
+		return;
+	}
+	if (Entry* entry = find(found->second)) {
+		entry->last_seq = seq;
+	}
+}
+
 std::optional<SubscriptionRegistry::InFlight>
 SubscriptionRegistry::take(std::optional<std::int64_t> command) {
 	if (!command) {
 		return std::nullopt;
 	}
-	const std::unordered_map<std::int64_t, InFlight>::iterator found = commands_.find(*command);
+	const std::map<std::int64_t, InFlight>::iterator found = commands_.find(*command);
 	if (found == commands_.end()) {
 		return std::nullopt;
 	}
-	const InFlight in_flight = found->second;
+	InFlight in_flight = std::move(found->second);
 	commands_.erase(found);
 	return in_flight;
 }
@@ -373,7 +419,7 @@ std::string SubscriptionRegistry::subscribe_frame(Entry& entry) {
 std::string SubscriptionRegistry::update_frame(Entry& entry,
 											   const ws::UpdateSubscriptionParams& params) {
 	const std::int64_t id = next_id();
-	commands_[id] = InFlight{Kind::Update, entry.handle.id};
+	commands_[id] = InFlight{Kind::Update, entry.handle.id, params};
 	return render_command(Command<UpdateSubscriptionWire>{
 		id, "update_subscription", to_wire(std::vector<std::int64_t>{entry.sid}, params)});
 }

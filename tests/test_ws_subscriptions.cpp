@@ -40,7 +40,7 @@ TEST(WsSubscriptions, CommandsKeepKalshisKeyOrderAndOmitUnsetOptions) {
 	ASSERT_TRUE(registry
 					.update(book,
 							{.market_ticker = "C", .action = kalshi::ws::UpdateAction::AddMarkets},
-							frames)
+							true, frames)
 					.has_value());
 	ASSERT_TRUE(registry.unsubscribe(book, frames).has_value());
 	EXPECT_EQ(
@@ -58,7 +58,7 @@ TEST(WsSubscriptions, NothingIsSentUntilConnected) {
 		registry
 			.update(ticker,
 					{.market_tickers = {"A"}, .action = kalshi::ws::UpdateAction::AddMarkets},
-					frames)
+					false, frames)
 			.has_value());
 	EXPECT_TRUE(frames.empty());
 
@@ -77,7 +77,7 @@ TEST(WsSubscriptions, CommandsBeforeTheAckWaitForTheServersSid) {
 	ASSERT_TRUE(
 		registry
 			.update(book, {.market_tickers = {"B"}, .action = kalshi::ws::UpdateAction::AddMarkets},
-					frames)
+					true, frames)
 			.has_value());
 	EXPECT_TRUE(frames.empty());
 
@@ -116,18 +116,18 @@ TEST(WsSubscriptions, ReconnectingResubscribesWithTheCurrentMarkets) {
 	ASSERT_TRUE(
 		registry
 			.update(book, {.market_tickers = {"B"}, .action = kalshi::ws::UpdateAction::AddMarkets},
-					frames)
+					true, frames)
 			.has_value());
 	ASSERT_TRUE(
 		registry
 			.update(book,
 					{.market_tickers = {"A"}, .action = kalshi::ws::UpdateAction::DeleteMarkets},
-					frames)
+					true, frames)
 			.has_value());
 	ASSERT_TRUE(
 		registry
 			.update(book, {.market_tickers = {"C"}, .action = kalshi::ws::UpdateAction::AddMarkets},
-					frames)
+					true, frames)
 			.has_value());
 
 	registry.on_disconnected();
@@ -157,11 +157,11 @@ TEST(WsSubscriptions, UpdateRepliesReplaceTheMarketList) {
 	ASSERT_TRUE(
 		registry
 			.update(ticker,
-					{.market_tickers = {"B"}, .action = kalshi::ws::UpdateAction::AddMarkets},
+					{.market_tickers = {"B"}, .action = kalshi::ws::UpdateAction::AddMarkets}, true,
 					frames)
 			.has_value());
 
-	const Reaction ok = registry.on_ok({3, 4, R"({"market_tickers":["A","B","Z"]})"});
+	const Reaction ok = registry.on_ok({3, 4, std::nullopt, R"({"market_tickers":["A","B","Z"]})"});
 	ASSERT_TRUE(ok.message.has_value());
 	const kalshi::ws::Updated& updated = std::get<kalshi::ws::Updated>(*ok.message);
 	EXPECT_EQ(updated.subscription, ticker);
@@ -225,7 +225,8 @@ TEST(WsSubscriptions, ListRepliesCarryTheCommandId) {
 	const std::int64_t id = registry.list_subscriptions(frames);
 	EXPECT_EQ(frames, (std::vector<std::string>{R"({"id":1,"cmd":"list_subscriptions"})"}));
 
-	const Reaction reply = registry.on_ok({id, std::nullopt, R"([{"channel":"ticker","sid":2}])"});
+	const Reaction reply =
+		registry.on_ok({id, std::nullopt, std::nullopt, R"([{"channel":"ticker","sid":2}])"});
 	ASSERT_TRUE(reply.message.has_value());
 	const kalshi::ws::SubscriptionList& list =
 		std::get<kalshi::ws::SubscriptionList>(*reply.message);
@@ -240,11 +241,11 @@ TEST(WsSubscriptions, RejectsUnknownHandlesAndMissingActions) {
 	const kalshi::ws::Subscription stranger{99, Channel::Ticker};
 	EXPECT_FALSE(registry.unsubscribe(stranger, frames).has_value());
 	EXPECT_FALSE(
-		registry.update(stranger, {.action = kalshi::ws::UpdateAction::GetSnapshot}, frames)
+		registry.update(stranger, {.action = kalshi::ws::UpdateAction::GetSnapshot}, true, frames)
 			.has_value());
 
 	const kalshi::ws::Subscription ticker = registry.subscribe(Channel::Ticker, {}, false, frames);
-	const kalshi::Result<void> missing = registry.update(ticker, {}, frames);
+	const kalshi::Result<void> missing = registry.update(ticker, {}, true, frames);
 	ASSERT_FALSE(missing.has_value());
 	EXPECT_EQ(missing.error().code, kalshi::ErrorCode::InvalidRequest);
 }
@@ -256,4 +257,80 @@ TEST(WsSubscriptions, AnAckNobodyWantsIsUnsubscribed) {
 	ASSERT_EQ(reply.frames.size(), 1U);
 	EXPECT_NE(reply.frames[0].find(R"("cmd":"unsubscribe","params":{"sids":[8]})"),
 			  std::string::npos);
+}
+
+TEST(WsSubscriptions, RejectedUpdatesAreNotResubscribed) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription ticker =
+		registry.subscribe(Channel::Ticker, {.market_tickers = {"A"}}, true, frames);
+	registry.on_subscribed({2, "ticker", 4});
+	ASSERT_TRUE(
+		registry
+			.update(ticker,
+					{.market_tickers = {"BAD"}, .action = kalshi::ws::UpdateAction::AddMarkets},
+					true, frames)
+			.has_value());
+	const Reaction rejected = registry.on_error({3, 4, std::nullopt, 11, "Invalid parameter"});
+	ASSERT_TRUE(rejected.error.has_value());
+	EXPECT_EQ(rejected.error->subscription, ticker);
+	EXPECT_EQ(registry.subscriptions().size(), 1U); // a failed update keeps the subscription
+
+	frames.clear();
+	registry.on_disconnected();
+	registry.on_connected(frames);
+	ASSERT_EQ(frames.size(), 1U);
+	EXPECT_NE(frames[0].find(R"("market_tickers":["A"])"), std::string::npos) << frames[0];
+}
+
+TEST(WsSubscriptions, EmptiedSubscriptionsWaitForMarketsBeforeResubscribing) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription ticker =
+		registry.subscribe(Channel::Ticker, {.market_tickers = {"A"}}, true, frames);
+	registry.on_subscribed({2, "ticker", 4});
+	ASSERT_TRUE(
+		registry
+			.update(ticker,
+					{.market_tickers = {"A"}, .action = kalshi::ws::UpdateAction::DeleteMarkets},
+					true, frames)
+			.has_value());
+	registry.on_ok({3, 4, std::nullopt, R"({"market_tickers":[]})"});
+
+	frames.clear();
+	registry.on_disconnected();
+	registry.on_connected(frames);
+	EXPECT_TRUE(frames.empty()); // resubscribing without markets would stream all of them
+	EXPECT_EQ(registry.subscriptions().size(), 1U);
+
+	ASSERT_TRUE(
+		registry
+			.update(ticker,
+					{.market_tickers = {"B"}, .action = kalshi::ws::UpdateAction::AddMarkets}, true,
+					frames)
+			.has_value());
+	ASSERT_EQ(frames.size(), 1U);
+	EXPECT_NE(frames[0].find(
+				  R"("cmd":"subscribe","params":{"channels":["ticker"],"market_tickers":["B"]})"),
+			  std::string::npos)
+		<< frames[0];
+}
+
+TEST(WsSubscriptions, SequencedRepliesAdvanceTheSequence) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription book =
+		registry.subscribe(Channel::OrderbookDelta, {.market_tickers = {"A"}}, true, frames);
+	registry.on_subscribed({2, "orderbook_delta", 3});
+	kalshi::WsMessage first = delta(3, 5);
+	registry.on_data(first, true);
+
+	ASSERT_TRUE(
+		registry
+			.update(book, {.market_tickers = {"B"}, .action = kalshi::ws::UpdateAction::AddMarkets},
+					true, frames)
+			.has_value());
+	registry.on_ok({3, 3, 6, R"({"market_tickers":["A","B"]})"});
+	kalshi::WsMessage next = delta(3, 7);
+	EXPECT_FALSE(registry.on_data(next, true).error.has_value());
 }
