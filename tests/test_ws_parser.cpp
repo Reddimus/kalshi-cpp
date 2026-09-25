@@ -207,19 +207,22 @@ TEST(WsParser, EndToEndOrderbookDeltaFrame) {
 // --- Orderbook-entries array parser (unchanged, still covered) -----
 
 TEST(ExtractOrderbookEntries, RawNumbers) {
-	const auto entries = extract_orderbook_entries(R"({"yes":[[47,100]]})", "yes");
+	const std::vector<kalshi::detail::PriceQty> entries =
+		extract_orderbook_entries(R"({"yes":[[47,100]]})", "yes");
 	ASSERT_EQ(entries.size(), 1u);
 	EXPECT_EQ(entries[0].price, 47);
 	EXPECT_EQ(entries[0].quantity, 100);
 }
 
 TEST(ExtractOrderbookEntries, EmptyArray) {
-	const auto entries = extract_orderbook_entries(R"({"yes":[]})", "yes");
+	const std::vector<kalshi::detail::PriceQty> entries =
+		extract_orderbook_entries(R"({"yes":[]})", "yes");
 	EXPECT_TRUE(entries.empty());
 }
 
 TEST(ExtractOrderbookEntries, MissingKeyReturnsEmpty) {
-	const auto entries = extract_orderbook_entries(R"({"yes":[[47,100]]})", "no");
+	const std::vector<kalshi::detail::PriceQty> entries =
+		extract_orderbook_entries(R"({"yes":[[47,100]]})", "no");
 	EXPECT_TRUE(entries.empty());
 }
 

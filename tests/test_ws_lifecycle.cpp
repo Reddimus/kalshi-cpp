@@ -56,7 +56,7 @@ TEST(WsLifecycle, ConfigAccessorReturnsConfig) {
 TEST(WsLifecycle, InvalidUrlReturnsErrorWithoutNetworkOrExceptions) {
 	kalshi::Signer signer = make_test_signer();
 
-	for (const std::string& url :
+	for (const char* url :
 		 {"https://example.test/ws", "wss://", "wss:///ws", "wss://user@example.test/ws",
 		  "wss://example.test:/ws", "wss://example.test:not-a-port/ws", "wss://example.test:0/ws",
 		  "wss://example.test:65536/ws", "wss://example.test:70000/ws", "wss://::1/ws",

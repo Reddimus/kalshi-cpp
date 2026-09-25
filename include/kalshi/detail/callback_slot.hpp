@@ -28,8 +28,7 @@ public:
 			}
 			if (callback)
 				callback(args...);
-		} catch (...) {
-			// User callbacks must not unwind through the transport's C callback.
+		} catch (...) { // NOLINT(bugprone-empty-catch): must not unwind into C callbacks
 		}
 	}
 

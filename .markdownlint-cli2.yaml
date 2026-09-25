@@ -1,21 +1,18 @@
 config:
   default: true
+  # Long lines and inline HTML are fine in prose and tables.
   MD013: false
   MD033: false
-  MD040: false
-  MD041: false
   MD060: false
-  # MD004 disables ul-style enforcement so a literal "+" at the start of
-  # an indented continuation line isn't misread as a "+"-style list item.
+  # A literal "+" at the start of a wrapped line is not a list marker.
   MD004: false
   MD024:
     siblings_only: true
 globs:
   - "**/*.md"
-  - "!**/node_modules/**"
-  - "!**/build*/**"
-  - "!**/.git/**"
-  - "!**/_deps/**"
-  - "!**/vendor/**"
-  - "!**/.venv/**"
-  - "!**/*.egg-info/**"
+ignores:
+  - "**/build*/**"
+  - "**/_deps/**"
+  - ".git/**"
+  # GitHub renders this template inside a PR body that already has a title.
+  - ".github/pull_request_template.md"

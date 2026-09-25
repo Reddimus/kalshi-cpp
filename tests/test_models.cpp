@@ -53,7 +53,7 @@ TEST(Models, MarketDefaultConstruction) {
 }
 
 TEST(Models, OrderbookEntryConstruction) {
-	kalshi::OrderBookEntry entry{50, 100};
+	kalshi::OrderBookEntry entry{.price_cents = 50, .quantity = 100};
 	ASSERT_EQ(entry.price_cents, 50);
 	ASSERT_EQ(entry.quantity, 100);
 }

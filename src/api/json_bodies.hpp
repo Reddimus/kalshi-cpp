@@ -23,10 +23,11 @@
 /// pattern.
 
 #include <cstdint>
-#include <glaze/glaze.hpp>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include "../json.hpp"
 
 namespace kalshi::ser {
 

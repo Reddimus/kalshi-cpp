@@ -2,22 +2,10 @@
 
 | Tool | Purpose |
 | --- | --- |
-| `bench.sh` | Compare executable timing and binary sizes |
-| `cpp_auto_audit.py` | Enforce the repository's explicit-local-type rule |
-| `test_consumers.sh` | Test installed and FetchContent CMake consumers |
+| `cpp_auto_audit.py` | Enforce the explicit-local-type rule (`make lint` runs it) |
+| `project_version.sh` | Print the version declared in `CMakeLists.txt` |
+| `test_consumers.sh` | Build installed and FetchContent consumers (`make consumers`) |
 
-Run a benchmark against the current `build/` directory:
-
-```bash
-./tools/bench.sh 100
-```
-
-Compare the working tree with `HEAD`, or compare two committed refs:
-
-```bash
-./tools/bench.sh --compare 100
-./tools/bench.sh --compare v0.5.1 v0.5.2 100
-```
-
-Comparison mode builds detached temporary worktrees and removes them on exit. It
-does not stash, switch, or modify the active checkout.
+Benchmarks live in `benchmarks/`. Run them with `make bench`, and pass Google
+Benchmark flags through `BENCH_ARGS`, for example
+`make bench BENCH_ARGS=--benchmark_filter=WsParse`.
