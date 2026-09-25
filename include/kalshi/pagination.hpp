@@ -1,7 +1,6 @@
 #pragma once
 
 #include "kalshi/error.hpp"
-#include "kalshi/http_client.hpp"
 
 #include <cstdint>
 #include <functional>
@@ -89,25 +88,5 @@ private:
 	std::optional<Cursor> current_cursor_;
 	bool has_more_{true};
 };
-
-/// Build query string with pagination parameters
-[[nodiscard]] inline std::string build_paginated_query(std::string_view base_path,
-													   const PaginationParams& params) {
-	std::string query{base_path};
-	bool has_params = (base_path.find('?') != std::string_view::npos);
-
-	if (params.limit) {
-		query += has_params ? "&" : "?";
-		query += "limit=" + std::to_string(*params.limit);
-		has_params = true;
-	}
-
-	if (params.cursor && !params.cursor->empty()) {
-		query += has_params ? "&" : "?";
-		query += "cursor=" + params.cursor->value;
-	}
-
-	return query;
-}
 
 } // namespace kalshi

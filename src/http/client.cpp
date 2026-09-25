@@ -1,215 +1,193 @@
 #include "kalshi/detail/http_path.hpp"
 #include "kalshi/http_client.hpp"
+#include "kalshi/version.hpp"
 
+#include <algorithm>
+#include <cctype>
+#include <cstdlib>
 #include <curl/curl.h>
 #include <mutex>
-#include <sstream>
+#include <string>
 
 namespace kalshi {
 
 namespace {
 
-class CurlRuntime {
-public:
-	CurlRuntime() : result_(curl_global_init(CURL_GLOBAL_DEFAULT)) {}
-	~CurlRuntime() { curl_global_cleanup(); }
-	[[nodiscard]] CURLcode result() const noexcept { return result_; }
-
-private:
-	CURLcode result_;
-};
-
-CurlRuntime& curl_runtime() {
-	static CurlRuntime runtime;
-	return runtime;
+/// curl_global_init() must run once before any easy handle exists.
+CURLcode curl_global_result() {
+	static const CURLcode result = [] {
+		const CURLcode code = curl_global_init(CURL_GLOBAL_DEFAULT);
+		if (code == CURLE_OK) {
+			std::atexit(curl_global_cleanup);
+		}
+		return code;
+	}();
+	return result;
 }
 
-/// Sentinel returned by ``config()`` on a moved-from client.
-///
-/// It lives at namespace scope rather than as a function-local static so
-/// that constructing it — ``ClientConfig`` holds a ``std::string`` and
-/// therefore allocates — happens during this translation unit's dynamic
-/// initialization instead of inside a ``noexcept`` accessor, where a
-/// ``std::bad_alloc`` (or a throwing thread-safe-init guard) would call
-/// ``std::terminate``.
+struct CurlDeleter {
+	void operator()(CURL* handle) const noexcept { curl_easy_cleanup(handle); }
+};
+struct SlistDeleter {
+	void operator()(curl_slist* list) const noexcept { curl_slist_free_all(list); }
+};
+
+// Built at load time so config() stays noexcept on a moved-from client.
 const ClientConfig kMovedFromConfig{};
 
+const std::string kUserAgent = std::string("User-Agent: kalshi-cpp/") + VERSION;
+
+std::size_t write_body(char* data, std::size_t size, std::size_t count, void* userdata) {
+	static_cast<std::string*>(userdata)->append(data, size * count);
+	return size * count;
+}
+
+std::size_t write_header(char* data, std::size_t size, std::size_t count, void* userdata) {
+	std::vector<std::pair<std::string, std::string>>& headers =
+		*static_cast<std::vector<std::pair<std::string, std::string>>*>(userdata);
+	const std::string_view line{data, size * count};
+	// A new status line starts a new response (after redirects or 100 Continue).
+	if (line.starts_with("HTTP/")) {
+		headers.clear();
+		return size * count;
+	}
+	const std::size_t colon = line.find(':');
+	if (colon != std::string_view::npos) {
+		std::string_view value = line.substr(colon + 1);
+		const std::size_t first = value.find_first_not_of(" \t\r\n");
+		const std::size_t last = value.find_last_not_of(" \t\r\n");
+		value = first == std::string_view::npos ? std::string_view{}
+												: value.substr(first, last - first + 1);
+		headers.emplace_back(std::string(line.substr(0, colon)), std::string(value));
+	}
+	return size * count;
+}
+
+long to_curl_millis(std::chrono::milliseconds duration) {
+	return static_cast<long>(std::clamp<std::int64_t>(duration.count(), 0, 0x7fffffff));
+}
+
 } // namespace
 
-struct HttpClient::Impl {
-	Signer signer;
-	ClientConfig config;
-	CURL* curl{nullptr};
-	mutable std::mutex request_mutex;
-	CURLcode global_init_result{CURLE_OK};
-
-	Impl(Signer s, ClientConfig c)
-		: signer(std::move(s)), config(std::move(c)), global_init_result(curl_runtime().result()) {
-		if (global_init_result == CURLE_OK) {
-			curl = curl_easy_init();
+std::optional<std::string_view> HttpResponse::header(std::string_view name) const noexcept {
+	const auto equals_ignore_case = [](std::string_view a, std::string_view b) {
+		return std::ranges::equal(a, b, [](char x, char y) {
+			return std::tolower(static_cast<unsigned char>(x)) ==
+				   std::tolower(static_cast<unsigned char>(y));
+		});
+	};
+	for (const std::pair<std::string, std::string>& entry : headers) {
+		if (equals_ignore_case(entry.first, name)) {
+			return std::string_view{entry.second};
 		}
 	}
+	return std::nullopt;
+}
 
-	~Impl() {
-		if (curl) {
-			curl_easy_cleanup(curl);
+struct HttpClient::Impl {
+	std::optional<Signer> signer;
+	ClientConfig config;
+	std::unique_ptr<CURL, CurlDeleter> curl;
+	CURLcode init_result{CURLE_OK};
+	std::mutex mutex;
+
+	Impl(std::optional<Signer> s, ClientConfig c)
+		: signer(std::move(s)), config(std::move(c)), init_result(curl_global_result()) {
+		if (init_result == CURLE_OK) {
+			curl.reset(curl_easy_init());
 		}
 	}
 };
-
-namespace {
-
-size_t write_callback(char* ptr, size_t size, size_t nmemb, void* userdata) {
-	std::string* response = static_cast<std::string*>(userdata);
-	response->append(ptr, size * nmemb);
-	return size * nmemb;
-}
-
-size_t header_callback(char* buffer, size_t size, size_t nitems, void* userdata) {
-	std::vector<std::pair<std::string, std::string>>* headers =
-		static_cast<std::vector<std::pair<std::string, std::string>>*>(userdata);
-	std::string line(buffer, size * nitems);
-
-	std::size_t colon = line.find(':');
-	if (colon != std::string::npos) {
-		std::string key = line.substr(0, colon);
-		std::string value = line.substr(colon + 1);
-		// Trim whitespace
-		while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
-			value.erase(0, 1);
-		}
-		while (!value.empty() && (value.back() == '\r' || value.back() == '\n')) {
-			value.pop_back();
-		}
-		headers->emplace_back(std::move(key), std::move(value));
-	}
-	return size * nitems;
-}
-
-} // namespace
 
 HttpClient::HttpClient(Signer signer, ClientConfig config)
 	: impl_(std::make_unique<Impl>(std::move(signer), std::move(config))) {}
 
+HttpClient::HttpClient(ClientConfig config)
+	: impl_(std::make_unique<Impl>(std::nullopt, std::move(config))) {}
+
 HttpClient::~HttpClient() = default;
-
 HttpClient::HttpClient(HttpClient&&) noexcept = default;
-
 HttpClient& HttpClient::operator=(HttpClient&&) noexcept = default;
 
 const ClientConfig& HttpClient::config() const noexcept {
 	return impl_ ? impl_->config : kMovedFromConfig;
 }
 
-Result<HttpResponse> HttpClient::get(std::string_view path) const {
-	return request(HttpMethod::GET, path);
-}
-
-Result<HttpResponse> HttpClient::post(std::string_view path, std::string_view body) const {
-	return request(HttpMethod::POST, path, body);
-}
-
-Result<HttpResponse> HttpClient::put(std::string_view path, std::string_view body) const {
-	return request(HttpMethod::PUT, path, body);
-}
-
-Result<HttpResponse> HttpClient::del(std::string_view path, std::string_view body) const {
-	return request(HttpMethod::DEL, path, body);
-}
-
-// The transport interface deliberately keeps the request target next to its
-// payload. HttpMethod makes the call sites unambiguous.
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view path,
 										 std::string_view body) const {
 	if (!impl_) {
-		return std::unexpected(Error::network("Client moved-from"));
+		return std::unexpected(Error::network("HttpClient is empty (moved-from)"));
 	}
-	std::scoped_lock lock(impl_->request_mutex);
-	if (!impl_->curl) {
-		return std::unexpected(Error::network(impl_->global_init_result == CURLE_OK
-												  ? "CURL easy handle not initialized"
-												  : curl_easy_strerror(impl_->global_init_result)));
+	const std::scoped_lock lock(impl_->mutex);
+	CURL* curl = impl_->curl.get();
+	if (curl == nullptr) {
+		return std::unexpected(Error::network(impl_->init_result == CURLE_OK
+												  ? "Failed to create a libcurl handle"
+												  : curl_easy_strerror(impl_->init_result)));
 	}
 
-	// Sign the request
-	const std::string signing_path = detail::request_signing_path(impl_->config.base_url, path);
-	Result<AuthHeaders> headers_result =
-		impl_->signer.sign(std::string(to_string(method)), signing_path);
-	if (!headers_result) {
-		return std::unexpected(headers_result.error());
+	curl_slist* raw_headers = nullptr;
+	const auto append_header = [&raw_headers](const std::string& header) {
+		raw_headers = curl_slist_append(raw_headers, header.c_str());
+	};
+	if (const std::optional<Signer>& signer = impl_->signer; signer.has_value()) {
+		const Result<AuthHeaders> auth = signer->sign(
+			to_string(method), detail::request_signing_path(impl_->config.base_url, path));
+		if (!auth) {
+			return std::unexpected(auth.error());
+		}
+		append_header("KALSHI-ACCESS-KEY: " + auth->access_key);
+		append_header("KALSHI-ACCESS-SIGNATURE: " + auth->signature);
+		append_header("KALSHI-ACCESS-TIMESTAMP: " + auth->timestamp);
 	}
-	const AuthHeaders& auth = *headers_result;
+	append_header("Accept: application/json");
+	const bool sends_body = method != HttpMethod::GET;
+	if (sends_body) {
+		append_header("Content-Type: application/json");
+	}
+	append_header(kUserAgent);
+	const std::unique_ptr<curl_slist, SlistDeleter> headers{raw_headers};
 
-	// Build URL
 	const std::string url = detail::request_url(impl_->config.base_url, path);
-
-	// Reset curl handle
-	curl_easy_reset(impl_->curl);
-
-	// Set URL
-	curl_easy_setopt(impl_->curl, CURLOPT_URL, url.c_str());
-
-	// curl's type-checking macros make these branches look identical to clang-tidy.
-	switch (method) { // NOLINT(bugprone-branch-clone)
-		case HttpMethod::GET:
-			curl_easy_setopt(impl_->curl, CURLOPT_HTTPGET, 1L);
-			break;
-		case HttpMethod::POST:
-			curl_easy_setopt(impl_->curl, CURLOPT_POST, 1L);
-			break;
-		case HttpMethod::PUT:
-			curl_easy_setopt(impl_->curl, CURLOPT_CUSTOMREQUEST, "PUT");
-			break;
-		case HttpMethod::DEL:
-			curl_easy_setopt(impl_->curl, CURLOPT_CUSTOMREQUEST, "DELETE");
-			break;
-	}
-
-	// Set body if present
-	if (!body.empty()) {
-		curl_easy_setopt(impl_->curl, CURLOPT_POSTFIELDS, body.data());
-		curl_easy_setopt(impl_->curl, CURLOPT_POSTFIELDSIZE, static_cast<long>(body.size()));
-	}
-
-	// Build headers
-	curl_slist* headers = nullptr;
-	headers = curl_slist_append(headers, ("KALSHI-ACCESS-KEY: " + auth.access_key).c_str());
-	headers = curl_slist_append(headers, ("KALSHI-ACCESS-SIGNATURE: " + auth.signature).c_str());
-	headers = curl_slist_append(headers, ("KALSHI-ACCESS-TIMESTAMP: " + auth.timestamp).c_str());
-	headers = curl_slist_append(headers, "Content-Type: application/json");
-	headers = curl_slist_append(headers, "Accept: application/json");
-	curl_easy_setopt(impl_->curl, CURLOPT_HTTPHEADER, headers);
-
-	// Set timeout
-	curl_easy_setopt(impl_->curl, CURLOPT_TIMEOUT, impl_->config.timeout.count());
-
-	// SSL verification
-	curl_easy_setopt(impl_->curl, CURLOPT_SSL_VERIFYPEER, impl_->config.verify_ssl ? 1L : 0L);
-	curl_easy_setopt(impl_->curl, CURLOPT_SSL_VERIFYHOST, impl_->config.verify_ssl ? 2L : 0L);
-
-	// Response handling
 	HttpResponse response;
-	curl_easy_setopt(impl_->curl, CURLOPT_WRITEFUNCTION, write_callback);
-	curl_easy_setopt(impl_->curl, CURLOPT_WRITEDATA, &response.body);
-	curl_easy_setopt(impl_->curl, CURLOPT_HEADERFUNCTION, header_callback);
-	curl_easy_setopt(impl_->curl, CURLOPT_HEADERDATA, &response.headers);
 
-	// Perform request
-	CURLcode res = curl_easy_perform(impl_->curl);
+	// Reset clears per-request options but keeps pooled connections and the
+	// TLS session cache.
+	curl_easy_reset(curl);
+	curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
+	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers.get());
+	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
+	curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, to_curl_millis(impl_->config.timeout));
+	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS,
+					 to_curl_millis(impl_->config.connect_timeout));
+	curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
+	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, ""); // every encoding libcurl supports
+	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, impl_->config.verify_ssl ? 1L : 0L);
+	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, impl_->config.verify_ssl ? 2L : 0L);
+	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_body);
+	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
+	curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, write_header);
+	curl_easy_setopt(curl, CURLOPT_HEADERDATA, &response.headers);
 
-	// Cleanup headers
-	curl_slist_free_all(headers);
-
-	if (res != CURLE_OK) {
-		return std::unexpected(Error::network(curl_easy_strerror(res)));
+	if (method == HttpMethod::GET) {
+		curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+	} else {
+		curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, to_string(method).data());
+	}
+	// Always pass the body explicitly, even when empty: a POST without
+	// POSTFIELDS makes libcurl read the request body from stdin.
+	if (sends_body) {
+		curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(body.size()));
+		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.data());
 	}
 
-	// Get status code
-	long status_code = 0;
-	curl_easy_getinfo(impl_->curl, CURLINFO_RESPONSE_CODE, &status_code);
-	response.status_code = static_cast<std::int16_t>(status_code);
-
+	const CURLcode result = curl_easy_perform(curl);
+	if (result != CURLE_OK) {
+		return std::unexpected(Error::network(curl_easy_strerror(result)));
+	}
+	long status = 0;
+	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
+	response.status_code = static_cast<int>(status);
 	return response;
 }
 

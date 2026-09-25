@@ -1,5 +1,6 @@
 #pragma once
 
+#include "kalshi/environment.hpp"
 #include "kalshi/error.hpp"
 #include "kalshi/models/market.hpp"
 #include "kalshi/signer.hpp"
@@ -317,10 +318,16 @@ using WsStateCallback = std::function<void(bool connected)>;
 
 /// WebSocket client configuration
 struct WsConfig {
-	std::string url{"wss://external-api-ws.kalshi.com/trade-api/ws/v2"};
+	std::string url{websocket_url(Environment::Production)};
 	std::chrono::seconds reconnect_delay{5};
 	std::uint16_t max_reconnect_attempts{10}; ///< Max reconnect attempts (0-65535, default 10)
 	bool auto_reconnect{true};
+
+	[[nodiscard]] static WsConfig for_environment(Environment environment) {
+		WsConfig config;
+		config.url = std::string(websocket_url(environment));
+		return config;
+	}
 };
 
 /// WebSocket streaming client for Kalshi
@@ -329,8 +336,8 @@ struct WsConfig {
 /// Based on the TypeScript SDK's KalshiStream implementation.
 class WebSocketClient {
 public:
-	/// Create a WebSocket client with authentication
-	WebSocketClient(const Signer& signer, WsConfig config = {});
+	/// Creates a client that authenticates with a copy of `signer`.
+	explicit WebSocketClient(Signer signer, WsConfig config = {});
 	~WebSocketClient();
 
 	WebSocketClient(WebSocketClient&&) noexcept;

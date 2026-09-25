@@ -1,11 +1,10 @@
 # Targets are layered: core <- auth <- http <- api, and core <- models <- ws.
 # kalshi::kalshi links all of them.
 
-add_library(kalshi_core STATIC
-    core/rate_limit.cpp
-    core/retry.cpp)
-target_compile_features(kalshi_core PUBLIC cxx_std_23)
-target_include_directories(kalshi_core PUBLIC
+# Header-only: errors, fixed-point values, environments, and the version.
+add_library(kalshi_core INTERFACE)
+target_compile_features(kalshi_core INTERFACE cxx_std_23)
+target_include_directories(kalshi_core INTERFACE
     $<BUILD_INTERFACE:${PROJECT_SOURCE_DIR}/include>
     # version.hpp is generated into this project's binary dir, which differs
     # from CMAKE_BINARY_DIR when the SDK is consumed through FetchContent.
@@ -15,8 +14,14 @@ target_include_directories(kalshi_core PUBLIC
 add_library(kalshi_auth STATIC auth/signer.cpp)
 target_link_libraries(kalshi_auth PUBLIC kalshi_core PRIVATE OpenSSL::Crypto)
 
-add_library(kalshi_http STATIC http/client.cpp)
-target_link_libraries(kalshi_http PUBLIC kalshi_auth PRIVATE CURL::libcurl)
+add_library(kalshi_http STATIC
+    http/client.cpp
+    http/rate_limit.cpp
+    http/rate_limited_transport.cpp
+    http/retry.cpp)
+target_link_libraries(kalshi_http
+    PUBLIC kalshi_auth
+    PRIVATE CURL::libcurl $<BUILD_INTERFACE:glaze::glaze>)
 
 add_library(kalshi_models INTERFACE)
 target_link_libraries(kalshi_models INTERFACE kalshi_core)
@@ -47,6 +52,6 @@ add_library(kalshi::kalshi ALIAS kalshi)
 target_link_libraries(kalshi INTERFACE kalshi_core kalshi_auth kalshi_http kalshi_models kalshi_ws
     kalshi_api)
 
-foreach(target kalshi_core kalshi_auth kalshi_http kalshi_ws kalshi_api)
+foreach(target kalshi_auth kalshi_http kalshi_ws kalshi_api)
     kalshi_configure_target(${target})
 endforeach()

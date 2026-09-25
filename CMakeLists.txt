@@ -93,7 +93,7 @@ configure_file(
     ${CMAKE_CURRENT_BINARY_DIR}/include/kalshi/version.hpp
     @ONLY)
 
-find_package(OpenSSL REQUIRED)
+find_package(OpenSSL 3.0 REQUIRED)
 find_package(CURL REQUIRED)
 if(WIN32)
     find_package(libwebsockets CONFIG REQUIRED)

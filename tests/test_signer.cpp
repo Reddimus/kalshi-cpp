@@ -98,7 +98,7 @@ TEST(HttpSigningPath, WebSocketCallSitePassesAnEmptyBaseUrl) {
 
 namespace {
 
-/// Verify an RSA-PSS/SHA-256 signature the way Kalshi's gateway does.
+/// Verify a signature the way Kalshi's gateway does: RSA-PSS/SHA-256 or Ed25519.
 ///
 /// RSA-PSS salts every signature, so two calls over the same input are
 /// never byte-identical and cannot be pinned with a golden string. What
@@ -131,13 +131,15 @@ bool signature_verifies(const std::string& pem, const std::string& message,
 
 	EVP_MD_CTX* ctx = EVP_MD_CTX_new();
 	EVP_PKEY_CTX* pkey_ctx = nullptr;
-	const bool verified = ctx &&
-						  EVP_DigestVerifyInit(ctx, &pkey_ctx, EVP_sha256(), nullptr, key) == 1 &&
-						  EVP_PKEY_CTX_set_rsa_padding(pkey_ctx, RSA_PKCS1_PSS_PADDING) == 1 &&
-						  EVP_PKEY_CTX_set_rsa_pss_saltlen(pkey_ctx, RSA_PSS_SALTLEN_DIGEST) == 1 &&
-						  EVP_DigestVerify(ctx, signature.data(), signature.size(),
-										   reinterpret_cast<const unsigned char*>(message.data()),
-										   message.size()) == 1;
+	const bool rsa = EVP_PKEY_get_base_id(key) == EVP_PKEY_RSA;
+	const bool verified =
+		ctx &&
+		EVP_DigestVerifyInit(ctx, &pkey_ctx, rsa ? EVP_sha256() : nullptr, nullptr, key) == 1 &&
+		(!rsa || (EVP_PKEY_CTX_set_rsa_padding(pkey_ctx, RSA_PKCS1_PSS_PADDING) == 1 &&
+				  EVP_PKEY_CTX_set_rsa_pss_saltlen(pkey_ctx, RSA_PSS_SALTLEN_DIGEST) == 1)) &&
+		EVP_DigestVerify(ctx, signature.data(), signature.size(),
+						 reinterpret_cast<const unsigned char*>(message.data()),
+						 message.size()) == 1;
 	EVP_MD_CTX_free(ctx);
 	EVP_PKEY_free(key);
 	return verified;
@@ -164,4 +166,53 @@ TEST(Signer, SignatureVerifiesOverTimestampMethodAndPath) {
 		signature_verifies(pem, "1234567890000GET" + path + "?token=value", headers->signature));
 	EXPECT_FALSE(signature_verifies(pem, "1234567890000POST" + path, headers->signature));
 	EXPECT_FALSE(signature_verifies(pem, "1234567890001GET" + path, headers->signature));
+}
+
+TEST(Signer, Ed25519KeysSignWithEd25519) {
+	const std::string& pem = kalshi::test::ed25519_private_key_pem();
+	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem("ed-key", pem);
+	ASSERT_TRUE(signer.has_value()) << signer.error().message;
+	EXPECT_EQ(signer->key_type(), kalshi::KeyType::Ed25519);
+
+	const std::string path = "/trade-api/v2/portfolio/balance";
+	const kalshi::Result<kalshi::AuthHeaders> headers =
+		signer->sign_with_timestamp("GET", path, 1234567890000);
+	ASSERT_TRUE(headers.has_value()) << headers.error().message;
+	EXPECT_EQ(headers->signature.size(), 88U); // 64 bytes, base64
+	EXPECT_TRUE(signature_verifies(pem, "1234567890000GET" + path, headers->signature));
+	EXPECT_FALSE(signature_verifies(pem, "1234567890000GET/other", headers->signature));
+}
+
+TEST(Signer, RsaKeysReportTheirType) {
+	EXPECT_EQ(kalshi::test::make_signer().key_type(), kalshi::KeyType::Rsa);
+}
+
+TEST(Signer, CopiesShareTheKeyAndSignIndependently) {
+	const kalshi::Signer original = kalshi::test::make_signer("shared");
+	const kalshi::Signer copy = original; // NOLINT(performance-unnecessary-copy-initialization)
+	EXPECT_EQ(copy.api_key_id(), "shared");
+	EXPECT_TRUE(copy.sign("GET", "/trade-api/v2/markets").has_value());
+	EXPECT_TRUE(original.sign("GET", "/trade-api/v2/markets").has_value());
+}
+
+TEST(Signer, EncryptedKeysFailWithoutPrompting) {
+	const std::string pem = kalshi::test::generate_pem("RSA", "passphrase");
+	ASSERT_NE(pem.find("ENCRYPTED"), std::string::npos);
+	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem("key", pem);
+	ASSERT_FALSE(signer.has_value());
+	EXPECT_EQ(signer.error().code, kalshi::ErrorCode::InvalidKey);
+}
+
+TEST(Signer, UnsupportedKeyTypesFailAtLoadTime) {
+	const kalshi::Result<kalshi::Signer> signer =
+		kalshi::Signer::from_pem("key", kalshi::test::generate_pem("EC"));
+	ASSERT_FALSE(signer.has_value());
+	EXPECT_EQ(signer.error().code, kalshi::ErrorCode::InvalidKey);
+}
+
+TEST(Signer, MissingKeyFileNamesThePath) {
+	const kalshi::Result<kalshi::Signer> signer =
+		kalshi::Signer::from_pem_file("key", "/nonexistent/kalshi.pem");
+	ASSERT_FALSE(signer.has_value());
+	EXPECT_NE(signer.error().message.find("/nonexistent/kalshi.pem"), std::string::npos);
 }

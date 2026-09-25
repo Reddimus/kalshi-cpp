@@ -2,7 +2,7 @@
 
 include(CMakeFindDependencyMacro)
 
-find_dependency(OpenSSL)
+find_dependency(OpenSSL 3.0)
 find_dependency(CURL)
 if(NOT WIN32)
     find_dependency(PkgConfig)

@@ -30,78 +30,50 @@ auto headers = signer->sign("GET", "/trade-api/v2/markets");
 ### HTTP client (`kalshi/http_client.hpp`)
 
 ```cpp
-kalshi::HttpClient client(std::move(*signer));
-
-// Make requests
-auto get_response = client.get("/markets");
-auto post_response = client.post("/portfolio/orders", json_body);
-auto delete_response = client.del("/portfolio/orders/order-id");
-
-// Check response
-if (get_response && get_response->status_code == 200) {
-    std::cout << get_response->body << "\n";
-}
+kalshi::HttpClient public_client;                      // no key: public market data
+kalshi::HttpClient client(std::move(*signer));         // signs every request
+kalshi::Result<kalshi::HttpResponse> response = client.get("/markets?limit=5");
 ```
 
 ### WebSocket streaming (`kalshi/websocket.hpp`)
 
 ```cpp
-// WsConfig uses std::uint16_t for max_reconnect_attempts (max 65535)
-kalshi::WsConfig config;
-config.max_reconnect_attempts = 10;  // 0-65535
-
-auto ws_signer = kalshi::Signer::from_pem_file("key-id", "/path/to/key.pem");
-if (!ws_signer) return;
-kalshi::WebSocketClient ws(*ws_signer, config); // ws_signer must outlive ws
-if (auto connected = ws.connect(); !connected) {
+kalshi::WebSocketClient ws(*signer); // keeps its own copy of the signer
+ws.on_message([](const kalshi::WsMessage& message) { /* std::visit over the variant */ });
+if (kalshi::Result<void> connected = ws.connect(); !connected) {
     std::cerr << connected.error().message << "\n";
 }
-
-// Subscribe to orderbook updates
 kalshi::Result<kalshi::SubscriptionId> sub = ws.subscribe_orderbook({"TICKER-1", "TICKER-2"});
-
-// Handle messages
-ws.on_message([](const kalshi::WsMessage& msg) {
-    std::visit([](const auto& m) { /* handle message */ }, msg);
-});
 ```
+
+### Retries and rate limits (`kalshi/retry.hpp`, `kalshi/rate_limit.hpp`)
+
+Both are transport decorators, so they compose with `KalshiClient`:
+
+```cpp
+std::shared_ptr<kalshi::HttpClient> http = std::make_shared<kalshi::HttpClient>(*signer);
+std::shared_ptr<kalshi::RateLimitedTransport> paced =
+    std::make_shared<kalshi::RateLimitedTransport>(http, kalshi::RateLimitConfig{});
+kalshi::KalshiClient client{std::make_shared<kalshi::RetryingTransport>(paced)};
+```
+
+`RetryingTransport` repeats writes only after a 429, so an order is never sent
+twice. `RateLimitConfig` defaults to Kalshi's Basic tier; build the real one
+with `rate_limit_config(get_account_api_limits(), get_endpoint_costs())`.
 
 ### Pagination (`kalshi/pagination.hpp`)
 
-```cpp
-// Build paginated query
-kalshi::PaginationParams params{.limit = 100};
-auto query = kalshi::build_paginated_query("/markets", params);
-
-// Use paginated iterator
-kalshi::PaginatedIterator<kalshi::Market> iter(fetch_fn, 100);
-while (iter.has_more()) {
-    auto page = iter.next_page();
-}
-```
-
-### Rate limiting (`kalshi/rate_limit.hpp`)
+`PaginatedIterator` follows cursors for any list call:
 
 ```cpp
-// Token counts use std::uint16_t for memory efficiency (max 65535 tokens)
-kalshi::RateLimiter::Config config{.max_tokens = 10, .initial_tokens = 10};
-kalshi::RateLimiter limiter(config);
-
-if (limiter.try_acquire()) {
-    // Make request
-}
-```
-
-### Retry logic (`kalshi/retry.hpp`)
-
-```cpp
-kalshi::RetryPolicy policy{
-    .max_attempts = 3,
-    .initial_delay = std::chrono::milliseconds(100),
-    .backoff_multiplier = 2.0
-};
-
-auto result = kalshi::with_retry([&]() { return client.get("/markets"); }, policy);
+kalshi::PaginatedIterator<kalshi::Market> pages(
+    [&](const kalshi::PaginationParams& page) {
+        kalshi::GetMarketsParams params;
+        params.limit = page.limit;
+        if (page.cursor) params.cursor = page.cursor->value;
+        return client.get_markets(params);
+    });
+kalshi::Result<std::vector<kalshi::Market>> all = pages.fetch_all();
 ```
 
 ### Models (`kalshi/models/`)
