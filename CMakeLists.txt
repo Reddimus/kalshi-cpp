@@ -21,7 +21,7 @@ option(KALSHI_BUILD_EXAMPLES "Build the examples" ${PROJECT_IS_TOP_LEVEL})
 option(KALSHI_BUILD_BENCHMARKS "Build Google Benchmark targets" OFF)
 option(KALSHI_USE_SYSTEM_GLAZE "Use an installed Glaze instead of fetching it" OFF)
 option(KALSHI_ENABLE_LTO "Enable interprocedural optimization for project targets" OFF)
-option(KALSHI_NATIVE_ARCH "Compile project targets with -march=native" OFF)
+option(KALSHI_NATIVE_ARCH "Tune project targets for this machine's CPU (-march=native)" OFF)
 option(KALSHI_ENABLE_CLANG_TIDY "Run clang-tidy while compiling project targets" OFF)
 option(KALSHI_WARNINGS_AS_ERRORS "Treat project warnings as errors" OFF)
 option(KALSHI_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
@@ -32,8 +32,21 @@ if(KALSHI_ENABLE_SANITIZERS AND KALSHI_ENABLE_THREAD_SANITIZER)
     message(FATAL_ERROR "AddressSanitizer and ThreadSanitizer require separate builds")
 endif()
 
+# -march=native names the build machine's CPU, so compilers reject it when
+# targeting another architecture, as cross and universal macOS builds do.
+if(KALSHI_NATIVE_ARCH AND NOT MSVC)
+    include(CheckCXXCompilerFlag)
+    check_cxx_compiler_flag(-march=native KALSHI_MARCH_NATIVE_WORKS)
+    if(NOT KALSHI_MARCH_NATIVE_WORKS)
+        message(FATAL_ERROR "KALSHI_NATIVE_ARCH needs a build for this machine's CPU, "
+            "but the compiler rejects -march=native for this target")
+    endif()
+endif()
+
 if(KALSHI_ENABLE_CLANG_TIDY)
-    find_program(KALSHI_CLANG_TIDY_EXECUTABLE NAMES clang-tidy-18 clang-tidy REQUIRED)
+    # CI uses clang-tidy 18. Homebrew's llvm@18 is keg-only, so look there too.
+    find_program(KALSHI_CLANG_TIDY_EXECUTABLE NAMES clang-tidy-18 clang-tidy
+        HINTS /opt/homebrew/opt/llvm@18/bin /usr/local/opt/llvm@18/bin REQUIRED)
 endif()
 
 if(KALSHI_ENABLE_LTO)

@@ -24,6 +24,10 @@
 #include "subscriptions.hpp"
 #include "ws_endpoint.hpp"
 
+#ifndef _WIN32
+#include <csignal>
+#endif
+
 namespace kalshi {
 
 namespace {
@@ -379,6 +383,15 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 	}
 
 	void run() {
+#ifndef _WIN32
+		// OpenSSL sends with write(), which raises SIGPIPE once the peer has reset the
+		// connection. libwebsockets ignores SIGPIPE process-wide, but the app may restore
+		// the default, which ends the process, so block it on this thread.
+		sigset_t pipe{};
+		sigemptyset(&pipe);
+		sigaddset(&pipe, SIGPIPE);
+		pthread_sigmask(SIG_BLOCK, &pipe, nullptr);
+#endif
 		lws_context* active = nullptr;
 		{
 			const std::lock_guard lock(mutex);

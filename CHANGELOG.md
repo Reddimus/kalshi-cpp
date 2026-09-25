@@ -13,6 +13,20 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   view over the start of a longer buffer was counted from the bytes after
   it. Counting also no longer copies each order: 20 orders now take 6
   allocations instead of 26.
+- `WebSocketClient`'s network thread blocks SIGPIPE, so a connection the peer
+  reset can't end the process. It relied on libwebsockets ignoring SIGPIPE
+  process-wide, which an application that restores the default handler undoes.
+  Callbacks that run on that thread see SIGPIPE blocked.
+
+### Changed
+
+- `KALSHI_NATIVE_ARCH` stops at configure time when the compiler rejects
+  `-march=native` for the target, as in universal macOS builds, instead of
+  failing mid-build.
+- `make lint`, `make format`, and `make tidy` find Homebrew's keg-only
+  `llvm@18` without `PATH` changes.
+- README is shorter and states the macOS 13.3 minimum deployment target, which
+  CI now builds against.
 
 ## [0.6.1] - 2026-09-25
 

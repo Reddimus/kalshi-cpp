@@ -81,8 +81,9 @@ struct WsConfig {
 ///
 /// Subscriptions survive reconnects: the client resubscribes with the same
 /// parameters and keeps each `ws::Subscription` handle, while the server's
-/// `sid` changes. Callbacks run on the client's network thread, except the
-/// Disconnected state change from `disconnect()`, which runs on the caller's.
+/// `sid` changes. Callbacks run on the client's network thread, which blocks
+/// SIGPIPE, except the Disconnected state change from `disconnect()`, which
+/// runs on the caller's.
 /// They may call any method, including destroying the client, but should
 /// return quickly. Every method is thread-safe.
 class WebSocketClient {

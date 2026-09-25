@@ -19,13 +19,13 @@ pipx install cmake && pipx ensurepath   # then open a new shell
 make test
 ```
 
-On macOS, Homebrew's `llvm@18` provides clang-format 18 without putting it on
-`PATH`, and PyYAML goes in a virtual environment:
+On macOS, Homebrew's `llvm@18` provides clang-format and clang-tidy 18, which
+`make` finds on its own. PyYAML goes in a virtual environment:
 
 ```bash
 brew install cmake ninja pkg-config openssl libwebsockets llvm@18
 python3 -m venv .venv && .venv/bin/pip install pyyaml
-export CLANG_FORMAT="$(brew --prefix llvm@18)/bin/clang-format" PYTHON=.venv/bin/python
+export PYTHON=.venv/bin/python
 make test lint
 ```
 

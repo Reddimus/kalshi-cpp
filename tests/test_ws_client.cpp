@@ -21,6 +21,8 @@
 #include "test_signer_fixture.hpp"
 
 #ifndef _WIN32
+#include <arpa/inet.h>
+#include <csignal>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -214,6 +216,35 @@ TEST_F(WsClient, ConnectTimesOutWhenTheHandshakeNeverFinishes) {
 	::close(listener);
 	ASSERT_FALSE(result.has_value());
 	EXPECT_TRUE(has(result.error().message, "Timed out")) << result.error().message;
+}
+#endif
+
+#ifndef _WIN32
+TEST_F(WsClient, NetworkThreadBlocksSigpipe) {
+	// The network thread inherits this thread's mask, so start with SIGPIPE unblocked.
+	sigset_t pipe{};
+	sigemptyset(&pipe);
+	sigaddset(&pipe, SIGPIPE);
+	ASSERT_EQ(pthread_sigmask(SIG_UNBLOCK, &pipe, nullptr), 0);
+
+	std::promise<bool> blocked;
+	std::future<bool> result = blocked.get_future();
+	std::once_flag once;
+	kalshi::WebSocketClient ws(kalshi::test::make_signer(), local(server));
+	ws.on_message([&](const kalshi::WsMessage& /*message*/) {
+		std::call_once(once, [&] {
+			sigset_t current{};
+			pthread_sigmask(SIG_BLOCK, nullptr, &current);
+			blocked.set_value(sigismember(&current, SIGPIPE) == 1);
+		});
+	});
+	ASSERT_TRUE(ws.connect().has_value());
+	const kalshi::Result<std::int64_t> id = ws.list_subscriptions();
+	ASSERT_TRUE(id.has_value());
+	ASSERT_TRUE(server.next_command().has_value());
+	server.send(R"({"id":)" + std::to_string(*id) + R"(,"type":"ok","msg":[]})");
+	ASSERT_EQ(result.wait_for(5s), std::future_status::ready);
+	EXPECT_TRUE(result.get());
 }
 #endif
 
