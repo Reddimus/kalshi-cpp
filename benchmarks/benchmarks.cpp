@@ -18,7 +18,7 @@
 #include <string_view>
 #include <utility>
 
-#include "json_bodies.hpp"
+#include "support.hpp"
 
 namespace {
 
@@ -77,13 +77,13 @@ std::string orders_page(int count) {
 void BM_RestParseMarketsPage(benchmark::State& state) {
 	const int count = static_cast<int>(state.range(0));
 	kalshi::KalshiClient client(std::make_shared<StaticTransport>(markets_page(count)));
-	const kalshi::Result<kalshi::PaginatedResponse<kalshi::Market>> check = client.get_markets();
-	if (!check || check->items.size() != static_cast<std::size_t>(count)) {
+	const kalshi::Result<kalshi::GetMarketsResponse> check = client.get_markets();
+	if (!check || check->markets.size() != static_cast<std::size_t>(count)) {
 		state.SkipWithError("markets page did not parse");
 		return;
 	}
 	for (auto _ : state) { // auto-ok: Google Benchmark loop idiom
-		kalshi::Result<kalshi::PaginatedResponse<kalshi::Market>> page = client.get_markets();
+		kalshi::Result<kalshi::GetMarketsResponse> page = client.get_markets();
 		benchmark::DoNotOptimize(page);
 	}
 	state.SetItemsProcessed(state.iterations() * count);
@@ -93,13 +93,13 @@ BENCHMARK(BM_RestParseMarketsPage)->Arg(100)->Arg(1000);
 void BM_RestParseOrdersPage(benchmark::State& state) {
 	const int count = static_cast<int>(state.range(0));
 	kalshi::KalshiClient client(std::make_shared<StaticTransport>(orders_page(count)));
-	const kalshi::Result<kalshi::PaginatedResponse<kalshi::Order>> check = client.get_orders();
-	if (!check || check->items.size() != static_cast<std::size_t>(count)) {
+	const kalshi::Result<kalshi::GetOrdersResponse> check = client.get_orders();
+	if (!check || check->orders.size() != static_cast<std::size_t>(count)) {
 		state.SkipWithError("orders page did not parse");
 		return;
 	}
 	for (auto _ : state) { // auto-ok: Google Benchmark loop idiom
-		kalshi::Result<kalshi::PaginatedResponse<kalshi::Order>> page = client.get_orders();
+		kalshi::Result<kalshi::GetOrdersResponse> page = client.get_orders();
 		benchmark::DoNotOptimize(page);
 	}
 	state.SetItemsProcessed(state.iterations() * count);
@@ -129,22 +129,22 @@ BENCHMARK_CAPTURE(BM_WsParse, orderbook_delta, kDeltaFrame);
 BENCHMARK_CAPTURE(BM_WsParse, fill, kFillFrame);
 
 void BM_SerializeBatchCreate(benchmark::State& state) {
-	kalshi::ser::BatchOrdersBody payload;
+	kalshi::BatchCreateOrdersV2Request payload;
 	for (int i = 0; i < 50; ++i) {
-		kalshi::ser::CreateOrderBody order;
+		kalshi::CreateOrderV2Request order;
 		order.ticker = "KXHIGHDEN-26MAY11-T" + std::to_string(50 + i);
-		order.side = i % 2 == 0 ? "bid" : "ask";
+		order.side = i % 2 == 0 ? kalshi::BookSide::Bid : kalshi::BookSide::Ask;
 		order.count = std::to_string(1 + i % 10) + ".00";
 		order.price = "0." + std::to_string(30 + i % 40) + "00";
-		order.time_in_force = "good_till_canceled";
-		order.self_trade_prevention_type = "taker_at_cross";
+		order.time_in_force = kalshi::TimeInForce::GoodTillCanceled;
+		order.self_trade_prevention_type = kalshi::SelfTradePreventionType::TakerAtCross;
 		if (i % 3 == 0) {
 			order.client_order_id = "client-" + std::to_string(i);
 		}
 		payload.orders.push_back(std::move(order));
 	}
 	for (auto _ : state) { // auto-ok: Google Benchmark loop idiom
-		std::string body = kalshi::ser::render_body(payload);
+		std::string body = kalshi::detail::encode(payload);
 		benchmark::DoNotOptimize(body);
 	}
 }
@@ -166,9 +166,9 @@ std::string generate_pem(int key_type) {
 	return pem;
 }
 
-void BM_SignRsaPss(benchmark::State& state) {
+void BM_Sign(benchmark::State& state, int key_type) {
 	kalshi::Result<kalshi::Signer> signer =
-		kalshi::Signer::from_pem("key-id", generate_pem(EVP_PKEY_RSA));
+		kalshi::Signer::from_pem("key-id", generate_pem(key_type));
 	if (!signer) {
 		state.SkipWithError(signer.error().message.c_str());
 		return;
@@ -179,6 +179,7 @@ void BM_SignRsaPss(benchmark::State& state) {
 		benchmark::DoNotOptimize(headers);
 	}
 }
-BENCHMARK(BM_SignRsaPss);
+BENCHMARK_CAPTURE(BM_Sign, rsa_pss, EVP_PKEY_RSA);
+BENCHMARK_CAPTURE(BM_Sign, ed25519, EVP_PKEY_ED25519);
 
 } // namespace

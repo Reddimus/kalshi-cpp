@@ -1,0 +1,4080 @@
+asyncapi: 3.0.0
+info:
+  title: Kalshi Market Data WebSocket API
+  version: 2.0.0
+  description: |
+    WebSocket API for receiving real-time market data notifications and updates on Kalshi.
+
+    This API provides multiple channels of information over a single connection. After establishing
+    a WebSocket connection, clients can subscribe to specific channels and markets of interest.
+
+    All messages are encoded in JSON format and the communication is asynchronous.
+
+    ## Error Codes Reference
+
+    When a command fails, the server responds with an error message containing a numeric code:
+
+    | Code | Error | Description |
+    |------|-------|-------------|
+    | 1 | Unable to process message | General processing error |
+    | 2 | Params required | Missing params object in command |
+    | 3 | Channels required | Missing channels array in subscribe |
+    | 4 | Subscription IDs required | Missing sids in unsubscribe |
+    | 5 | Unknown command | Invalid command name |
+    | 6 | Retired | Not emitted. The number stays reserved. |
+    | 7 | Unknown subscription ID | Subscription ID not found |
+    | 8 | Unknown channel name | Invalid channel in subscribe |
+    | 9 | Authentication required | Channel requires authenticated connection |
+    | 10 | Channel error | Channel-specific error |
+    | 11 | Invalid parameter | Malformed parameter value |
+    | 12 | Exactly one subscription ID is required | For update_subscription |
+    | 13 | Unsupported action | Invalid action for update_subscription |
+    | 14 | Market Ticker required | Missing market specification (market_ticker or market_id) |
+    | 15 | Action required | Missing action in update_subscription |
+    | 16 | Retired | Not emitted. The number stays reserved. |
+    | 17 | Retired | Not emitted. The number stays reserved. |
+    | 18 | Command timeout | Server timed out while processing command |
+    | 19 | shard_factor must be > 0 | Invalid shard_factor |
+    | 20 | shard_factor is required when shard_key is set | Missing shard_factor when shard_key is set |
+    | 21 | shard_key must be >= 0 and < shard_factor | Invalid shard_key |
+    | 22 | shard_factor must be <= 100 | shard_factor too large |
+    | 26 | Subscription market limit exceeded | Adding markets would exceed the per-subscription market limit |
+    | 27 | Too many requests | The subscription exceeded its command rate limit |
+    | 28 | Underlying tickers required | Missing underlying_tickers for subscribe_underlyings/unsubscribe_underlyings on pyth_value |
+
+    ## Terminal Errors
+
+    The following channel errors are terminal and the user must resubscribe.
+
+    | Code | Error |
+    |------|-------|
+    | 10 | Channel error |
+    | 25 | Subscription buffer overflow |
+  contact:
+    name: Kalshi Support
+    url: https://kalshi.com
+    email: support@kalshi.com
+  license:
+    name: Proprietary
+    url: https://kalshi.com/terms
+  tags:
+    - name: control-frames
+      description: WebSocket control frames for connection management
+    - name: commands
+      description: Client-to-server command messages
+    - name: responses
+      description: Server responses to commands
+    - name: market-data
+      description: Real-time market data updates
+    - name: private
+      description: Private/authenticated data channels
+
+servers:
+  production:
+    host: external-api-ws.kalshi.com
+    pathname: /trade-api/ws/v2
+    protocol: wss
+    description: Production Trade API WebSocket server (encrypted connection only)
+    security:
+      - $ref: '#/components/securitySchemes/apiKey'
+
+defaultContentType: application/json
+
+channels:
+  root:
+    address: /
+    title: WebSocket Connection
+    description: |
+      Main WebSocket connection endpoint. All communication happens through this single connection.
+      Authentication is required to establish the connection; include API key headers during the WebSocket handshake.
+      Some channels carry only public market data, but the connection itself still requires authentication.
+      Use the subscribe command to subscribe to specific data channels. For more information, see the [Getting Started](https://docs.kalshi.com/getting_started/quick_start_websockets) guide.
+    bindings:
+      ws:
+        method: GET
+    messages:
+      # Commands (Client -> Server)
+      subscribeCommand:
+        $ref: '#/components/messages/subscribeCommand'
+      unsubscribeCommand:
+        $ref: '#/components/messages/unsubscribeCommand'
+      updateSubscriptionCommand:
+        $ref: '#/components/messages/updateSubscriptionCommand'
+      updateSubscriptionDeleteCommand:
+        $ref: '#/components/messages/updateSubscriptionDeleteCommand'
+      updateSubscriptionSingleSidCommand:
+        $ref: '#/components/messages/updateSubscriptionSingleSidCommand'
+      cfbenchmarksUpdateSubscriptionCommand:
+        $ref: '#/components/messages/cfbenchmarksUpdateSubscriptionCommand'
+      pythUpdateSubscriptionCommand:
+        $ref: '#/components/messages/pythUpdateSubscriptionCommand'
+      listSubscriptionsCommand:
+        $ref: '#/components/messages/listSubscriptionsCommand'
+      # Responses (Server -> Client)
+      subscribedResponse:
+        $ref: '#/components/messages/subscribedResponse'
+      listSubscriptionsResponse:
+        $ref: '#/components/messages/listSubscriptionsResponse'
+      unsubscribedResponse:
+        $ref: '#/components/messages/unsubscribedResponse'
+      subscribedIndicesResponse:
+        $ref: '#/components/messages/subscribedIndicesResponse'
+      subscribedUnderlyingsResponse:
+        $ref: '#/components/messages/subscribedUnderlyingsResponse'
+      okResponse:
+        $ref: '#/components/messages/okResponse'
+      errorResponse:
+        $ref: '#/components/messages/errorResponse'
+
+  control_frames:
+    address: /
+    title: Connection Keep-Alive
+    description: |
+      WebSocket control frames for connection management.
+
+      Kalshi sends Ping frames (`0x9`) every 10 seconds with body `heartbeat` to maintain the connection.
+      Clients should respond with Pong frames (`0xA`). Clients may also send Ping frames to which Kalshi will respond with Pong.
+    messages:
+      incomingPing:
+        $ref: '#/components/messages/incomingPing'
+      incomingPong:
+        $ref: '#/components/messages/incomingPong'
+      outgoingPing:
+        $ref: '#/components/messages/outgoingPing'
+      outgoingPong:
+        $ref: '#/components/messages/outgoingPong'
+
+  orderbook_delta:
+    address: orderbook_delta
+    title: Orderbook Updates
+    description: |
+      Real-time orderbook price level changes. Provides incremental updates to maintain a live orderbook.
+
+      **Requirements:**
+      - Authentication required
+      - Market specification required:
+        - Use `market_ticker` (string) for a single market
+        - Use `market_tickers` (array of strings) for multiple markets
+        - `market_id`/`market_ids` are not supported for this channel
+      - Sends `orderbook_snapshot` first, then incremental `orderbook_delta` updates
+      - Supports `update_subscription` with `add_markets` / `delete_markets` / `get_snapshot` actions
+      - `get_snapshot` returns an `orderbook_snapshot` for the requested `market_tickers` without modifying the subscription
+
+      **Use case:** Building and maintaining a real-time orderbook
+    messages:
+      orderbookSnapshot:
+        $ref: '#/components/messages/orderbookSnapshot'
+      orderbookDelta:
+        $ref: '#/components/messages/orderbookDelta'
+
+  ticker:
+    address: ticker
+    title: Market Ticker
+    description: |
+      Market price, volume, and open interest updates.
+
+      **Requirements:**
+      - No additional channel-level authentication beyond the authenticated WebSocket connection
+      - Market specification optional (omit to receive all markets)
+      - Supports `market_ticker`/`market_tickers` and `market_id`/`market_ids`
+      - Updates sent whenever any ticker field changes
+
+      **Use case:** Displaying current market prices and statistics
+    messages:
+      ticker:
+        $ref: '#/components/messages/ticker'
+
+  trade:
+    address: trade
+    title: Public Trades
+    description: |
+      Public trade notifications when trades occur.
+
+      **Requirements:**
+      - No additional channel-level authentication beyond the authenticated WebSocket connection
+      - Market specification optional (omit to receive all trades)
+      - Updates sent immediately after trade execution
+
+      **Use case:** Trade feed, volume analysis
+    messages:
+      trade:
+        $ref: '#/components/messages/trade'
+
+  fill:
+    address: fill
+    title: User Fills
+    description: |
+      Your order fill notifications. Requires authentication.
+
+      **Requirements:**
+      - Authentication required
+      - Market specification optional via `market_ticker`/`market_tickers` (omit to receive all your fills)
+      - Supports `update_subscription` with `add_markets` / `delete_markets`
+      - Updates sent immediately when your orders are filled
+
+      **Use case:** Tracking your trading activity
+    messages:
+      fill:
+        $ref: '#/components/messages/fill'
+
+  market_positions:
+    address: market_positions
+    title: Market Positions
+    description: |
+      Real-time updates of your positions in markets. Requires authentication.
+
+      **Requirements:**
+      - Authentication required
+      - Market specification optional (omit to receive all positions)
+      - Filters are by `market_ticker`/`market_tickers` only; `market_id`/`market_ids` are not supported
+      - Updates sent when your position changes due to trades, settlements, etc.
+
+      **Monetary Values:**
+      All monetary values are returned as fixed-point dollar strings (`_dollars` suffix).
+
+      **Use case:** Portfolio tracking, position monitoring, P&L calculations
+    messages:
+      marketPosition:
+        $ref: '#/components/messages/marketPosition'
+
+  market_lifecycle_v2:
+    address: market_lifecycle_v2
+    title: Market & Event Lifecycle
+    description: |
+      Market state changes and event creation notifications.
+
+      **Requirements:**
+      - No additional channel-level authentication beyond the authenticated WebSocket connection
+      - Receives all market and event lifecycle notifications (`market_ticker` filters are not supported)
+      - Event creation notifications
+
+      **Use case:** Tracking market lifecycle including creation, de(activation), close date changes, determination, settlement, price level structure changes, and metadata updates
+    messages:
+      marketLifecycleV2:
+        $ref: '#/components/messages/marketLifecycleV2'
+      marketMetadataUpdated:
+        $ref: '#/components/messages/marketMetadataUpdated'
+      eventLifecycle:
+        $ref: '#/components/messages/eventLifecycle'
+      eventFeeUpdate:
+        $ref: '#/components/messages/eventFeeUpdate'
+
+  multivariate_market_lifecycle:
+    address: multivariate_market_lifecycle
+    title: Multivariate Market & Event Lifecycle
+    description: |
+      Multivariate event (MVE) market state changes and event creation notifications.
+
+      **Requirements:**
+      - No additional channel-level authentication beyond the authenticated WebSocket connection
+      - Receives all multivariate market lifecycle notifications (`market_ticker` filters are not supported)
+      - Only emits lifecycle updates for multivariate events
+      - Event creation notifications
+
+      **Use case:** Tracking multivariate market lifecycle including creation, de(activation), close date changes, determination, settlement
+    messages:
+      multivariateMarketLifecycle:
+        $ref: '#/components/messages/multivariateMarketLifecycle'
+      eventLifecycle:
+        $ref: '#/components/messages/eventLifecycle'
+
+  communications:
+    address: communications
+    title: Communications
+    description: |
+      Real-time Request for Quote (RFQ) and quote notifications. Requires authentication.
+
+      **Requirements:**
+      - Authentication required
+      - Market specification ignored
+      - Optional sharding for fanout control:
+        - `shard_factor` (1-100) and `shard_key` (`0 <= key < shard_factor`)
+      - RFQ events (RFQCreated, RFQDeleted) are sent for all users by default. Set `user_filter: "self"` to receive only RFQs you created. Omitted or empty `user_filter` keeps the default.
+      - Quote events (QuoteCreated, QuoteAccepted, QuoteExecuted) are only sent if you created the quote OR you created the RFQ
+
+      **Use case:** Tracking RFQs you create and quotes on your RFQs, or quotes you create on others' RFQs. Use QuoteExecuted to correlate fill messages with quotes via client_order_id.
+    messages:
+      rfqCreated:
+        $ref: '#/components/messages/rfqCreated'
+      rfqDeleted:
+        $ref: '#/components/messages/rfqDeleted'
+      quoteCreated:
+        $ref: '#/components/messages/quoteCreated'
+      quoteAccepted:
+        $ref: '#/components/messages/quoteAccepted'
+      quoteExecuted:
+        $ref: '#/components/messages/quoteExecuted'
+
+  order_group_updates:
+    address: order_group_updates
+    title: Order Group Updates
+    description: |
+      Real-time order group lifecycle and limit updates. Requires authentication.
+
+      **Requirements:**
+      - Authentication required
+      - Market specification ignored
+      - Updates sent when order groups are created, triggered, reset, deleted, or have limits updated
+
+      **Use case:** Tracking order group lifecycle and limits
+    messages:
+      orderGroupUpdates:
+        $ref: '#/components/messages/orderGroupUpdates'
+
+  user_orders:
+    address: user_orders
+    title: User Orders
+    description: |
+      Real-time order created and updated notifications. Requires authentication.
+
+      **Requirements:**
+      - Authentication required
+      - Market specification optional via `market_tickers` (omit to receive all orders)
+      - Supports `update_subscription` with `add_markets` / `delete_markets` actions
+      - Updates sent when your orders are created, filled, canceled, or otherwise updated
+
+      **Use case:** Tracking your resting orders, fills, and cancellations in real time
+    messages:
+      userOrder:
+        $ref: '#/components/messages/userOrder'
+
+  cfbenchmarks_value:
+    address: cfbenchmarks_value
+    title: CF Benchmarks Value Feed
+    description: |
+      Real-time CF Benchmarks index value updates, each carrying the raw upstream frame plus trailing 60-second and quarter-hour final-minute averages. Requires authentication.
+
+      ## Coins and index IDs
+
+      Use the following CF Benchmarks index IDs to request coin data on this channel or through the [REST passthrough](/cfbenchmarks/rest-passthrough). The BTC and ETH examples on this page are illustrative; they are not the full list of coins.
+
+      | Coin | CF Benchmarks index ID |
+      |------|------------------------|
+      | AAVE | `AAVEUSD_RTI` |
+      | ADA | `ADAUSD_RTI` |
+      | BCH | `BCHUSD_RTI` |
+      | BNB | `BNBUSD_RTI` |
+      | BTC | `BRTI` |
+      | DOGE | `DOGEUSD_RTI` |
+      | DOT | `DOTUSD_RTI` |
+      | ETH | `ETHUSD_RTI` |
+      | HBAR | `HBARUSD_RTI` |
+      | HYPE | `HYPEUSD_RTI` |
+      | LINK | `LINKUSD_RTI` |
+      | LTC | `LTCUSD_RTI` |
+      | NEAR | `NEARUSD_RTI` |
+      | SHIB / kSHIB | `SHIBUSD_RTI` |
+      | SOL | `SOLUSD_RTI` |
+      | SUI | `SUIUSD_RTI` |
+      | VVV | `VVVUSD_RTI` |
+      | WLD | `WLDUSD_RTI` |
+      | XLM | `XLMUSD_RTI` |
+      | XRP | `XRPUSD_RTI` |
+      | ZEC | `ZECUSD_RTI` |
+
+      Pass the index ID exactly as shown, rather than a coin symbol or Kalshi market ticker. For kSHIB, request `SHIBUSD_RTI`: values are USD per SHIB and are not scaled to kSHIB or a perpetual contract size.
+
+      Use the `indexlist` action below to check the index IDs available on your WebSocket connection. Availability can change; this table is a coin-to-index reference, not a guarantee that every index is streaming in every environment.
+
+      The [5Hz feed](/websockets/cfbenchmarks-value-5hz) has a smaller coin set: BTC, ETH, SOL, XRP, and DOGE. Use `cfbenchmarks_value` for the other coins above.
+
+      ## Requirements
+
+      - Authentication required
+      - Index specification via `index_ids` (array of CF Benchmarks index IDs, for example `["BRTI", "ETHUSD_RTI"]`)
+      - `market_ticker`/`market_tickers`/`market_id`/`market_ids` are not supported for this channel
+      - You can seed `index_ids` in the initial subscribe, or subscribe first and add indices later
+      - Use `index_ids: ["all"]` to receive every available index
+      - Supports `update_subscription` with `subscribe_indices` / `unsubscribe_indices` / `indexlist` actions
+      - `indexlist` returns the available index IDs (as a `cfbenchmarks_value_indexlist` message) without modifying the subscription
+      - Ticks are emitted roughly once per second; duplicate or out-of-order upstream source timestamps are ignored. For up to 5 updates per second on supported indices, see the [CF Benchmarks 5Hz Value Feed](/websockets/cfbenchmarks-value-5hz) sibling channel
+
+      **Use case:** Consuming CF Benchmarks reference index values and their short-window averages
+
+      ## Subscription workflow
+
+      1. Subscribe to `cfbenchmarks_value` (optionally seeding `index_ids`). A successful subscribe returns a `subscribed` response with the assigned `sid`.
+      2. Discover available index IDs with the `indexlist` action; the server replies with a `cfbenchmarks_value_indexlist` message.
+      3. Add or remove tracked index IDs with `subscribe_indices` / `unsubscribe_indices`, or use `index_ids: ["all"]` to track everything.
+
+      For example, subscribe to BNB, HYPE, and SHIB values:
+
+      ```json
+      {
+        "id": 1,
+        "cmd": "subscribe",
+        "params": {
+          "channels": ["cfbenchmarks_value"],
+          "index_ids": ["BNBUSD_RTI", "HYPEUSD_RTI", "SHIBUSD_RTI"]
+        }
+      }
+      ```
+
+      To discover the available indices, send the following after the `subscribed` response. Replace `sid: 1` with the subscription ID returned by the server:
+
+      ```json
+      {
+        "id": 2,
+        "cmd": "update_subscription",
+        "params": {
+          "sid": 1,
+          "action": "indexlist"
+        }
+      }
+      ```
+
+      Read the available IDs from `msg.index_ids` in the `cfbenchmarks_value_indexlist` response. This lists the channel's available indices without changing which ones you subscribe to. A successful `subscribe` response alone does not confirm that a requested index is available.
+
+      ## Averaging semantics
+
+      `avg_60s_data` (always present):
+      - Window is trailing and per tick: `[source_ts_ms - 60000, source_ts_ms)`
+      - `window_size` counts prior ticks only
+      - If there are no prior ticks in the trailing window, the average falls back to the current tick value
+
+      `last_60s_windowed_average_15min` (present only in the final minute before quarter-hour close: `:00`, `:15`, `:30`, `:45`):
+      - Active accumulation window is `(quarter_close_ts_ms - 60000, quarter_close_ts_ms]`
+      - The start-boundary tick is excluded and the close tick is included
+      - This produces second-indexed counts: `:01 -> 1`, `:14 -> 14`, `:59 -> 59`, close tick (`:00/:15/:30/:45`) -> `60`
+      - The field is omitted outside that final-minute window
+
+      ## Integration notes
+
+      - If you subscribe without any `index_ids`, no value events flow until you add indices or switch to `["all"]`
+      - `sid` identifies the subscription stream; use it for `update_subscription` and `unsubscribe`
+      - Missing `index_ids` for `subscribe_indices`/`unsubscribe_indices` returns an `error` with `code: 24` ("Index IDs required"); unsupported actions return a standard websocket `error`
+      - This channel is real-time only. Historical index values — including intra-second granularity on some indices — are available over REST via the [CF Benchmarks REST Passthrough](/cfbenchmarks/rest-passthrough); live intra-second updates are available on the [`cfbenchmarks_value_5hz`](/websockets/cfbenchmarks-value-5hz) channel
+    messages:
+      cfbenchmarksValue:
+        $ref: '#/components/messages/cfbenchmarksValue'
+      cfbenchmarksIndexList:
+        $ref: '#/components/messages/cfbenchmarksIndexList'
+
+  cfbenchmarks_value_5hz:
+    address: cfbenchmarks_value_5hz
+    title: CF Benchmarks 5Hz Value Feed
+    description: |
+      Real-time CF Benchmarks index value updates at up to 5 updates per second, each carrying the raw upstream frame plus parsed value fields. Requires authentication.
+
+      This is the high-frequency sibling of the once-per-second [`cfbenchmarks_value`](/websockets/cfbenchmarks-value) channel. It carries BTC (`BRTI`), ETH (`ETHUSD_RTI`), SOL (`SOLUSD_RTI`), XRP (`XRPUSD_RTI`), and DOGE (`DOGEUSD_RTI`) at up to five updates per second. For BNB, HYPE, NEAR, ZEC, SUI, BCH, LTC, LINK, SHIB/kSHIB, ADA, WLD, AAVE, VVV, and other per-second indices, see the [coin and index ID table](/websockets/cfbenchmarks-value#coins-and-index-ids). Use this channel's `indexlist` action to discover its available IDs. Messages are lean raw ticks — they do not include the 60-second or quarter-hour averages, which stay on the per-second channel.
+
+      **Requirements:**
+      - Authentication required
+      - Index specification via `index_ids` (array of CF Benchmarks index IDs, for example `["BRTI", "ETHUSD_RTI"]`)
+      - `market_ticker`/`market_tickers`/`market_id`/`market_ids` are not supported for this channel
+      - You can seed `index_ids` in the initial subscribe, or subscribe first and add indices later
+      - Use `index_ids: ["all"]` to receive every index available on this channel
+      - Supports `update_subscription` with `subscribe_indices` / `unsubscribe_indices` / `indexlist` actions
+      - `indexlist` returns the index IDs recently observed on this channel's stream (as a `cfbenchmarks_value_5hz_indexlist` message) without modifying the subscription
+      - Up to 5 ticks per second per index; duplicate or out-of-order upstream source timestamps are ignored
+
+      **Use case:** Consuming CF Benchmarks reference index values at the vendor's full publication rate
+
+      **Subscription workflow:**
+      1. Subscribe to `cfbenchmarks_value_5hz` (optionally seeding `index_ids`). A successful subscribe returns a `subscribed` response with the assigned `sid`.
+      2. Discover the streaming index IDs with the `indexlist` action; the server replies with a `cfbenchmarks_value_5hz_indexlist` message.
+      3. Add or remove tracked index IDs with `subscribe_indices` / `unsubscribe_indices`, or use `index_ids: ["all"]` to track everything on this channel.
+
+      **Integration notes:**
+      - If you subscribe without any `index_ids`, no value events flow until you add indices or switch to `["all"]`
+      - `sid` identifies the subscription stream; use it for `update_subscription` and `unsubscribe`
+      - Missing `index_ids` for `subscribe_indices`/`unsubscribe_indices` returns an `error` with `code: 24` ("Index IDs required"); unsupported actions return a standard websocket `error`
+      - Historical index values — including intra-second granularity — are available over REST via the [CF Benchmarks REST Passthrough](/cfbenchmarks/rest-passthrough)
+    messages:
+      cfbenchmarksValue5Hz:
+        $ref: '#/components/messages/cfbenchmarksValue5Hz'
+      cfbenchmarks5HzIndexList:
+        $ref: '#/components/messages/cfbenchmarks5HzIndexList'
+
+  pyth_value:
+    address: pyth_value
+    title: Pyth Value Feed
+    description: |
+      Real-time Pyth price updates for configured underlying tickers. Requires authentication.
+
+      ## Access and pricing
+
+      The Pyth data feed costs **$1,000/month**, with the **first seven days free**. [Subscribe to the Pyth data feed](https://buy.stripe.com/eVqaEXfmu9eN2ZB8gr4ZG0a).
+
+      Connect using an authenticated Kalshi WebSocket session. See [Quick Start: WebSockets](/getting_started/quick_start_websockets#authentication) for API key authentication and request signing.
+
+      ## Commodities and underlying tickers
+
+      The reference table below includes spot metals, commodity futures, and indices. The gold and silver examples are only a subset of the feed coverage.
+
+      | Pyth feed ID | Pyth symbol | Description |
+      |--------------|-------------|-------------|
+      | 345 | `Metal.XAG/USD` | Silver price in USD |
+      | 346 | `Metal.XAU/USD` | Gold price in USD |
+      | 2937 | `Commodities.CCU6/USD` | Cocoa futures (Sept 2026) in USD |
+      | 3052 | `Commodities.COU6/USD` | Crude Oil futures (Sept 2026) in USD |
+      | 3053 | `Commodities.COZ6/USD` | Crude Oil futures (Dec 2026) in USD |
+      | 3080 | `Commodities.WHU6/USD` | Wheat futures (Sept 2026) in USD |
+      | 3081 | `Commodities.WHZ6/USD` | Wheat futures (Dec 2026) in USD |
+      | 3085 | `Commodities.SOU6/USD` | Soybeans futures (Sept 2026) in USD |
+      | 3086 | `Commodities.SOX6/USD` | Soybeans futures (Nov 2026) in USD |
+      | 3063 | `Commodities.Index.PYTHOIL/USD` | Blended Oil Index in USD |
+      | 3153 | `Metal.Index.GOLD/USD` | Blended Gold Index in USD |
+      | 3154 | `Metal.Index.SILVER/USD` | Blended Silver Index in USD |
+      | 3045 | `Commodities.BRENTX6/USD` | Brent Crude futures (Nov 2026) in USD |
+      | 3525 | `Commodities.Index.CU/USD` | Copper Index in USD |
+      | 3265 | `Commodities.Index.NATGAS/USD` | Natural Gas Index in USD |
+      | 3446 | `Commodities.Index.BRENT/USD` | Blended Brent Crude Index in USD |
+      | 1781 | `Metal.XPT/USD` | Platinum price in USD |
+      | 1780 | `Metal.XPD/USD` | Palladium price in USD |
+
+      Pass the exact **Pyth symbol** in `underlying_tickers`. The numeric Pyth feed IDs are reference information and are not subscription parameters for this channel. Kalshi market tickers are not Pyth underlying tickers.
+
+      Use `underlying_list` to discover recently streamed tickers on your connection. Availability can change, including as futures contracts expire; the table does not guarantee that every feed is streaming in every environment.
+
+      ## Requirements
+
+      - Authentication required
+      - Seed `underlying_tickers` in the initial subscribe, or add them later
+      - Use `underlying_tickers: ["all"]` to receive every available underlying
+      - Supports `update_subscription` with `subscribe_underlyings`, `unsubscribe_underlyings`, and `underlying_list` actions
+      - Duplicate and out-of-order source timestamps are ignored independently per underlying ticker
+
+      ## Subscription workflow
+
+      Subscribe to `pyth_value` with the underlying tickers you want to receive. For example, request gold, oil, and natural gas prices:
+
+      ```json
+      {
+        "id": 1,
+        "cmd": "subscribe",
+        "params": {
+          "channels": ["pyth_value"],
+          "underlying_tickers": [
+            "Metal.XAU/USD",
+            "Commodities.Index.PYTHOIL/USD",
+            "Commodities.Index.NATGAS/USD"
+          ]
+        }
+      }
+      ```
+
+      A successful subscribe returns a `subscribed` response with the assigned `sid`. Use that subscription ID in subsequent commands; replace `sid: 1` in the examples below with the returned ID.
+
+      You can also omit `underlying_tickers` to create an empty subscription, discover tickers, and add them later. An empty subscription sends no price updates until you add tickers or switch to `["all"]`.
+
+      ### Discover recently streamed tickers
+
+      ```json
+      {
+        "id": 2,
+        "cmd": "update_subscription",
+        "params": {
+          "sid": 1,
+          "action": "underlying_list"
+        }
+      }
+      ```
+
+      Read `msg.underlying_tickers` in the `pyth_value_underlying_list` response. This lists tickers observed on the stream within the last two hours without changing your subscription. It is not a complete catalog: inactive feeds can be absent. A successful subscribe response alone does not confirm that a requested ticker is streaming.
+
+      ### Add or remove tickers
+
+      Add platinum to the existing subscription:
+
+      ```json
+      {
+        "id": 3,
+        "cmd": "update_subscription",
+        "params": {
+          "sid": 1,
+          "action": "subscribe_underlyings",
+          "underlying_tickers": ["Metal.XPT/USD"]
+        }
+      }
+      ```
+
+      Remove platinum from the subscription:
+
+      ```json
+      {
+        "id": 4,
+        "cmd": "update_subscription",
+        "params": {
+          "sid": 1,
+          "action": "unsubscribe_underlyings",
+          "underlying_tickers": ["Metal.XPT/USD"]
+        }
+      }
+      ```
+
+      ### Receive all available underlyings
+
+      Set `underlying_tickers` to `["all"]` in the initial subscribe, or enable it on an existing subscription:
+
+      ```json
+      {
+        "id": 5,
+        "cmd": "update_subscription",
+        "params": {
+          "sid": 1,
+          "action": "subscribe_underlyings",
+          "underlying_tickers": ["all"]
+        }
+      }
+      ```
+
+      While all-mode is enabled, removing an individual ticker does not exclude it. Send `unsubscribe_underlyings` with `["all"]` to disable all-mode; any explicitly subscribed tickers remain selected.
+
+      ## Integration notes
+
+      - `sid` identifies the subscription stream; use it for `update_subscription` and `unsubscribe`.
+      - Missing or empty `underlying_tickers` for `subscribe_underlyings` or `unsubscribe_underlyings` returns an `error` with `code: 28` ("Underlying tickers required").
+      - `value_usd` is a USD price string formatted to eight decimal places.
+      - `source_ts_ms` is the source timestamp in Unix milliseconds; `received_at` is when Kalshi received the update, also in Unix milliseconds.
+    messages:
+      pythValue:
+        $ref: '#/components/messages/pythValue'
+      pythUnderlyingList:
+        $ref: '#/components/messages/pythUnderlyingList'
+
+operations:
+  sendPing:
+    action: receive
+    title: Send Ping
+    summary: Client sends Ping control frame to elicit Pong from Kalshi
+    channel:
+      $ref: '#/channels/control_frames'
+    messages:
+      - $ref: '#/channels/control_frames/messages/incomingPing'
+    tags:
+      - name: control-frames
+  sendPong:
+    action: receive
+    title: Send Pong
+    summary: Client sends Pong control frame in response to Kalshi Ping
+    channel:
+      $ref: '#/channels/control_frames'
+    messages:
+      - $ref: '#/channels/control_frames/messages/incomingPong'
+    tags:
+      - name: control-frames
+
+  # Commands sent by user to server (from user perspective, these are "sent")
+  sendSubscribe:
+    action: receive
+    title: Subscribe to Channels
+    summary: Subscribe to one or more market data channels
+    channel:
+      $ref: '#/channels/root'
+    messages:
+      - $ref: '#/channels/root/messages/subscribeCommand'
+    tags:
+      - name: commands
+
+  sendUnsubscribe:
+    action: receive
+    title: Unsubscribe from Channels
+    summary: Cancel one or more active subscriptions
+    channel:
+      $ref: '#/channels/root'
+    messages:
+      - $ref: '#/channels/root/messages/unsubscribeCommand'
+    tags:
+      - name: commands
+
+  sendListSubscriptions:
+    action: receive
+    title: List Subscriptions
+    summary: List all active subscriptions
+    channel:
+      $ref: '#/channels/root'
+    messages:
+      - $ref: '#/channels/root/messages/listSubscriptionsCommand'
+    tags:
+      - name: commands
+
+  sendUpdateSubscription:
+    action: receive
+    title: Update Subscription - Add Markets
+    summary: Add markets to an existing subscription
+    channel:
+      $ref: '#/channels/root'
+    messages:
+      - $ref: '#/channels/root/messages/updateSubscriptionCommand'
+    tags:
+      - name: commands
+
+  sendUpdateSubscriptionDelete:
+    action: receive
+    title: Update Subscription - Delete Markets
+    summary: Remove markets from an existing subscription
+    channel:
+      $ref: '#/channels/root'
+    messages:
+      - $ref: '#/channels/root/messages/updateSubscriptionDeleteCommand'
+    tags:
+      - name: commands
+
+  sendUpdateSubscriptionSingleSid:
+    action: receive
+    title: Update Subscription - Single SID
+    summary: Update subscription using single sid parameter
+    channel:
+      $ref: '#/channels/root'
+    messages:
+      - $ref: '#/channels/root/messages/updateSubscriptionSingleSidCommand'
+    tags:
+      - name: commands
+
+  sendCFBenchmarksUpdateSubscription:
+    action: receive
+    title: Update Subscription - CF Benchmarks Indices
+    summary: Add or remove tracked index IDs, or list available indices, on a cfbenchmarks_value or cfbenchmarks_value_5hz subscription
+    channel:
+      $ref: '#/channels/root'
+    messages:
+      - $ref: '#/channels/root/messages/cfbenchmarksUpdateSubscriptionCommand'
+    tags:
+      - name: commands
+
+  sendPythUpdateSubscription:
+    action: receive
+    title: Update Subscription - Pyth Underlyings
+    summary: Add or remove underlying tickers, or list available underlyings, on a pyth_value subscription
+    channel:
+      $ref: '#/channels/root'
+    messages:
+      - $ref: '#/channels/root/messages/pythUpdateSubscriptionCommand'
+    tags:
+      - name: commands
+
+  # Messages sent by server to user (from user perspective, these are "received")
+  receivePing:
+    action: send
+    title: Receive Ping
+    summary: Kalshi sends Ping control frame with body 'heartbeat'
+    channel:
+      $ref: '#/channels/control_frames'
+    messages:
+      - $ref: '#/channels/control_frames/messages/outgoingPing'
+    tags:
+      - name: control-frames
+
+  receivePong:
+    action: send
+    title: Receive Pong
+    summary: Kalshi sends Pong control frame in response to client Ping
+    channel:
+      $ref: '#/channels/control_frames'
+    messages:
+      - $ref: '#/channels/control_frames/messages/outgoingPong'
+    tags:
+      - name: control-frames
+
+  receiveSubscribed:
+    action: send
+    title: Subscription Confirmed
+    summary: Receive confirmation that subscription was successful
+    channel:
+      $ref: '#/channels/root'
+    messages:
+      - $ref: '#/channels/root/messages/subscribedResponse'
+    tags:
+      - name: responses
+
+  receiveUnsubscribed:
+    action: send
+    title: Unsubscription Confirmed
+    summary: Receive confirmation that unsubscription was successful
+    channel:
+      $ref: '#/channels/root'
+    messages:
+      - $ref: '#/channels/root/messages/unsubscribedResponse'
+    tags:
+      - name: responses
+
+  receiveOk:
+    action: send
+    title: Update Confirmed
+    summary: Receive confirmation that subscription update was successful
+    channel:
+      $ref: '#/channels/root'
+    messages:
+      - $ref: '#/channels/root/messages/okResponse'
+      - $ref: '#/channels/root/messages/subscribedUnderlyingsResponse'
+      - $ref: '#/channels/root/messages/subscribedIndicesResponse'
+    tags:
+      - name: responses
+
+  receiveListSubscriptions:
+    action: send
+    title: List Subscriptions Response
+    summary: Receive list of all active subscriptions
+    channel:
+      $ref: '#/channels/root'
+    messages:
+      - $ref: '#/channels/root/messages/listSubscriptionsResponse'
+    tags:
+      - name: responses
+
+  receiveError:
+    action: send
+    title: Error Response
+    summary: Receive error message when a command fails
+    description: |
+      The server sends error responses when a command cannot be processed successfully.
+      Each error includes a numeric code identifying the error type and a human-readable message.
+
+      Error codes are listed in the schema definition below.
+    channel:
+      $ref: '#/channels/root'
+    messages:
+      - $ref: '#/channels/root/messages/errorResponse'
+    tags:
+      - name: responses
+
+  receiveOrderbookSnapshot:
+    action: send
+    title: Orderbook Snapshot
+    summary: Receive complete orderbook state
+    channel:
+      $ref: '#/channels/orderbook_delta'
+    messages:
+      - $ref: '#/channels/orderbook_delta/messages/orderbookSnapshot'
+    tags:
+      - name: market-data
+
+  receiveOrderbookDelta:
+    action: send
+    title: Orderbook Update
+    summary: Receive incremental orderbook changes
+    channel:
+      $ref: '#/channels/orderbook_delta'
+    messages:
+      - $ref: '#/channels/orderbook_delta/messages/orderbookDelta'
+    tags:
+      - name: market-data
+
+  receiveTicker:
+    action: send
+    title: Ticker Update
+    summary: Receive market ticker updates
+    channel:
+      $ref: '#/channels/ticker'
+    messages:
+      - $ref: '#/channels/ticker/messages/ticker'
+    tags:
+      - name: market-data
+
+  receiveTrade:
+    action: send
+    title: Trade Update
+    summary: Receive public trade notifications
+    channel:
+      $ref: '#/channels/trade'
+    messages:
+      - $ref: '#/channels/trade/messages/trade'
+    tags:
+      - name: market-data
+
+  receiveFill:
+    action: send
+    title: Fill Notification
+    summary: Receive notifications for your fills
+    channel:
+      $ref: '#/channels/fill'
+    messages:
+      - $ref: '#/channels/fill/messages/fill'
+    tags:
+      - name: private
+
+  receiveMarketPosition:
+    action: send
+    title: Market Position Update
+    summary: Receive updates for your market positions
+    channel:
+      $ref: '#/channels/market_positions'
+    messages:
+      - $ref: '#/channels/market_positions/messages/marketPosition'
+    tags:
+      - name: private
+
+  receiveMarketLifecycleV2:
+    action: send
+    title: Market Lifecycle Event
+    summary: Receive market lifecycle updates (open, close, determination, etc.)
+    channel:
+      $ref: '#/channels/market_lifecycle_v2'
+    messages:
+      - $ref: '#/channels/market_lifecycle_v2/messages/marketLifecycleV2'
+      - $ref: '#/channels/market_lifecycle_v2/messages/marketMetadataUpdated'
+    tags:
+      - name: market-data
+
+  receiveEventLifecycle:
+    action: send
+    title: Event Lifecycle
+    summary: Receive event creation notifications
+    channel:
+      $ref: '#/channels/market_lifecycle_v2'
+    messages:
+      - $ref: '#/channels/market_lifecycle_v2/messages/eventLifecycle'
+    tags:
+      - name: market-data
+
+  receiveEventFeeUpdate:
+    action: send
+    title: Event Fee Override Update
+    summary: Receive notifications when an event-level fee override is set or cleared
+    channel:
+      $ref: '#/channels/market_lifecycle_v2'
+    messages:
+      - $ref: '#/channels/market_lifecycle_v2/messages/eventFeeUpdate'
+    tags:
+      - name: market-data
+
+  receiveMultivariateMarketLifecycle:
+    action: send
+    title: Multivariate Market Lifecycle Event
+    summary: Receive multivariate market lifecycle updates (open, close, determination, etc.)
+    channel:
+      $ref: '#/channels/multivariate_market_lifecycle'
+    messages:
+      - $ref: '#/channels/multivariate_market_lifecycle/messages/multivariateMarketLifecycle'
+    tags:
+      - name: market-data
+
+  receiveMultivariateEventLifecycle:
+    action: send
+    title: Multivariate Event Lifecycle
+    summary: Receive multivariate event creation notifications
+    channel:
+      $ref: '#/channels/multivariate_market_lifecycle'
+    messages:
+      - $ref: '#/channels/multivariate_market_lifecycle/messages/eventLifecycle'
+    tags:
+      - name: market-data
+
+  receiveRFQCreated:
+    action: send
+    title: RFQ Created
+    summary: Receive RFQ created notifications
+    channel:
+      $ref: '#/channels/communications'
+    messages:
+      - $ref: '#/channels/communications/messages/rfqCreated'
+    tags:
+      - name: private
+
+  receiveRFQDeleted:
+    action: send
+    title: RFQ Deleted
+    summary: Receive RFQ deleted notifications
+    channel:
+      $ref: '#/channels/communications'
+    messages:
+      - $ref: '#/channels/communications/messages/rfqDeleted'
+    tags:
+      - name: private
+
+  receiveQuoteCreated:
+    action: send
+    title: Quote Created
+    summary: Receive quote created notifications
+    channel:
+      $ref: '#/channels/communications'
+    messages:
+      - $ref: '#/channels/communications/messages/quoteCreated'
+    tags:
+      - name: private
+
+  receiveQuoteAccepted:
+    action: send
+    title: Quote Accepted
+    summary: Receive quote accepted notifications
+    channel:
+      $ref: '#/channels/communications'
+    messages:
+      - $ref: '#/channels/communications/messages/quoteAccepted'
+    tags:
+      - name: private
+
+  receiveQuoteExecuted:
+    action: send
+    title: Quote Executed
+    summary: Receive quote executed notifications with order details for fill correlation
+    channel:
+      $ref: '#/channels/communications'
+    messages:
+      - $ref: '#/channels/communications/messages/quoteExecuted'
+    tags:
+      - name: private
+
+  receiveOrderGroupUpdates:
+    action: send
+    title: Order Group Updates
+    summary: Receive order group lifecycle and limit updates
+    channel:
+      $ref: '#/channels/order_group_updates'
+    messages:
+      - $ref: '#/channels/order_group_updates/messages/orderGroupUpdates'
+    tags:
+      - name: private
+
+  receiveUserOrder:
+    action: send
+    title: User Order Update
+    summary: Receive notifications for your order creates and updates
+    channel:
+      $ref: '#/channels/user_orders'
+    messages:
+      - $ref: '#/channels/user_orders/messages/userOrder'
+    tags:
+      - name: private
+
+  receiveCFBenchmarksValue:
+    action: send
+    title: CF Benchmarks Value Update
+    summary: Receive real-time CF Benchmarks index values with trailing averages
+    channel:
+      $ref: '#/channels/cfbenchmarks_value'
+    messages:
+      - $ref: '#/channels/cfbenchmarks_value/messages/cfbenchmarksValue'
+    tags:
+      - name: market-data
+
+  receiveCFBenchmarksIndexList:
+    action: send
+    title: CF Benchmarks Index List
+    summary: Receive the set of available CF Benchmarks index IDs in response to an indexlist action
+    channel:
+      $ref: '#/channels/cfbenchmarks_value'
+    messages:
+      - $ref: '#/channels/cfbenchmarks_value/messages/cfbenchmarksIndexList'
+    tags:
+      - name: market-data
+
+  receiveCFBenchmarksValue5Hz:
+    action: send
+    title: CF Benchmarks 5Hz Value Update
+    summary: Receive real-time CF Benchmarks index values at up to 5 updates per second
+    channel:
+      $ref: '#/channels/cfbenchmarks_value_5hz'
+    messages:
+      - $ref: '#/channels/cfbenchmarks_value_5hz/messages/cfbenchmarksValue5Hz'
+    tags:
+      - name: market-data
+
+  receiveCFBenchmarks5HzIndexList:
+    action: send
+    title: CF Benchmarks 5Hz Index List
+    summary: Receive the index IDs streaming on the 5Hz channel in response to an indexlist action
+    channel:
+      $ref: '#/channels/cfbenchmarks_value_5hz'
+    messages:
+      - $ref: '#/channels/cfbenchmarks_value_5hz/messages/cfbenchmarks5HzIndexList'
+    tags:
+      - name: market-data
+
+  receivePythValue:
+    action: send
+    title: Pyth Value Update
+    summary: Receive deduplicated real-time Pyth prices
+    channel:
+      $ref: '#/channels/pyth_value'
+    messages:
+      - $ref: '#/channels/pyth_value/messages/pythValue'
+    tags:
+      - name: market-data
+
+  receivePythUnderlyingList:
+    action: send
+    title: Pyth Underlying List
+    summary: Receive recently streamed Pyth underlying tickers
+    channel:
+      $ref: '#/channels/pyth_value'
+    messages:
+      - $ref: '#/channels/pyth_value/messages/pythUnderlyingList'
+    tags:
+      - name: market-data
+
+components:
+  messages:
+    # Control Frame Messages (Client -> Server)
+    incomingPing:
+      name: ping
+      title: Ping
+      summary: Client sends Ping frame (0x9) to elicit Pong from Kalshi
+      contentType: application/octet-stream
+      payload:
+        type: string
+        const: ""
+      examples:
+        - name: emptyPing
+          summary: Client sends ping
+          payload: ""
+
+    incomingPong:
+      name: pong
+      title: Pong
+      summary: Client replies to Ping with Pong Frame (0xA)
+      contentType: application/octet-stream
+      payload:
+        type: string
+        const: ""
+      examples:
+        - name: emptyPong
+          summary: Client sends pong
+          payload: ""
+
+    # Command Messages (Client -> Server)
+    subscribeCommand:
+      name: subscribe
+      title: Subscribe Command
+      summary: Subscribe to one or more channels
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/subscribeCommandPayload'
+      examples:
+        - name: subscribeToOrderbook
+          summary: Subscribe to orderbook_delta for specific market
+          payload:
+            id: 1
+            cmd: subscribe
+            params:
+              channels: ["orderbook_delta"]
+              market_ticker: "CPI-22DEC-TN0.1"
+        - name: subscribeMultipleChannels
+          summary: Subscribe to multiple channels for multiple markets
+          payload:
+            id: 2
+            cmd: subscribe
+            params:
+              channels: ["orderbook_delta", "ticker"]
+              market_tickers: ["FED-23DEC-T3.00", "CORIVER-2024-T1030"]
+        - name: subscribeFillAll
+          summary: Subscribe to fill channel for all markets
+          payload:
+            id: 3
+            cmd: subscribe
+            params:
+              channels: ["fill"]
+        - name: subscribeUserOrders
+          summary: Subscribe to user_orders channel for specific markets
+          payload:
+            id: 8
+            cmd: subscribe
+            params:
+              channels: ["user_orders"]
+              market_tickers: ["FED-23DEC-T3.00", "CORIVER-2024-T1030"]
+        - name: subscribeAllChannelsOneMarket
+          summary: Subscribe to market-data channels for one market
+          payload:
+            id: 4
+            cmd: subscribe
+            params:
+              channels: ["orderbook_delta", "ticker", "trade", "market_lifecycle_v2"]
+              market_ticker: "TSLA-23DEC-T200"
+        - name: subscribeMarketLifecycle
+          summary: Subscribe to market lifecycle events for all markets
+          payload:
+            id: 5
+            cmd: subscribe
+            params:
+              channels: ["market_lifecycle_v2"]
+        - name: subscribeMultivariateMarketLifecycle
+          summary: Subscribe to multivariate market lifecycle events for all multivariate markets
+          payload:
+            id: 15
+            cmd: subscribe
+            params:
+              channels: ["multivariate_market_lifecycle"]
+        - name: subscribeCommunications
+          summary: Subscribe to communications (RFQs and quotes)
+          payload:
+            id: 6
+            cmd: subscribe
+            params:
+              channels: ["communications"]
+        - name: subscribeTickerWithSnapshot
+          summary: Subscribe to ticker with initial snapshot
+          payload:
+            id: 7
+            cmd: subscribe
+            params:
+              channels: ["ticker"]
+              market_tickers: ["FED-23DEC-T3.00"]
+              send_initial_snapshot: true
+        - name: subscribeCFBenchmarksValue
+          summary: Subscribe to cfbenchmarks_value, seeding index IDs
+          payload:
+            id: 9
+            cmd: subscribe
+            params:
+              channels: ["cfbenchmarks_value"]
+              index_ids: ["BRTI", "ETHUSD_RTI"]
+        - name: subscribeCFBenchmarksValue5Hz
+          summary: Subscribe to the 5Hz CF Benchmarks feed, seeding index IDs
+          payload:
+            id: 11
+            cmd: subscribe
+            params:
+              channels: ["cfbenchmarks_value_5hz"]
+              index_ids: ["BRTI"]
+        - name: subscribePythValue
+          summary: Subscribe to gold, oil, and natural gas prices on pyth_value
+          payload:
+            id: 10
+            cmd: subscribe
+            params:
+              channels: ["pyth_value"]
+              underlying_tickers: ["Metal.XAU/USD", "Commodities.Index.PYTHOIL/USD", "Commodities.Index.NATGAS/USD"]
+
+    unsubscribeCommand:
+      name: unsubscribe
+      title: Unsubscribe Command
+      summary: Cancel one or more subscriptions
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/unsubscribeCommandPayload'
+      examples:
+        - name: unsubscribeMultiple
+          summary: Unsubscribe from multiple subscriptions
+          payload:
+            id: 124
+            cmd: unsubscribe
+            params:
+              sids: [1, 2]
+
+    listSubscriptionsCommand:
+      name: list_subscriptions
+      title: List Subscriptions Command
+      summary: List all active subscriptions
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/listSubscriptionsCommandPayload'
+      examples:
+        - name: listSubscriptions
+          summary: List all active subscriptions
+          payload:
+            id: 3
+            cmd: list_subscriptions
+
+    updateSubscriptionCommand:
+      name: update_subscription_add
+      title: Update Subscription - Add Markets
+      summary: Add markets to an existing subscription
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/updateSubscriptionCommandPayload'
+      examples:
+        - name: addMarkets
+          summary: Add markets to subscription
+          payload:
+            id: 124
+            cmd: update_subscription
+            params:
+              sids: [456]
+              market_tickers: ["NEW-MARKET-1", "NEW-MARKET-2"]
+              action: add_markets
+
+    updateSubscriptionDeleteCommand:
+      name: update_subscription_delete
+      title: Update Subscription - Delete Markets
+      summary: Remove markets from an existing subscription
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/updateSubscriptionCommandPayload'
+      examples:
+        - name: deleteMarkets
+          summary: Remove markets from subscription
+          payload:
+            id: 125
+            cmd: update_subscription
+            params:
+              sids: [456]
+              market_tickers: ["MARKET-TO-REMOVE-1", "MARKET-TO-REMOVE-2"]
+              action: delete_markets
+
+    updateSubscriptionGetSnapshotCommand:
+      name: update_subscription_get_snapshot
+      title: Update Subscription - Get Snapshot
+      summary: Request an orderbook snapshot without modifying the subscription
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/updateSubscriptionCommandPayload'
+      examples:
+        - name: getSnapshot
+          summary: Request orderbook snapshot for specific markets
+          payload:
+            id: 127
+            cmd: update_subscription
+            params:
+              sids: [456]
+              market_tickers: ["MARKET-1", "MARKET-2"]
+              action: get_snapshot
+
+    updateSubscriptionSingleSidCommand:
+      name: update_subscription_single_sid
+      title: Update Subscription - Single SID Format
+      summary: Update subscription using sid parameter instead of sids array
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/updateSubscriptionCommandPayload'
+      examples:
+        - name: addMarketsWithSingleSid
+          summary: Add markets using sid instead of sids array
+          payload:
+            id: 126
+            cmd: update_subscription
+            params:
+              sid: 456
+              market_tickers: ["NEW-MARKET-3", "NEW-MARKET-4"]
+              action: add_markets
+
+    cfbenchmarksUpdateSubscriptionCommand:
+      name: cfbenchmarks_update_subscription
+      title: Update Subscription - CF Benchmarks Indices
+      summary: Add or remove tracked index IDs, or list available indices, on a cfbenchmarks_value or cfbenchmarks_value_5hz subscription
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/cfbenchmarksUpdateSubscriptionCommandPayload'
+      examples:
+        - name: indexList
+          summary: List the available index IDs (does not modify the subscription)
+          payload:
+            id: 2
+            cmd: update_subscription
+            params:
+              sid: 1
+              action: indexlist
+        - name: subscribeIndices
+          summary: Add index IDs to the subscription
+          payload:
+            id: 3
+            cmd: update_subscription
+            params:
+              sid: 1
+              action: subscribe_indices
+              index_ids: ["BRTI"]
+        - name: unsubscribeIndices
+          summary: Remove index IDs from the subscription
+          payload:
+            id: 4
+            cmd: update_subscription
+            params:
+              sid: 1
+              action: unsubscribe_indices
+              index_ids: ["BRTI"]
+        - name: subscribeAllIndices
+          summary: Receive all available index IDs
+          payload:
+            id: 5
+            cmd: update_subscription
+            params:
+              sid: 1
+              action: subscribe_indices
+              index_ids: ["all"]
+
+    pythUpdateSubscriptionCommand:
+      name: pyth_update_subscription
+      title: Update Subscription - Pyth Underlyings
+      summary: Add or remove underlying tickers, or list available underlyings, on a pyth_value subscription
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/pythUpdateSubscriptionCommandPayload'
+      examples:
+        - name: underlyingList
+          summary: List recently streamed Pyth underlyings
+          payload:
+            id: 2
+            cmd: update_subscription
+            params:
+              sid: 1
+              action: underlying_list
+        - name: subscribeUnderlyings
+          summary: Add platinum to the subscription
+          payload:
+            id: 3
+            cmd: update_subscription
+            params:
+              sid: 1
+              action: subscribe_underlyings
+              underlying_tickers: ["Metal.XPT/USD"]
+        - name: unsubscribeUnderlyings
+          summary: Remove platinum from the subscription
+          payload:
+            id: 4
+            cmd: update_subscription
+            params:
+              sid: 1
+              action: unsubscribe_underlyings
+              underlying_tickers: ["Metal.XPT/USD"]
+        - name: subscribeAllUnderlyings
+          summary: Receive every available underlying on the subscription
+          payload:
+            id: 5
+            cmd: update_subscription
+            params:
+              sid: 1
+              action: subscribe_underlyings
+              underlying_tickers: ["all"]
+
+    # Response Messages (Server -> Client)
+    subscribedResponse:
+      name: subscribed
+      title: Subscribed Response
+      summary: Confirmation that subscription was successful
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/subscribedResponsePayload'
+      examples:
+        - name: subscriptionConfirmed
+          summary: Subscription confirmed
+          payload:
+            id: 1
+            type: subscribed
+            msg:
+              channel: orderbook_delta
+              sid: 1
+
+    unsubscribedResponse:
+      name: unsubscribed
+      title: Unsubscribed Response
+      summary: Confirmation that unsubscription was successful
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/unsubscribedResponsePayload'
+      examples:
+        - name: unsubscriptionConfirmed
+          summary: Unsubscription confirmed
+          payload:
+            id: 102
+            sid: 2
+            seq: 7
+            type: unsubscribed
+
+    subscribedIndicesResponse:
+      name: ok
+      title: Subscribed Indices
+      summary: Current CF Benchmarks index filter after an update; all-mode is ["all"]
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/subscribedIndicesResponsePayload'
+
+    subscribedUnderlyingsResponse:
+      name: ok
+      title: Subscribed Underlyings
+      summary: Current Pyth underlying ticker filter after an update; all-mode is ["all"]
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/subscribedUnderlyingsResponsePayload'
+
+    okResponse:
+      name: ok
+      title: OK Response
+      summary: Successful update operation response
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/okResponsePayload'
+      examples:
+        - name: updateSuccess
+          summary: Update subscription success
+          payload:
+            id: 123
+            sid: 456
+            seq: 222
+            type: ok
+            msg:
+              market_tickers: ["MARKET-1", "MARKET-2", "MARKET-3"]
+
+    listSubscriptionsResponse:
+      name: list_subscriptions
+      title: List Subscriptions Response
+      summary: Response containing all active subscriptions
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/listSubscriptionsResponsePayload'
+      examples:
+        - name: listSubscriptionsResponse
+          summary: List of active subscriptions
+          payload:
+            id: 3
+            type: ok
+            msg:
+              - channel: "orderbook_delta"
+                sid: 1
+              - channel: "ticker"
+                sid: 2
+              - channel: "fill"
+                sid: 3
+
+    errorResponse:
+      name: error
+      title: Error Response
+      summary: Error response for failed operations
+      description: |
+        Error responses are sent when a command fails. Each error includes a numeric code and a human-readable message.
+
+        ## Error Codes Reference
+
+        | Code | Error | Description |
+        |------|-------|-------------|
+        | 1 | Unable to process message | General processing error |
+        | 2 | Params required | Missing params object in command |
+        | 3 | Channels required | Missing channels array in subscribe |
+        | 4 | Subscription IDs required | Missing sids in unsubscribe |
+        | 5 | Unknown command | Invalid command name |
+        | 6 | Retired | Not emitted. The number stays reserved. |
+        | 7 | Unknown subscription ID | Subscription ID not found |
+        | 8 | Unknown channel name | Invalid channel in subscribe |
+        | 9 | Authentication required | Channel requires authenticated connection |
+        | 10 | Channel error | Channel-specific error |
+        | 11 | Invalid parameter | Malformed parameter value |
+        | 12 | Exactly one subscription ID is required | For update_subscription |
+        | 13 | Unsupported action | Invalid action for update_subscription |
+        | 14 | Market Ticker required | Missing market specification (market_ticker or market_id) |
+        | 15 | Action required | Missing action in update_subscription |
+        | 16 | Retired | Not emitted. The number stays reserved. |
+        | 17 | Retired | Not emitted. The number stays reserved. |
+        | 18 | Command timeout | Server timed out while processing command |
+        | 19 | shard_factor must be > 0 | Invalid shard_factor |
+        | 20 | shard_factor is required when shard_key is set | Missing shard_factor when shard_key is set |
+        | 21 | shard_key must be >= 0 and < shard_factor | Invalid shard_key |
+        | 22 | shard_factor must be <= 100 | shard_factor too large |
+        | 23 | Match IDs required | Missing match_ids for the channel/action |
+        | 24 | Index IDs required | Missing index_ids for subscribe_indices/unsubscribe_indices on cfbenchmarks_value / cfbenchmarks_value_5hz |
+        | 25 | Subscription buffer overflow | The subscription's outbound buffer was exceeded |
+        | 26 | Subscription market limit exceeded | Adding markets would exceed the per-subscription market limit |
+        | 27 | Too many requests | The subscription exceeded its command rate limit |
+        | 28 | Underlying tickers required | Missing underlying_tickers for subscribe_underlyings/unsubscribe_underlyings on pyth_value |
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/errorResponsePayload'
+      examples:
+        - name: unknownSubscription
+          summary: Unknown subscription ID error
+          payload:
+            id: 123
+            type: error
+            msg:
+              code: 7
+              msg: "Unknown subscription ID"
+        - name: unknownChannel
+          summary: Unknown channel error
+          payload:
+            id: 124
+            type: error
+            msg:
+              code: 8
+              msg: "Unknown channel name"
+        - name: paramsRequired
+          summary: Missing params object
+          payload:
+            id: 125
+            type: error
+            msg:
+              code: 2
+              msg: "Params required"
+        - name: authenticationRequired
+          summary: Channel requires authenticated connection
+          payload:
+            id: 126
+            type: error
+            msg:
+              code: 9
+              msg: "Authentication required"
+        - name: marketTickerRequired
+          summary: Missing market ticker
+          payload:
+            id: 127
+            type: error
+            msg:
+              code: 14
+              msg: "Market Ticker required"
+
+    # Control Frame Messages (Server -> Client)
+    outgoingPing:
+      name: ping
+      title: Ping
+      summary: Kalshi sends Ping (0x9) with body 'heartbeat' to elicit Pong from client
+      contentType: application/octet-stream
+      payload:
+        type: string
+        const: "heartbeat"
+      examples:
+        - name: heartbeatPing
+          summary: Kalshi sends heartbeat ping
+          payload: "heartbeat"
+
+    outgoingPong:
+      name: pong
+      title: Pong
+      summary: Kalshi responds to client Ping with Pong frame (0xA)
+      contentType: application/octet-stream
+      payload:
+        type: string
+        const: ""
+      examples:
+        - name: emptyPong
+          summary: Kalshi sends pong
+          payload: ""
+
+    # Channel Messages
+    orderbookSnapshot:
+      name: orderbook_snapshot
+      title: Orderbook Snapshot
+      summary: Complete view of the order book's aggregated price levels
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/orderbookSnapshotPayload'
+      examples:
+        - name: orderbookWithBothSides
+          summary: Orderbook snapshot with yes and no sides
+          payload:
+            type: orderbook_snapshot
+            sid: 2
+            seq: 2
+            msg:
+              market_ticker: "FED-23DEC-T3.00"
+              market_id: "9b0f6b43-5b68-4f9f-9f02-9a2d1b8ac1a1"
+              yes_dollars_fp: [["0.0800", "300.00"], ["0.2200", "333.00"]]
+              no_dollars_fp: [["0.5400", "20.00"], ["0.5600", "146.00"]]
+
+    orderbookDelta:
+      name: orderbook_delta
+      title: Orderbook Delta
+      summary: Update to be applied to the current order book view
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/orderbookDeltaPayload'
+      examples:
+        - name: priceLevelUpdate
+          summary: Orderbook price level update
+          payload:
+            type: orderbook_delta
+            sid: 2
+            seq: 3
+            msg:
+              market_ticker: "FED-23DEC-T3.00"
+              market_id: "9b0f6b43-5b68-4f9f-9f02-9a2d1b8ac1a1"
+              price_dollars: "0.9600"
+              delta_fp: "-54.00"
+              side: "yes"
+              ts: "2022-11-22T20:44:01Z"
+              ts_ms: 1669149841000
+
+    cfbenchmarksValue:
+      name: cfbenchmarks_value
+      title: CF Benchmarks Value Update
+      summary: Real-time CF Benchmarks index value with trailing 60-second and quarter-hour averages
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/cfbenchmarksValuePayload'
+      examples:
+        - name: cfbenchmarksValueUpdate
+          summary: CF Benchmarks value update with 60s and final-minute quarter-hour averages
+          payload:
+            type: cfbenchmarks_value
+            sid: 1
+            seq: 42
+            msg:
+              index_id: "BRTI"
+              received_at: 1710000000123
+              data: "{\"type\":\"value\",\"id\":\"BRTI\",\"time\":1710000000123,\"value\":\"68000.12\"}"
+              avg_60s_data:
+                value: "68000.12000000"
+                window_size: 3
+                window_start_ts_ms: 1709999940123
+                window_end_ts_exclusive: 1710000000123
+              last_60s_windowed_average_15min:
+                value: "68000.23000000"
+                window_size: 14
+                window_start_ts_ms: 1709999980000
+                window_end_ts_exclusive: 1710000000123
+
+    cfbenchmarksIndexList:
+      name: cfbenchmarks_value_indexlist
+      title: CF Benchmarks Index List
+      summary: The set of available CF Benchmarks index IDs, sent in response to an indexlist action
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/cfbenchmarksIndexListPayload'
+      examples:
+        - name: indexListResponse
+          summary: Example available index IDs (illustrative subset)
+          payload:
+            type: cfbenchmarks_value_indexlist
+            id: 2
+            sid: 1
+            seq: 1
+            msg:
+              index_ids: ["BRTI", "ETHUSD_RTI"]
+
+    cfbenchmarksValue5Hz:
+      name: cfbenchmarks_value_5hz
+      title: CF Benchmarks 5Hz Value Update
+      summary: Real-time CF Benchmarks index value at up to 5 updates per second
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/cfbenchmarksValue5HzPayload'
+      examples:
+        - name: cfbenchmarksValue5HzUpdate
+          summary: CF Benchmarks 5Hz value update (raw tick, no averages)
+          payload:
+            type: cfbenchmarks_value_5hz
+            sid: 1
+            seq: 42
+            msg:
+              index_id: "BRTI"
+              value_usd: "68000.12000000"
+              source_ts_ms: 1710000000323
+              received_at: 1710000000341
+              data: "{\"type\":\"value\",\"id\":\"BRTI\",\"time\":1710000000323,\"value\":\"68000.12\"}"
+
+    cfbenchmarks5HzIndexList:
+      name: cfbenchmarks_value_5hz_indexlist
+      title: CF Benchmarks 5Hz Index List
+      summary: The index IDs recently observed on the 5Hz stream, sent in response to an indexlist action
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/cfbenchmarks5HzIndexListPayload'
+      examples:
+        - name: indexListResponse
+          summary: Index IDs streaming on the 5Hz channel
+          payload:
+            type: cfbenchmarks_value_5hz_indexlist
+            id: 2
+            sid: 1
+            seq: 1
+            msg:
+              index_ids: ["BRTI", "ETHUSD_RTI"]
+
+    pythValue:
+      name: pyth_value
+      title: Pyth Value Update
+      summary: Deduplicated real-time Pyth price for an underlying ticker
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/pythValuePayload'
+      examples:
+        - name: pythValueUpdate
+          payload:
+            type: pyth_value
+            sid: 1
+            seq: 42
+            msg:
+              underlying_ticker: "Commodities.Index.PYTHOIL/USD"
+              value_usd: "82.12345000"
+              source_ts_ms: 1710000000100
+              received_at: 1710000000123
+
+    pythUnderlyingList:
+      name: pyth_value_underlying_list
+      title: Pyth Underlying List
+      summary: Recently streamed Pyth underlying tickers
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/pythUnderlyingListPayload'
+      examples:
+        - name: underlyingListResponse
+          payload:
+            type: pyth_value_underlying_list
+            id: 2
+            sid: 1
+            seq: 1
+            msg:
+              underlying_tickers: ["Commodities.Index.NATGAS/USD", "Commodities.Index.PYTHOIL/USD", "Metal.XAG/USD", "Metal.XAU/USD"]
+
+    ticker:
+      name: ticker
+      title: Ticker Update
+      summary: Market price ticker information
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/tickerPayload'
+      examples:
+        - name: tickerUpdate
+          summary: Ticker update
+          payload:
+            type: ticker
+            sid: 11
+            msg:
+              market_id: "9b0f6b43-5b68-4f9f-9f02-9a2d1b8ac1a1"
+              market_ticker: "FED-23DEC-T3.00"
+              price_dollars: "0.4800"
+              yes_bid_dollars: "0.4500"
+              yes_ask_dollars: "0.5300"
+              volume_fp: "33896.00"
+              open_interest_fp: "20422.00"
+              dollar_volume: 16948
+              dollar_open_interest: 10211
+              yes_bid_size_fp: "300.00"
+              yes_ask_size_fp: "150.00"
+              last_trade_size_fp: "25.00"
+              ts: 1669149841
+              ts_ms: 1669149841000
+              time: "2022-11-22T20:44:01Z"
+
+    trade:
+      name: trade
+      title: Trade Update
+      summary: Public trade information
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/tradePayload'
+      examples:
+        - name: tradeNotification
+          summary: Trade notification
+          payload:
+            type: trade
+            sid: 11
+            seq: 2
+            msg:
+              trade_id: "d91bc706-ee49-470d-82d8-11418bda6fed"
+              market_ticker: "HIGHNY-22DEC23-B53.5"
+              yes_price_dollars: "0.3600"
+              no_price_dollars: "0.6400"
+              count_fp: "136.00"
+              taker_side: "no"
+              taker_outcome_side: "no"
+              taker_book_side: "ask"
+              is_block_trade: false
+              ts: 1669149841
+              ts_ms: 1669149841000
+
+    fill:
+      name: fill
+      title: Fill Update
+      summary: Private fill information for authenticated user
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/fillPayload'
+      examples:
+        - name: userFill
+          summary: User fill notification
+          payload:
+            type: fill
+            sid: 13
+            msg:
+              trade_id: "d91bc706-ee49-470d-82d8-11418bda6fed"
+              order_id: "ee587a1c-8b87-4dcf-b721-9f6f790619fa"
+              client_order_id: "my-order-1"
+              market_ticker: "HIGHNY-22DEC23-B53.5"
+              exchange_index: 2
+              is_taker: true
+              side: "yes"
+              yes_price_dollars: "0.7500"
+              count_fp: "278.00"
+              fee_cost: "0.010000"
+              action: "buy"
+              ts: 1671899397
+              ts_ms: 1671899397000
+              post_position_fp: "500.00"
+              purchased_side: "yes"
+              outcome_side: "yes"
+              book_side: "bid"
+              subaccount: 3
+
+    marketLifecycleV2:
+      name: market_lifecycle_v2
+      title: Market Lifecycle V2
+      summary: Market lifecycle events (created, activated, deactivated, close_date_updated, determined, settled, price_level_structure_updated)
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/marketLifecycleV2Payload'
+      examples:
+        - name: marketCreated
+          summary: Market created event
+          payload:
+            type: market_lifecycle_v2
+            sid: 13
+            seq: 3
+            msg:
+              market_ticker: "INXD-23SEP14-B4487"
+              exchange_index: 0
+              open_ts: 1694635200
+              close_ts: 1694721600
+              additional_metadata:
+                name: "S&P 500 daily return on Sep 14"
+                title: "S&P 500 closes up by 0.02% or more"
+                yes_sub_title: "S&P 500 closes up 0.02%+"
+                no_sub_title: "S&P 500 closes up <0.02%"
+                rules_primary: "The S&P 500 index level at 4:00 PM ET..."
+                rules_secondary: ""
+                can_close_early: true
+                event_ticker: "INXD-23SEP14"
+                expected_expiration_ts: 1694721600
+                strike_type: "greater"
+                floor_strike: 4487
+              event_type: "created"
+              price_level_structure: "linear_cent"
+
+        - name: priceLevelStructureUpdated
+          summary: Price level structure updated event
+          payload:
+            type: market_lifecycle_v2
+            sid: 13
+            seq: 4
+            msg:
+              market_ticker: "INXD-23SEP14-B4487"
+              event_type: "price_level_structure_updated"
+              price_level_structure: "deci_cent"
+              price_ranges:
+                - start: "0.0000"
+                  end: "1.0000"
+                  step: "0.0010"
+
+    marketMetadataUpdated:
+      name: market_lifecycle_v2
+      title: Market Metadata Updated
+      summary: Updated strike information or yes subtitle
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/marketMetadataUpdatedPayload'
+      examples:
+        - name: metadataUpdated
+          summary: Market metadata updated event
+          payload:
+            type: market_lifecycle_v2
+            sid: 13
+            seq: 5
+            msg:
+              event_type: "metadata_updated"
+              market_ticker: "KXBTC-25APR30-T0915-B95000"
+              strike_type: "between"
+              floor_strike: 95000
+              cap_strike: 95250
+        - name: metadataUpdatedSubtitle
+          summary: Market metadata updated event (subtitle)
+          payload:
+            type: market_lifecycle_v2
+            sid: 13
+            seq: 6
+            msg:
+              event_type: "metadata_updated"
+              market_ticker: "KXBTC15M-26APR160100-00"
+              yes_sub_title: "above $95,000"
+
+    multivariateMarketLifecycle:
+      name: multivariate_market_lifecycle
+      title: Multivariate Market Lifecycle
+      summary: Multivariate market lifecycle events (created, activated, deactivated, close_date_updated, determined, settled)
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/multivariateMarketLifecyclePayload'
+      examples:
+        - name: mveMarketCreated
+          summary: Multivariate market created event
+          payload:
+            type: multivariate_market_lifecycle
+            sid: 14
+            seq: 7
+            msg:
+              market_ticker: "KXMVE-TEST-EVENT-M1"
+              exchange_index: 0
+              open_ts: 1773936000
+              close_ts: 1774022400
+              additional_metadata:
+                name: "MVE One"
+                title: "Market 1"
+                yes_sub_title: "YES 1"
+                no_sub_title: "NO 1"
+                rules_primary: "Rule 1"
+                rules_secondary: "Rule 2"
+                can_close_early: true
+                event_ticker: "KXMVE-TEST-EVENT"
+                expected_expiration_ts: 1774029600
+              event_type: "created"
+
+    eventLifecycle:
+      name: event_lifecycle
+      title: Event Lifecycle
+      summary: Event creation notification
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/eventLifecyclePayload'
+      examples:
+        - name: eventCreated
+          summary: Event created
+          payload:
+            type: event_lifecycle
+            sid: 5
+            seq: 8
+            msg:
+              event_ticker: "KXQUICKSETTLE-26JAN25H2150"
+              exchange_index: 0
+              title: "What will 1+1 equal on Jan 25 at 21:50?"
+              subtitle: "Jan 25 at 21:50"
+              collateral_return_type: "MECNET"
+              series_ticker: "KXQUICKSETTLE"
+
+    eventFeeUpdate:
+      name: event_fee_update
+      title: Event Fee Override Update
+      summary: Emitted when an event-level fee override is set or cleared
+      description: Delivered on the `market_lifecycle_v2` channel only.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/eventFeeUpdatePayload'
+      examples:
+        - name: eventFeeOverrideSet
+          summary: Event fee override set
+          payload:
+            type: event_fee_update
+            sid: 5
+            seq: 9
+            msg:
+              event_ticker: "KXBTCD-26MAY2018"
+              fee_type_override: "quadratic"
+              fee_multiplier_override: 1
+        - name: eventFeeOverrideCleared
+          summary: Event fee override cleared
+          payload:
+            type: event_fee_update
+            sid: 5
+            seq: 10
+            msg:
+              event_ticker: "KXBTCD-26MAY2018"
+              fee_type_override: null
+              fee_multiplier_override: null
+
+    marketPosition:
+      name: market_position
+      title: Market Position Update
+      summary: Real-time position updates for authenticated user
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/marketPositionPayload'
+      examples:
+        - name: positionUpdate
+          summary: User position update
+          payload:
+            type: market_position
+            sid: 14
+            msg:
+              user_id: "user123"
+              market_ticker: "FED-23DEC-T3.00"
+              position_fp: "100.00"
+              position_cost_dollars: "50.0000"
+              realized_pnl_dollars: "10.0000"
+              fees_paid_dollars: "1.0000"
+              position_fee_cost_dollars: "0.5000"
+              volume_fp: "15.00"
+
+    orderGroupUpdates:
+      name: order_group_updates
+      title: Order Group Updates
+      summary: Order group lifecycle and limit updates for authenticated user
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/orderGroupUpdatesPayload'
+      examples:
+        - name: orderGroupLimitUpdated
+          summary: Order group limit updated
+          payload:
+            type: order_group_updates
+            sid: 21
+            seq: 7
+            msg:
+              event_type: "limit_updated"
+              order_group_id: "og_123"
+              contracts_limit_fp: "150.00"
+              ts_ms: 1733047200000
+
+    userOrder:
+      name: user_order
+      title: User Order Update
+      summary: Real-time order updates for authenticated user
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/userOrderPayload'
+      examples:
+        - name: userOrderCreated
+          summary: User order created notification
+          payload:
+            type: user_order
+            sid: 22
+            msg:
+              order_id: "ee587a1c-8b87-4dcf-b721-9f6f790619fa"
+              user_id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+              ticker: "FED-23DEC-T3.00"
+              exchange_index: 2
+              status: "resting"
+              side: "yes"
+              is_yes: true
+              outcome_side: "yes"
+              book_side: "bid"
+              yes_price_dollars: "0.3500"
+              fill_count_fp: "0.00"
+              remaining_count_fp: "10.00"
+              initial_count_fp: "10.00"
+              taker_fill_cost_dollars: "0.000000"
+              maker_fill_cost_dollars: "0.000000"
+              taker_fees_dollars: "0.000000"
+              maker_fees_dollars: "0.000000"
+              client_order_id: "my-order-1"
+              order_group_id: "og_123"
+              self_trade_prevention_type: "taker_at_cross"
+              created_time: "2024-12-01T10:00:00Z"
+              created_ts_ms: 1733047200000
+              expiration_time: "2024-12-01T11:00:00Z"
+              expiration_ts_ms: 1733050800000
+              subaccount_number: 0
+
+    rfqCreated:
+      name: rfq_created
+      title: RFQ Created
+      summary: Notification when an RFQ is created
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/rfqCreatedPayload'
+      examples:
+        - name: rfqCreatedNotification
+          summary: RFQ created notification
+          payload:
+            type: rfq_created
+            sid: 15
+            seq: 11
+            msg:
+              id: "rfq_123"
+              creator_id: "43fc3733603f4830a8c3b2986011a5f78d67b03b473dbfd3a3847abd85b63a51"
+              market_ticker: "FED-23DEC-T3.00"
+              event_ticker: "FED-23DEC"
+              contracts_fp: "100.00"
+              created_ts: "2024-12-01T10:00:00Z"
+        - name: mveRfqCreatedNotification
+          summary: MVE RFQ created notification
+          payload:
+            type: rfq_created
+            sid: 15
+            seq: 11
+            msg:
+              id: "rfq_456"
+              creator_id: "43fc3733603f4830a8c3b2986011a5f78d67b03b473dbfd3a3847abd85b63a51"
+              market_ticker: "KXMVE-24DEC-COMBO"
+              event_ticker: "KXMVE-24DEC-EVENT"
+              target_cost_dollars: "100.0000"
+              created_ts: "2024-12-01T10:00:00Z"
+              mve_collection_ticker: "KXMVE-24DEC"
+              mve_selected_legs:
+                - event_ticker: "KXEVENTA-24DEC"
+                  market_ticker: "KXEVENTA-24DEC-YES"
+                  side: "yes"
+                  yes_settlement_value_dollars: "1.0000"
+                - event_ticker: "KXEVENTB-24DEC"
+                  market_ticker: "KXEVENTB-24DEC-YES"
+                  side: "no"
+
+    rfqDeleted:
+      name: rfq_deleted
+      title: RFQ Deleted
+      summary: Notification when an RFQ is deleted
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/rfqDeletedPayload'
+      examples:
+        - name: rfqDeletedNotification
+          summary: RFQ deleted notification
+          payload:
+            type: rfq_deleted
+            sid: 15
+            seq: 12
+            msg:
+              id: "rfq_123"
+              creator_id: "comm_abc123"
+              market_ticker: "FED-23DEC-T3.00"
+              event_ticker: "FED-23DEC"
+              contracts_fp: "100.00"
+              target_cost_dollars: "0.3500"
+              deleted_ts: "2024-12-01T10:05:00Z"
+
+    quoteCreated:
+      name: quote_created
+      title: Quote Created
+      summary: Notification when a quote is created on an RFQ
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/quoteCreatedPayload'
+      examples:
+        - name: quoteCreatedNotification
+          summary: Quote created notification
+          payload:
+            type: quote_created
+            sid: 15
+            seq: 13
+            msg:
+              quote_id: "quote_456"
+              rfq_id: "rfq_123"
+              quote_creator_id: "comm_def456"
+              rfq_creator_id: "comm_abc123"
+              market_ticker: "FED-23DEC-T3.00"
+              event_ticker: "FED-23DEC"
+              yes_bid_dollars: "0.3500"
+              no_bid_dollars: "0.6500"
+              yes_contracts_offered_fp: "100.00"
+              no_contracts_offered_fp: "200.00"
+              rfq_target_cost_dollars: "0.3500"
+              created_ts: "2024-12-01T10:02:00Z"
+              subaccount: 3
+
+    quoteAccepted:
+      name: quote_accepted
+      title: Quote Accepted
+      summary: Notification when a quote is accepted
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/quoteAcceptedPayload'
+      examples:
+        - name: quoteAcceptedNotification
+          summary: Quote accepted notification
+          payload:
+            type: quote_accepted
+            sid: 15
+            seq: 14
+            msg:
+              quote_id: "quote_456"
+              rfq_id: "rfq_123"
+              quote_creator_id: "comm_def456"
+              rfq_creator_id: "comm_abc123"
+              market_ticker: "FED-23DEC-T3.00"
+              event_ticker: "FED-23DEC"
+              yes_bid_dollars: "0.3500"
+              no_bid_dollars: "0.6500"
+              accepted_side: "yes"
+              contracts_accepted_fp: "50.00"
+              yes_contracts_offered_fp: "100.00"
+              no_contracts_offered_fp: "200.00"
+              rfq_target_cost_dollars: "0.3500"
+              subaccount: 3
+
+    quoteExecuted:
+      name: quote_executed
+      title: Quote Executed
+      summary: Notification when a quote is executed and orders are placed
+      description: |
+        Sent to both the maker (quote creator) and taker (RFQ creator) when a quote is executed.
+        Each user receives their own order details (order_id and client_order_id).
+        Use this to correlate subsequent fill messages with the original quote.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/quoteExecutedPayload'
+      examples:
+        - name: quoteExecutedNotification
+          summary: Quote executed notification
+          payload:
+            type: quote_executed
+            sid: 15
+            seq: 15
+            msg:
+              quote_id: "quote_456"
+              rfq_id: "rfq_123"
+              quote_creator_id: "a1b2c3d4e5f6..."
+              rfq_creator_id: "f6e5d4c3b2a1..."
+              order_id: "order_789"
+              client_order_id: "my_client_order_123"
+              market_ticker: "FED-23DEC-T3.00"
+              executed_ts: "2024-12-01T10:05:00Z"
+              subaccount: 3
+
+  schemas:
+    # Base schemas
+    commandId:
+      type: integer
+      description: |
+        Unique ID of the command request. Generated by the client and should be unique within a WS session.
+        The simplest way to use it would be to start from 1 and then increment the value for every new command sent to the server.
+        If the id is set to 0, the server treats it the same way as if there was no id.
+      minimum: 0
+
+    subscriptionId:
+      type: integer
+      description: Server-generated subscription identifier (sid) used to identify the channel
+      minimum: 1
+
+    sequenceNumber:
+      type: integer
+      description: Sequential number that should be checked if you want to guarantee you received all the messages. Used for snapshot/delta consistency
+      minimum: 1
+
+    marketTicker:
+      type: string
+      description: Unique market identifier
+      pattern: '^[A-Z0-9-]+$'
+      examples:
+        - "FED-23DEC-T3.00"
+        - "HIGHNY-22DEC23-B53.5"
+
+    marketId:
+      type: string
+      description: Unique market UUID
+      format: uuid
+
+    marketSide:
+      type: string
+      description: Market side
+      enum: ["yes", "no"]
+
+    bookSide:
+      type: string
+      description: 'Side of the book for an order or trade. ''bid'' is equivalent to outcome_side ''yes''; ''ask'' is equivalent to outcome_side ''no''.'
+      enum: ["bid", "ask"]
+
+    orderAction:
+      type: string
+      description: Legacy order action; an unknown action is emitted as an empty string.
+      enum: ["buy", "sell", "sell_partial", "sell_to_close", ""]
+
+    # Command payloads
+    subscribeCommandPayload:
+      type: object
+      required: ["id", "cmd", "params"]
+      properties:
+        id:
+          $ref: '#/components/schemas/commandId'
+        cmd:
+          type: string
+          const: "subscribe"
+        params:
+          type: object
+          required: ["channels"]
+          properties:
+            channels:
+              type: array
+              description: List of channels to subscribe to
+              items:
+                type: string
+                enum: ["orderbook_delta", "ticker", "trade", "fill", "market_positions", "market_lifecycle_v2", "multivariate_market_lifecycle", "communications", "order_group_updates", "user_orders", "cfbenchmarks_value", "cfbenchmarks_value_5hz", "pyth_value"]
+              minItems: 1
+            market_ticker:
+              description: 'Subscribe to a single market. Type: string. Example: "KXBTCD-25AUG0517-T114999.99" (mutually exclusive with market_tickers)'
+              type: string
+            market_tickers:
+              type: array
+              description: 'Subscribe to multiple markets. Type: array of strings. Example: ["KXBTCD-25AUG0517-T114999.99", "KXETHD-25AUG0517-T3749.99"] (mutually exclusive with market_ticker)'
+              items:
+                $ref: '#/components/schemas/marketTicker'
+              minItems: 1
+            market_id:
+              type: string
+              format: uuid
+              description: 'Subscribe to a single market by UUID (ticker only; mutually exclusive with market_ids and market_ticker(s))'
+            market_ids:
+              type: array
+              description: 'Subscribe to multiple markets by UUID (ticker only; mutually exclusive with market_id and market_ticker(s))'
+              items:
+                $ref: '#/components/schemas/marketId'
+              minItems: 1
+            send_initial_snapshot:
+              type: boolean
+              description: 'If true, receive an initial snapshot for requested market tickers on the ticker channel'
+              default: false
+            skip_ticker_ack:
+              type: boolean
+              description: 'If true, OK responses omit the market_tickers/market_ids lists for this subscription'
+              default: false
+            use_yes_price:
+              type: boolean
+              description: |
+                Orderbook channel only. When true, no-side `orderbook_delta` and `orderbook_snapshot` updates
+                are reported in yes-leg pricing instead of no-leg pricing — so a single `price_dollars` scale
+                applies to both sides. Default false (no-side reported in no-leg pricing, the existing
+                long-standing behavior). See [Order direction](/getting_started/order_direction).
+
+                **Migration plan.** The default will be flipped to `true` in a future release, and the flag
+                will then be removed entirely in a subsequent release — at which point unified yes-leg
+                pricing becomes the only supported behavior and `use_yes_price: false` will no longer toggle
+                the legacy no-leg pricing. Integrations relying on the legacy behavior should migrate before
+                the default flip; concrete dates will be announced before each step.
+              default: false
+            user_filter:
+              type: string
+              enum: ["", "self"]
+              default: ""
+              description: 'Communications channel only. Set to "self" to receive RFQ created/deleted events only for RFQs you created. Omitted or empty receives RFQs from all users. Quote notifications are unchanged.'
+            shard_factor:
+              type: integer
+              description: 'Number of shards for communications channel fanout (optional)'
+              minimum: 1
+            shard_key:
+              type: integer
+              description: 'Shard key for communications channel fanout (requires shard_factor)'
+              minimum: 0
+            index_ids:
+              type: array
+              description: 'cfbenchmarks_value and cfbenchmarks_value_5hz channels only. CF Benchmarks index IDs to seed on the initial subscribe (omit to subscribe with no indices and add them later via update_subscription; use ["all"] to track every index available on the channel).'
+              items:
+                type: string
+              minItems: 1
+            underlying_tickers:
+              type: array
+              description: 'pyth_value channel only. Underlying tickers to seed on the initial subscribe (omit to subscribe with no underlyings and add them later; use ["all"] to track every available underlying).'
+              items:
+                type: string
+              minItems: 1
+
+    unsubscribeCommandPayload:
+      type: object
+      required: ["id", "cmd", "params"]
+      properties:
+        id:
+          $ref: '#/components/schemas/commandId'
+        cmd:
+          type: string
+          const: "unsubscribe"
+        params:
+          type: object
+          required: ["sids"]
+          properties:
+            sids:
+              type: array
+              description: List of subscription IDs to cancel
+              items:
+                $ref: '#/components/schemas/subscriptionId'
+              minItems: 1
+
+    updateSubscriptionCommandPayload:
+      type: object
+      required: ["id", "cmd", "params"]
+      properties:
+        id:
+          $ref: '#/components/schemas/commandId'
+        cmd:
+          type: string
+          const: "update_subscription"
+        params:
+          type: object
+          required: ["action"]
+          properties:
+            sid:
+              $ref: '#/components/schemas/subscriptionId'
+              description: Single subscription ID to update (alternative to sids array)
+            sids:
+              type: array
+              description: Array containing exactly one subscription ID (alternative to sid). Either sid or sids must be provided, not both.
+              items:
+                $ref: '#/components/schemas/subscriptionId'
+              minItems: 1
+              maxItems: 1
+            market_ticker:
+              description: 'Add/remove a single market. Type: string'
+              type: string
+            market_tickers:
+              type: array
+              description: 'Add/remove multiple markets. Type: array of strings'
+              items:
+                $ref: '#/components/schemas/marketTicker'
+            market_id:
+              type: string
+              format: uuid
+              description: 'Add/remove a single market by UUID (ticker only)'
+            market_ids:
+              type: array
+              description: 'Add/remove multiple markets by UUID (ticker only)'
+              items:
+                $ref: '#/components/schemas/marketId'
+            send_initial_snapshot:
+              type: boolean
+              description: 'If true, receive an initial snapshot for newly added market tickers on the ticker channel'
+              default: false
+            action:
+              type: string
+              enum: ["add_markets", "delete_markets", "get_snapshot"]
+
+    cfbenchmarksUpdateSubscriptionCommandPayload:
+      type: object
+      required: ["id", "cmd", "params"]
+      properties:
+        id:
+          $ref: '#/components/schemas/commandId'
+        cmd:
+          type: string
+          const: "update_subscription"
+        params:
+          type: object
+          required: ["action"]
+          properties:
+            sid:
+              $ref: '#/components/schemas/subscriptionId'
+              description: Single subscription ID to update (alternative to sids array)
+            sids:
+              type: array
+              description: Array containing exactly one subscription ID (alternative to sid). Either sid or sids must be provided, not both.
+              items:
+                $ref: '#/components/schemas/subscriptionId'
+              minItems: 1
+              maxItems: 1
+            action:
+              type: string
+              description: |
+                - `subscribe_indices`: add the supplied `index_ids` to the subscription (requires `index_ids`)
+                - `unsubscribe_indices`: remove the supplied `index_ids` from the subscription (requires `index_ids`)
+                - `indexlist`: respond with the available index IDs without modifying the subscription
+              enum: ["subscribe_indices", "unsubscribe_indices", "indexlist"]
+            index_ids:
+              type: array
+              description: 'CF Benchmarks index IDs to add or remove. Use ["all"] to track every available index. Required for subscribe_indices and unsubscribe_indices.'
+              items:
+                type: string
+              minItems: 1
+
+    pythUpdateSubscriptionCommandPayload:
+      type: object
+      required: ["id", "cmd", "params"]
+      properties:
+        id:
+          $ref: '#/components/schemas/commandId'
+        cmd:
+          type: string
+          const: "update_subscription"
+        params:
+          type: object
+          required: ["action"]
+          properties:
+            sid:
+              $ref: '#/components/schemas/subscriptionId'
+              description: Single subscription ID to update (alternative to sids array)
+            sids:
+              type: array
+              description: Array containing exactly one subscription ID (alternative to sid)
+              items:
+                $ref: '#/components/schemas/subscriptionId'
+              minItems: 1
+              maxItems: 1
+            action:
+              type: string
+              description: |
+                - `subscribe_underlyings`: add the supplied `underlying_tickers`
+                - `unsubscribe_underlyings`: remove the supplied `underlying_tickers`
+                - `underlying_list`: return recently streamed underlying tickers
+              enum: ["subscribe_underlyings", "unsubscribe_underlyings", "underlying_list"]
+            underlying_tickers:
+              type: array
+              description: 'Pyth underlyings to add or remove. Use ["all"] to track every available underlying.'
+              items:
+                type: string
+              minItems: 1
+
+    # Response payloads
+    subscribedResponsePayload:
+      type: object
+      required: ["type", "msg"]
+      properties:
+        type:
+          type: string
+          const: "subscribed"
+        id:
+          $ref: '#/components/schemas/commandId'
+        msg:
+          type: object
+          required: ["channel", "sid"]
+          properties:
+            channel:
+              type: string
+            sid:
+              $ref: '#/components/schemas/subscriptionId'
+
+    unsubscribedResponsePayload:
+      type: object
+      required: ["sid", "seq", "type"]
+      properties:
+        type:
+          type: string
+          const: "unsubscribed"
+        id:
+          $ref: '#/components/schemas/commandId'
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+
+    subscribedIndicesResponsePayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "ok"
+        id:
+          $ref: '#/components/schemas/commandId'
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["index_ids"]
+          properties:
+            index_ids:
+              type: array
+              description: Current CF Benchmarks index filter after an update; all-mode is ["all"]
+              items:
+                type: string
+
+    subscribedUnderlyingsResponsePayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "ok"
+        id:
+          $ref: '#/components/schemas/commandId'
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["underlying_tickers"]
+          properties:
+            underlying_tickers:
+              type: array
+              description: Current Pyth underlying ticker filter after an update; all-mode is ["all"]
+              items:
+                type: string
+
+    okResponsePayload:
+      type: object
+      required: ["type"]
+      properties:
+        type:
+          type: string
+          const: "ok"
+        id:
+          $ref: '#/components/schemas/commandId'
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          properties:
+            market_tickers:
+              type: array
+              description: Full list of market tickers after update
+              items:
+                $ref: '#/components/schemas/marketTicker'
+            market_ids:
+              type: array
+              description: Full list of market IDs after update
+              items:
+                $ref: '#/components/schemas/marketId'
+
+    errorResponsePayload:
+      type: object
+      required: ["type", "msg"]
+      properties:
+        type:
+          type: string
+          const: "error"
+        id:
+          $ref: '#/components/schemas/commandId'
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+          description: Present when the error is scoped to a subscription.
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+          description: Present on subscription-scoped errors on sequenced channels.
+        msg:
+          type: object
+          required: ["code", "msg"]
+          properties:
+            code:
+              type: integer
+              description: |
+                Error code identifying the type of error:
+                - 1: Unable to process message - General processing error
+                - 2: Params required - Missing params object in command
+                - 3: Channels required - Missing channels array in subscribe
+                - 4: Subscription IDs required - Missing sids in unsubscribe
+                - 5: Unknown command - Invalid command name
+                - 7: Unknown subscription ID - Subscription ID not found
+                - 8: Unknown channel name - Invalid channel in subscribe
+                - 9: Authentication required - Channel requires authenticated connection
+                - 10: Channel error - Channel-specific error
+                - 11: Invalid parameter - Malformed parameter value
+                - 12: Exactly one subscription ID is required - For update_subscription
+                - 13: Unsupported action - Invalid action for update_subscription
+                - 14: Market Ticker required - Missing market specification (market_ticker or market_id)
+                - 15: Action required - Missing action in update_subscription
+                - 18: Command timeout - Server timed out while processing command
+                - 19: shard_factor must be > 0 - Invalid shard_factor
+                - 20: shard_factor is required when shard_key is set - Missing shard_factor when shard_key is set
+                - 21: shard_key must be >= 0 and < shard_factor - Invalid shard_key
+                - 22: shard_factor must be <= 100 - shard_factor too large
+                - 23: Match IDs required - Missing match_ids for the channel/action
+                - 24: Index IDs required - Missing index_ids for subscribe_indices/unsubscribe_indices on cfbenchmarks_value / cfbenchmarks_value_5hz
+                - 25: Subscription buffer overflow - The subscription's outbound buffer was exceeded
+                - 26: Subscription market limit exceeded - Adding markets would exceed the per-subscription market limit
+                - 27: Too many requests - The subscription exceeded its command rate limit
+                - 28: Underlying tickers required - Missing underlying_tickers for subscribe_underlyings/unsubscribe_underlyings on pyth_value
+
+                Codes 6, 16, and 17 are retired. The service no longer emits
+                them and their numbers stay reserved.
+              enum: [1, 2, 3, 4, 5, 7, 8, 9, 10, 11, 12, 13, 14, 15, 18, 19, 20, 21, 22, 23, 24, 25, 26, 27, 28]
+            msg:
+              type: string
+              description: Human-readable error message
+            market_ticker:
+              type: string
+              description: Optional market ticker associated with the error
+            market_tickers:
+              type: array
+              description: Optional market tickers associated with the error
+              items:
+                type: string
+
+    listSubscriptionsCommandPayload:
+      type: object
+      required: ["id", "cmd"]
+      properties:
+        id:
+          $ref: '#/components/schemas/commandId'
+        cmd:
+          type: string
+          const: "list_subscriptions"
+
+    listSubscriptionsResponsePayload:
+      type: object
+      required: ["type", "msg"]
+      properties:
+        type:
+          type: string
+          const: "ok"
+        id:
+          $ref: '#/components/schemas/commandId'
+        msg:
+          type: array
+          description: List of active subscriptions
+          items:
+            type: object
+            required: ["channel", "sid"]
+            properties:
+              channel:
+                type: string
+                description: Name of the subscribed channel
+              sid:
+                $ref: '#/components/schemas/subscriptionId'
+
+    # Channel message payloads
+    cfbenchmarksAvgData:
+      type: object
+      description: Windowed-average metadata for a CF Benchmarks index value.
+      required: ["value", "window_size", "window_start_ts_ms", "window_end_ts_exclusive"]
+      properties:
+        value:
+          type: string
+          description: Average value over the window, formatted to 8 decimal places
+        window_size:
+          type: integer
+          description: Number of ticks counted in the window
+          minimum: 0
+        window_start_ts_ms:
+          type: integer
+          description: Window start boundary (unix ms)
+        window_end_ts_exclusive:
+          type: integer
+          description: Window end boundary, exclusive (unix ms)
+
+    cfbenchmarksValuePayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "cfbenchmarks_value"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["index_id", "received_at", "data", "avg_60s_data"]
+          properties:
+            index_id:
+              type: string
+              description: CF Benchmarks index ID (for example "BRTI")
+            received_at:
+              type: integer
+              description: When Kalshi received the upstream frame (unix ms)
+            data:
+              type: string
+              description: The raw CF Benchmarks JSON frame, as a string
+            avg_60s_data:
+              $ref: '#/components/schemas/cfbenchmarksAvgData'
+              description: |
+                Trailing 60-second average metadata. The window is per-tick and trailing:
+                `[source_ts_ms - 60000, source_ts_ms)`, and `window_size` counts prior ticks only.
+                If there are no prior ticks in the trailing window, the average falls back to the current tick value.
+            last_60s_windowed_average_15min:
+              $ref: '#/components/schemas/cfbenchmarksAvgData'
+              description: |
+                Optional - present only during the final minute before quarter-hour close (:00, :15, :30, :45).
+                The accumulation window is `(quarter_close_ts_ms - 60000, quarter_close_ts_ms]` (start boundary
+                tick excluded, close tick included), producing second-indexed counts up to 60 at close. Omitted
+                outside that final-minute window.
+
+    cfbenchmarksIndexListPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "cfbenchmarks_value_indexlist"
+        id:
+          $ref: '#/components/schemas/commandId'
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["index_ids"]
+          properties:
+            index_ids:
+              type: array
+              description: Available CF Benchmarks index IDs
+              items:
+                type: string
+
+    cfbenchmarksValue5HzPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "cfbenchmarks_value_5hz"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["index_id", "value_usd", "source_ts_ms", "received_at", "data"]
+          properties:
+            index_id:
+              type: string
+              description: CF Benchmarks index ID (for example "BRTI")
+            value_usd:
+              type: string
+              description: Index value in USD, formatted with exactly 8 decimal places
+            source_ts_ms:
+              type: integer
+              description: Upstream publication timestamp of the tick (unix ms)
+            received_at:
+              type: integer
+              description: When Kalshi received the upstream frame (unix ms)
+            data:
+              type: string
+              description: The raw CF Benchmarks JSON frame, as a string
+
+    cfbenchmarks5HzIndexListPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "cfbenchmarks_value_5hz_indexlist"
+        id:
+          $ref: '#/components/schemas/commandId'
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["index_ids"]
+          properties:
+            index_ids:
+              type: array
+              description: Index IDs recently observed on the 5Hz stream
+              items:
+                type: string
+
+    pythValuePayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "pyth_value"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["underlying_ticker", "value_usd", "source_ts_ms", "received_at"]
+          properties:
+            underlying_ticker:
+              type: string
+              description: Qualified Pyth underlying ticker
+            value_usd:
+              type: string
+              description: USD value formatted to 8 decimal places
+            source_ts_ms:
+              type: integer
+              description: Pyth source timestamp (unix ms)
+            received_at:
+              type: integer
+              description: When Kalshi received the Pyth update (unix ms)
+
+    pythUnderlyingListPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "pyth_value_underlying_list"
+        id:
+          $ref: '#/components/schemas/commandId'
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["underlying_tickers"]
+          properties:
+            underlying_tickers:
+              type: array
+              description: Underlying tickers observed on the Pyth stream in the last two hours
+              items:
+                type: string
+
+    orderbookSnapshotPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "orderbook_snapshot"
+        id:
+          $ref: '#/components/schemas/commandId'
+          description: Present when replying to a get_snapshot command with an ID
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["market_ticker", "market_id"]
+          properties:
+            market_ticker:
+              $ref: '#/components/schemas/marketTicker'
+            market_id:
+              $ref: '#/components/schemas/marketId'
+            yes_dollars_fp:
+              type: array
+              description: |
+                Optional - This key will not exist if there are no Yes offers in the orderbook.
+                Price levels represented as [price_in_dollars, contract_count_fp].
+                Format: [price_in_dollars, contract_count_fp]
+              items:
+                type: array
+                items:
+                  type: string
+                minItems: 2
+                maxItems: 2
+            no_dollars_fp:
+              type: array
+              description: |
+                Optional - Same format as "yes_dollars_fp" but for the NO side of the orderbook.
+                This key will not exist if there are no No offers in the orderbook.
+                Format: [price_in_dollars, contract_count_fp]
+              items:
+                type: array
+                items:
+                  type: string
+                minItems: 2
+                maxItems: 2
+
+    orderbookDeltaPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "orderbook_delta"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["market_ticker", "market_id", "price_dollars", "delta_fp", "side"]
+          properties:
+            market_ticker:
+              $ref: '#/components/schemas/marketTicker'
+            market_id:
+              $ref: '#/components/schemas/marketId'
+            price_dollars:
+              type: string
+              description: Price level in dollars
+            delta_fp:
+              type: string
+              description: Fixed-point contract delta (2 decimals)
+            side:
+              $ref: '#/components/schemas/marketSide'
+            client_order_id:
+              type: string
+              description: |
+                Optional - Present only when you caused this orderbook change.
+                Contains the client_order_id of your order that triggered this delta.
+            ts:
+              type: string
+              deprecated: true
+              description: Deprecated - Optional timestamp for when the orderbook change was recorded (RFC3339). Use ts_ms instead.
+              format: date-time
+            ts_ms:
+              type: integer
+              description: Optional - Unix timestamp for when the orderbook change was recorded (in milliseconds)
+              format: int64
+            subaccount:
+              type: integer
+              description: |
+                Optional - Present only when you caused this orderbook change and are using subaccounts.
+                Contains the subaccount number of your order that triggered this delta.
+
+    tickerPayload:
+      type: object
+      required: ["type", "sid", "msg"]
+      properties:
+        type:
+          type: string
+          const: "ticker"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        msg:
+          type: object
+          required: ["market_id", "market_ticker", "price_dollars", "yes_bid_dollars", "yes_ask_dollars", "volume_fp", "open_interest_fp", "dollar_volume", "dollar_open_interest", "yes_bid_size_fp", "yes_ask_size_fp", "last_trade_size_fp", "ts", "ts_ms", "time"]
+          properties:
+            market_id:
+              $ref: '#/components/schemas/marketId'
+            market_ticker:
+              $ref: '#/components/schemas/marketTicker'
+            price_dollars:
+              type: string
+              description: Last traded price in dollars
+            yes_bid_dollars:
+              type: string
+              description: Best bid price for yes side in dollars
+            yes_ask_dollars:
+              type: string
+              description: Best ask price for yes side in dollars
+            volume_fp:
+              type: string
+              description: Fixed-point total contracts traded (2 decimals)
+            open_interest_fp:
+              type: string
+              description: Fixed-point open interest (2 decimals)
+            dollar_volume:
+              type: integer
+              description: Signed whole-dollar cumulative traded notional
+            dollar_open_interest:
+              type: integer
+              description: Signed whole-dollar open-interest notional
+            yes_bid_size_fp:
+              type: string
+              description: Fixed-point contracts at best bid (2 decimals)
+            yes_ask_size_fp:
+              type: string
+              description: Fixed-point contracts at best ask (2 decimals)
+            last_trade_size_fp:
+              type: string
+              description: Fixed-point contracts in last trade (2 decimals)
+            ts:
+              type: integer
+              deprecated: true
+              description: Deprecated - Unix timestamp for when the update happened (in seconds). Use ts_ms instead.
+              format: int64
+            ts_ms:
+              type: integer
+              description: Unix timestamp for when the update happened (in milliseconds)
+              format: int64
+            time:
+              type: string
+              deprecated: true
+              description: Deprecated - Timestamp for when the update happened (RFC3339). Use ts_ms instead.
+              format: date-time
+
+    tradePayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "trade"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["trade_id", "market_ticker", "yes_price_dollars", "no_price_dollars", "count_fp", "taker_side", "taker_outcome_side", "taker_book_side", "is_block_trade", "ts", "ts_ms"]
+          properties:
+            trade_id:
+              type: string
+              description: Unique identifier for the trade
+              format: uuid
+            market_ticker:
+              $ref: '#/components/schemas/marketTicker'
+            yes_price_dollars:
+              type: string
+              description: Yes side price in dollars
+            no_price_dollars:
+              type: string
+              description: No side price in dollars
+            count_fp:
+              type: string
+              description: Fixed-point contracts traded (2 decimals)
+            taker_side:
+              $ref: '#/components/schemas/marketSide'
+              deprecated: true
+              description: |
+                Deprecated. Use `taker_outcome_side` (or `taker_book_side`) instead. See [Order direction](/getting_started/order_direction). This field will not be removed before May 14, 2026.
+            taker_outcome_side:
+              $ref: '#/components/schemas/marketSide'
+              description: |
+                The outcome side the taker is positioned for. buy-yes and sell-no produce 'yes'; buy-no and sell-yes produce 'no'.
+
+                `taker_outcome_side` describes directional exposure only; it does not change the trade's price. A trade at price `p` with `taker_outcome_side=no` is matched against the maker at the same price `p` with the opposite direction — both parties trade at the same price.
+
+                `taker_outcome_side` and `taker_book_side` will become the canonical way to determine trade direction. The legacy `taker_side` field will be deprecated in a future release — please migrate to these new fields.
+            taker_book_side:
+              $ref: '#/components/schemas/bookSide'
+              description: |
+                Same directional bit as taker_outcome_side in book vocabulary. 'bid' is equivalent to taker_outcome_side 'yes'; 'ask' is equivalent to taker_outcome_side 'no'.
+
+                `taker_outcome_side` and `taker_book_side` will become the canonical way to determine trade direction. The legacy `taker_side` field will be deprecated in a future release — please migrate to these new fields.
+            is_block_trade:
+              type: boolean
+              description: True if the trade was matched off book as a block trade
+            ts:
+              type: integer
+              deprecated: true
+              description: Deprecated - Unix timestamp in seconds. Use ts_ms instead.
+              format: int64
+            ts_ms:
+              type: integer
+              description: Unix timestamp in milliseconds
+              format: int64
+
+    fillPayload:
+      type: object
+      required: ["type", "sid", "msg"]
+      properties:
+        type:
+          type: string
+          const: "fill"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        msg:
+          type: object
+          required: ["trade_id", "order_id", "market_ticker", "exchange_index", "is_taker", "side", "yes_price_dollars", "count_fp", "fee_cost", "action", "outcome_side", "book_side", "ts", "ts_ms", "post_position_fp", "purchased_side"]
+          properties:
+            trade_id:
+              type: string
+              description: Unique identifier for fills. This is what you use to differentiate fills
+              format: uuid
+            order_id:
+              type: string
+              description: Unique identifier for orders. This is what you use to differentiate fills for different orders
+              format: uuid
+            client_order_id:
+              type: string
+              description: Optional client-provided order ID
+            market_ticker:
+              $ref: '#/components/schemas/marketTicker'
+              description: Unique identifier for markets. This is what you use to differentiate fills for different markets
+            exchange_index:
+              type: integer
+              description: Identifier for the exchange shard where the fill occurred
+            is_taker:
+              type: boolean
+              description: If you were a taker on this fill
+            side:
+              $ref: '#/components/schemas/marketSide'
+              deprecated: true
+              description: |
+                Deprecated. Use `outcome_side` (or `book_side`) instead. See [Order direction](/getting_started/order_direction). This field will not be removed before May 14, 2026.
+            ts:
+              type: integer
+              deprecated: true
+              description: Deprecated - Unix timestamp for when the update happened (in seconds). Use ts_ms instead.
+              format: int64
+            ts_ms:
+              type: integer
+              description: Unix timestamp for when the update happened (in milliseconds)
+              format: int64
+            yes_price_dollars:
+              type: string
+              description: Price for the yes side of the fill in dollars
+            count_fp:
+              type: string
+              description: Fixed-point contracts filled (2 decimals)
+            fee_cost:
+              type: string
+              description: Exchange fee paid for this fill in fixed-point dollars
+            action:
+              $ref: '#/components/schemas/orderAction'
+              deprecated: true
+              description: |
+                Deprecated. Use `outcome_side` (or `book_side`) instead. See [Order direction](/getting_started/order_direction). This field will not be removed before May 14, 2026.
+            post_position_fp:
+              type: string
+              description: Fixed-point position after the fill (2 decimals)
+            purchased_side:
+              $ref: '#/components/schemas/marketSide'
+              deprecated: true
+              description: |
+                Deprecated. Use `outcome_side` (or `book_side`) instead. See [Order direction](/getting_started/order_direction). This field will not be removed before May 14, 2026.
+            outcome_side:
+              $ref: '#/components/schemas/marketSide'
+              description: |
+                The outcome side this fill positioned the user for. buy-yes and sell-no produce 'yes'; buy-no and sell-yes produce 'no'.
+
+                `outcome_side` describes directional exposure only; it does not change the fill's price. A fill at price `p` with `outcome_side=no` is matched against an order at the same price `p` with `outcome_side=yes` — both parties trade at the same price, just on opposite directions.
+
+                `outcome_side` and `book_side` will become the canonical way to determine fill direction. The legacy `action` and `side` fields will be deprecated in a future release — please migrate to these new fields.
+            book_side:
+              $ref: '#/components/schemas/bookSide'
+              description: |
+                Same directional bit as outcome_side in book vocabulary. 'bid' is equivalent to outcome_side 'yes'; 'ask' is equivalent to outcome_side 'no'.
+
+                `outcome_side` and `book_side` will become the canonical way to determine fill direction. The legacy `action` and `side` fields will be deprecated in a future release — please migrate to these new fields.
+            subaccount:
+              type: integer
+              description: Optional subaccount number for the fill
+
+    marketLifecycleV2Payload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "market_lifecycle_v2"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["market_ticker", "event_type"]
+          properties:
+            market_ticker:
+              $ref: '#/components/schemas/marketTicker'
+              description: Unique identifier for markets. This is what you use to differentiate updates for different markets
+            exchange_index:
+              type: integer
+              description: Optional - This key will ONLY exist when the market is created. Identifier for the exchange shard the market lives on
+            open_ts:
+              type: integer
+              description: Optional - This key will ONLY exist when the market is created. Unix timestamp for when the market opened (in seconds)
+              format: int64
+            close_ts:
+              type: integer
+              description: Optional - This key will ONLY exist when the market is created OR when the close date is updated. Unix timestamp for when the market is scheduled to close (in seconds). Will be updated in case of early determination markets
+              format: int64
+            determination_ts:
+              type: integer
+              description: Optional - This key will ONLY exist when the market is determined. Unix timestamp for when the market is determined (in seconds)
+              format: int64
+            settled_ts:
+              type: integer
+              description: Optional - This key will ONLY exist when the market is settled. Unix timestamp for when the market is settled (in seconds)
+              format: int64
+            result:
+              type: string
+              description: Optional - This key will ONLY exist when the market is determined. Result of the market
+            settlement_value:
+              type: string
+              description: Optional - This key will ONLY exist when the market is determined. Settlement value of the market in fixed-point dollars (e.g. "0.5000")
+            is_deactivated:
+              type: boolean
+              description: Optional - This key will ONLY exist when the market is paused/unpaused. Boolean flag to indicate if trading is paused on an open market. This should only be interpreted for an open market
+            additional_metadata:
+              $ref: '#/components/schemas/lifecycleAdditionalMetadata'
+              description: Optional - This key will be emitted when the market is created
+            event_type:
+              type: string
+              description: |
+                Field to annotate which of the event type this event is for:
+                - `created` - Market created
+                - `activated` - Market activated
+                - `deactivated` - Market deactivated
+                - `close_date_updated` - Market close date updated
+                - `determined` - Market determined
+                - `settled` - Market settled
+                - `price_level_structure_updated` - Market price level structure changed
+              enum: ["created", "deactivated", "activated", "close_date_updated", "determined", "settled", "price_level_structure_updated"]
+            price_level_structure:
+              $ref: '#/components/schemas/lifecyclePriceLevelStructure'
+              description: Optional - The market price level structure on creation or price_level_structure_updated events
+            price_ranges:
+              type: array
+              description: Optional - Emitted alongside price_level_structure (on market creation and price_level_structure_updated events). The valid price bands for the market, in fixed-point dollars. Use this to determine valid order prices rather than hardcoding a tick size.
+              items:
+                type: object
+                required:
+                  - start
+                  - end
+                  - step
+                properties:
+                  start:
+                    type: string
+                    description: Starting price for this band, in dollars
+                  end:
+                    type: string
+                    description: Ending price for this band, in dollars
+                  step:
+                    type: string
+                    description: Tick size (minimum price increment) within this band, in dollars
+
+    multivariateMarketLifecyclePayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "multivariate_market_lifecycle"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["market_ticker", "event_type"]
+          properties:
+            market_ticker:
+              $ref: '#/components/schemas/marketTicker'
+              description: Unique identifier for markets. This is what you use to differentiate updates for different markets
+            exchange_index:
+              type: integer
+              description: Optional - This key will ONLY exist when the market is created. Identifier for the exchange shard the market lives on
+            open_ts:
+              type: integer
+              description: Optional - This key will ONLY exist when the market is created. Unix timestamp for when the market opened (in seconds)
+              format: int64
+            close_ts:
+              type: integer
+              description: Optional - This key will ONLY exist when the market is created OR when the close date is updated. Unix timestamp for when the market is scheduled to close (in seconds). Will be updated in case of early determination markets
+              format: int64
+            determination_ts:
+              type: integer
+              description: Optional - This key will ONLY exist when the market is determined. Unix timestamp for when the market is determined (in seconds)
+              format: int64
+            settled_ts:
+              type: integer
+              description: Optional - This key will ONLY exist when the market is settled. Unix timestamp for when the market is settled (in seconds)
+              format: int64
+            result:
+              type: string
+              description: Optional - This key will ONLY exist when the market is determined. Result of the market
+            settlement_value:
+              type: string
+              description: Optional - This key will ONLY exist when the market is determined. Settlement value of the market in fixed-point dollars (e.g. "0.5000")
+            is_deactivated:
+              type: boolean
+              description: Optional - This key will ONLY exist when the market is paused/unpaused. Boolean flag to indicate if trading is paused on an open market. This should only be interpreted for an open market
+            additional_metadata:
+              $ref: '#/components/schemas/lifecycleAdditionalMetadata'
+              description: Optional - This key will be emitted when the market is created
+            event_type:
+              type: string
+              description: |
+                Field to annotate which of the event type this event is for:
+                - `created` - Market created
+                - `activated` - Market activated
+                - `deactivated` - Market deactivated
+                - `close_date_updated` - Market close date updated
+                - `determined` - Market determined
+                - `settled` - Market settled
+              enum: ["created", "deactivated", "activated", "close_date_updated", "determined", "settled"]
+            price_level_structure:
+              $ref: '#/components/schemas/lifecyclePriceLevelStructure'
+              description: Optional - The market price level structure on creation
+
+    lifecycleAdditionalMetadata:
+      type: object
+      required: ["name", "title", "yes_sub_title", "no_sub_title", "rules_primary", "rules_secondary", "can_close_early", "event_ticker", "expected_expiration_ts"]
+      properties:
+        name:
+          type: string
+        title:
+          type: string
+        yes_sub_title:
+          type: string
+        no_sub_title:
+          type: string
+        rules_primary:
+          type: string
+        rules_secondary:
+          type: string
+        can_close_early:
+          type: boolean
+        event_ticker:
+          type: string
+        expected_expiration_ts:
+          type: integer
+          format: int64
+        strike_type:
+          type: string
+        floor_strike:
+          type: number
+        cap_strike:
+          type: number
+        custom_strike:
+          type: object
+
+    lifecyclePriceLevelStructure:
+      type: string
+      description: The market price structure. An empty string represents an unknown structure.
+      enum: ["banded_centi_cent", "", "linear_cent", "deci_cent", "tapered_deci_cent", "center_whole_edge_half_cent", "center_whole_edge_quint_cent", "center_half_edge_half_cent", "center_half_edge_quint_cent", "center_half_edge_deci_cent", "center_quint_edge_quint_cent", "center_quint_edge_deci_cent", "center_centi_edge_centi_cent", "center_deci_edge_centi_cent"]
+
+    marketMetadataUpdatedPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "market_lifecycle_v2"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["event_type", "market_ticker"]
+          properties:
+            event_type:
+              type: string
+              const: "metadata_updated"
+            market_ticker:
+              $ref: '#/components/schemas/marketTicker'
+              description: Unique identifier for markets. This is what you use to differentiate updates for different markets
+            strike_type:
+              type: string
+              description: Optional - This key will ONLY exist for metadata_updated events. Determines how floor_strike / cap_strike are interpreted (e.g. "between" uses both, "greater" uses floor_strike only, "less" uses cap_strike only)
+            floor_strike:
+              type: number
+              description: Optional - This key will ONLY exist for metadata_updated events. The floor (lower bound) strike value for the market
+            cap_strike:
+              type: number
+              description: Optional - This key will ONLY exist for metadata_updated events. The cap (upper bound) strike value for the market
+            custom_strike:
+              type: object
+              description: Optional - This key will ONLY exist for metadata_updated events with a custom or structured strike type
+            yes_sub_title:
+              type: string
+              description: Optional - This key will ONLY exist for metadata_updated events. The updated yes subtitle for the market
+
+    eventLifecyclePayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "event_lifecycle"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["event_ticker", "exchange_index", "title", "subtitle", "collateral_return_type", "series_ticker"]
+          properties:
+            event_ticker:
+              type: string
+              description: Unique identifier for the event being created
+            exchange_index:
+              type: integer
+              description: Identifier for the exchange shard the event's markets live on
+            title:
+              type: string
+              description: Title of event
+            subtitle:
+              type: string
+              description: Subtitle of event
+            collateral_return_type:
+              type: string
+              description: Collateral return type, MECNET or DIRECNET of the event. Empty if there is no collateral return scheme for the event
+              enum: ["MECNET", "DIRECNET", ""]
+            series_ticker:
+              type: string
+              description: Series ticker for the event
+            strike_date:
+              type: integer
+              description: Optional - Unix timestamp to indicate the strike date of the event if there is one
+              format: int64
+            strike_period:
+              type: string
+              description: Optional - String to indicate the strike period of the event if there is one
+
+    eventFeeUpdatePayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "event_fee_update"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["event_ticker", "fee_type_override", "fee_multiplier_override"]
+          properties:
+            event_ticker:
+              type: string
+              description: Unique identifier for the event
+            fee_type_override:
+              type: [string, "null"]
+              enum: [quadratic, quadratic_with_maker_fees, quadratic_with_combo_maker_fees, flat, margin_market_maker_program_fees, null]
+              description: Event fee type override. `null` when the override has been cleared.
+            fee_multiplier_override:
+              type: [number, "null"]
+              description: Event fee multiplier override. `null` when the override has been cleared.
+
+    marketPositionPayload:
+      type: object
+      required: ["type", "sid", "msg"]
+      properties:
+        type:
+          type: string
+          const: "market_position"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        msg:
+          type: object
+          required: ["user_id", "market_ticker", "position_fp", "position_cost_dollars", "realized_pnl_dollars", "fees_paid_dollars", "position_fee_cost_dollars", "volume_fp"]
+          properties:
+            user_id:
+              type: string
+              description: User ID for the position
+            market_ticker:
+              $ref: '#/components/schemas/marketTicker'
+              description: Market ticker for the position
+            position_fp:
+              type: string
+              description: Fixed-point net position (2 decimals)
+            position_cost_dollars:
+              type: string
+              description: Current cost basis of the position as a fixed-point dollar string
+            realized_pnl_dollars:
+              type: string
+              description: Realized profit/loss as a fixed-point dollar string
+            fees_paid_dollars:
+              type: string
+              description: Total fees paid as a fixed-point dollar string
+            position_fee_cost_dollars:
+              type: string
+              description: Total position fee cost as a fixed-point dollar string
+            volume_fp:
+              type: string
+              description: Fixed-point total volume traded (2 decimals)
+            subaccount:
+              type: integer
+              description: Optional subaccount number for the position
+
+    orderGroupUpdatesPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "order_group_updates"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["event_type", "order_group_id", "ts_ms"]
+          properties:
+            event_type:
+              type: string
+              description: Order group event type
+              enum: ["created", "triggered", "reset", "deleted", "limit_updated"]
+            order_group_id:
+              type: string
+              description: Order group identifier
+            contracts_limit_fp:
+              type: string
+              description: Updated contracts limit in fixed-point (2 decimals). Present for "created" and "limit_updated" events only.
+            ts_ms:
+              type: integer
+              format: int64
+              description: Matching engine timestamp at which the event was processed, as Unix epoch milliseconds.
+
+    userOrderPayload:
+      type: object
+      required: ["type", "sid", "msg"]
+      properties:
+        type:
+          type: string
+          const: "user_order"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        msg:
+          type: object
+          required: ["order_id", "user_id", "ticker", "exchange_index", "status", "side", "is_yes", "outcome_side", "book_side", "yes_price_dollars", "fill_count_fp", "remaining_count_fp", "initial_count_fp", "taker_fill_cost_dollars", "maker_fill_cost_dollars", "taker_fees_dollars", "maker_fees_dollars", "client_order_id", "created_time", "created_ts_ms"]
+          properties:
+            order_id:
+              type: string
+              description: Unique order identifier
+              format: uuid
+            user_id:
+              type: string
+              description: User identifier
+              format: uuid
+            ticker:
+              $ref: '#/components/schemas/marketTicker'
+              description: Market ticker for the order
+            exchange_index:
+              type: integer
+              description: Identifier for the exchange shard where the order resides
+            status:
+              type: string
+              description: Current order status
+              enum: ["resting", "canceled", "executed", "unknown"]
+            side:
+              $ref: '#/components/schemas/marketSide'
+              deprecated: true
+              description: |
+                Deprecated. Use `outcome_side` (or `book_side`) instead. See [Order direction](/getting_started/order_direction). This field will not be removed before May 14, 2026.
+            is_yes:
+              type: boolean
+              deprecated: true
+              description: |
+                Deprecated. Use `outcome_side` (or `book_side`) instead. See [Order direction](/getting_started/order_direction). This field will not be removed before May 14, 2026.
+            outcome_side:
+              $ref: '#/components/schemas/marketSide'
+              description: |
+                The outcome side this order is positioned for. buy-yes and sell-no produce 'yes'; buy-no and sell-yes produce 'no'.
+
+                `outcome_side` describes directional exposure only; it does not change the order's price. An order at price `p` with `outcome_side=no` is matched by an order at the same price `p` with `outcome_side=yes` — both parties trade at the same price, just on opposite directions.
+
+                `outcome_side` and `book_side` will become the canonical way to determine order direction. The legacy `action`, `side`, and `is_yes` fields will be deprecated in a future release — please migrate to these new fields.
+            book_side:
+              $ref: '#/components/schemas/bookSide'
+              description: |
+                Same directional bit as outcome_side in book vocabulary. 'bid' is equivalent to outcome_side 'yes'; 'ask' is equivalent to outcome_side 'no'.
+
+                `outcome_side` and `book_side` will become the canonical way to determine order direction. The legacy `action`, `side`, and `is_yes` fields will be deprecated in a future release — please migrate to these new fields.
+            yes_price_dollars:
+              type: string
+              description: Yes price in fixed-point dollars (4 decimals)
+            fill_count_fp:
+              type: string
+              description: Number of contracts filled in fixed-point (2 decimals)
+            remaining_count_fp:
+              type: string
+              description: Number of contracts remaining in fixed-point (2 decimals)
+            initial_count_fp:
+              type: string
+              description: Initial number of contracts in fixed-point (2 decimals)
+            taker_fill_cost_dollars:
+              type: string
+              description: Taker fill cost in fixed-point dollars (6 decimals)
+            maker_fill_cost_dollars:
+              type: string
+              description: Maker fill cost in fixed-point dollars (6 decimals)
+            taker_fees_dollars:
+              type: string
+              description: Taker fees in fixed-point dollars (6 decimals).
+            maker_fees_dollars:
+              type: string
+              description: Maker fees in fixed-point dollars (6 decimals).
+            client_order_id:
+              type: string
+              description: Client-provided order identifier
+            order_group_id:
+              type: string
+              description: Order group identifier, if applicable
+            self_trade_prevention_type:
+              type: string
+              description: Self-trade prevention type
+              enum: ["taker_at_cross", "maker"]
+            created_time:
+              type: [string, "null"]
+              deprecated: true
+              description: Deprecated - Order creation time in RFC3339 format. Use created_ts_ms instead.
+              format: date-time
+            last_update_time:
+              type: string
+              deprecated: true
+              description: Deprecated - Last update time in RFC3339 format. Use last_updated_ts_ms instead.
+              format: date-time
+            expiration_time:
+              type: string
+              deprecated: true
+              description: Deprecated - Order expiration time in RFC3339 format. Use expiration_ts_ms instead.
+              format: date-time
+            expiration_ts_ms:
+              type: integer
+              description: Order expiration time as a Unix timestamp in milliseconds
+              format: int64
+            created_ts_ms:
+              type: [integer, "null"]
+              description: Order creation time as a Unix timestamp in milliseconds
+              format: int64
+            last_updated_ts_ms:
+              type: integer
+              description: Last update time as a Unix timestamp in milliseconds
+              format: int64
+            subaccount_number:
+              type: integer
+              description: Subaccount number (0 for primary, 1-63 for subaccounts)
+
+    rfqCreatedPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "rfq_created"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["id", "creator_id", "market_ticker", "created_ts"]
+          properties:
+            id:
+              type: string
+              description: Unique identifier for the RFQ
+            creator_id:
+              type: string
+              description: Public communications ID of the RFQ creator (anonymized).
+            market_ticker:
+              type: string
+              description: Market ticker for the RFQ
+            event_ticker:
+              type: string
+              description: Event ticker (optional)
+            contracts_fp:
+              type: string
+              description: Fixed-point contracts requested (2 decimals) (optional)
+            target_cost_dollars:
+              type: string
+              description: Target cost in dollars (optional)
+            created_ts:
+              type: string
+              description: Timestamp when the RFQ was created
+              format: date-time
+            mve_collection_ticker:
+              type: string
+              description: Multivariate event collection ticker. Omitted for non-MVE RFQs.
+            mve_selected_legs:
+              type: array
+              minItems: 1
+              description: Selected legs for an MVE RFQ. Omitted when the array is empty.
+              items:
+                type: object
+                required: ["event_ticker", "market_ticker", "side"]
+                properties:
+                  event_ticker:
+                    type: string
+                    description: Event ticker for the selected leg
+                  market_ticker:
+                    type: string
+                    description: Market ticker for the selected leg
+                  side:
+                    type: string
+                    enum: ["yes", "no"]
+                    description: Side selected for the leg
+                  yes_settlement_value_dollars:
+                    type: string
+                    description: Yes settlement value in dollars for the selected leg. Omitted when unavailable.
+
+    rfqDeletedPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "rfq_deleted"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["id", "creator_id", "market_ticker", "deleted_ts"]
+          properties:
+            id:
+              type: string
+              description: Unique identifier for the RFQ
+            creator_id:
+              type: string
+              description: Public communications ID of the RFQ creator (anonymized)
+            market_ticker:
+              type: string
+              description: Market ticker for the RFQ
+            event_ticker:
+              type: string
+              description: Event ticker (optional)
+            contracts_fp:
+              type: string
+              description: Fixed-point contracts requested (2 decimals) (optional)
+            target_cost_dollars:
+              type: string
+              description: Target cost in dollars (optional)
+            deleted_ts:
+              type: string
+              description: Timestamp when the RFQ was deleted
+              format: date-time
+
+    quoteCreatedPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "quote_created"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["quote_id", "rfq_id", "quote_creator_id", "rfq_creator_id", "market_ticker", "yes_bid_dollars", "no_bid_dollars", "created_ts"]
+          properties:
+            quote_id:
+              type: string
+              description: Unique identifier for the quote
+            rfq_id:
+              type: string
+              description: Identifier of the RFQ this quote is for
+            quote_creator_id:
+              type: string
+              description: Public communications ID of the quote creator (anonymized)
+            rfq_creator_id:
+              type: string
+              description: Public communications ID of the RFQ creator (anonymized)
+            market_ticker:
+              type: string
+              description: Market ticker for the quote
+            event_ticker:
+              type: string
+              description: Event ticker (optional)
+            yes_bid_dollars:
+              type: string
+              description: Yes side bid price in dollars
+            no_bid_dollars:
+              type: string
+              description: No side bid price in dollars
+            yes_contracts_offered_fp:
+              type: string
+              description: Fixed-point yes contracts offered (2 decimals) (optional)
+            no_contracts_offered_fp:
+              type: string
+              description: Fixed-point no contracts offered (2 decimals) (optional)
+            rfq_target_cost_dollars:
+              type: string
+              description: Target cost from the RFQ in dollars (optional)
+            created_ts:
+              type: string
+              description: Timestamp when the quote was created
+              format: date-time
+            subaccount:
+              type: integer
+              description: |
+                Optional - Present only when your side of this quote used a subaccount.
+                Contains your own subaccount number; the counterparty's subaccount is never shared.
+
+    quoteAcceptedPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "quote_accepted"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["quote_id", "rfq_id", "quote_creator_id", "rfq_creator_id", "market_ticker", "yes_bid_dollars", "no_bid_dollars"]
+          properties:
+            quote_id:
+              type: string
+              description: Unique identifier for the quote
+            rfq_id:
+              type: string
+              description: Identifier of the RFQ this quote is for
+            quote_creator_id:
+              type: string
+              description: Public communications ID of the quote creator (anonymized)
+            rfq_creator_id:
+              type: string
+              description: Public communications ID of the RFQ creator (anonymized)
+            market_ticker:
+              type: string
+              description: Market ticker for the quote
+            event_ticker:
+              type: string
+              description: Event ticker (optional)
+            yes_bid_dollars:
+              type: string
+              description: Yes side bid price in dollars
+            no_bid_dollars:
+              type: string
+              description: No side bid price in dollars
+            accepted_side:
+              type: string
+              description: Which side was accepted (yes/no) (optional)
+              enum: ["yes", "no"]
+            contracts_accepted_fp:
+              type: string
+              description: Fixed-point contracts accepted (2 decimals) (optional)
+            yes_contracts_offered_fp:
+              type: string
+              description: Fixed-point yes contracts offered (2 decimals) (optional)
+            no_contracts_offered_fp:
+              type: string
+              description: Fixed-point no contracts offered (2 decimals) (optional)
+            rfq_target_cost_dollars:
+              type: string
+              description: Target cost from the RFQ in dollars (optional)
+            subaccount:
+              type: integer
+              description: |
+                Optional - Present only when your side of this quote used a subaccount.
+                Contains your own subaccount number; the counterparty's subaccount is never shared.
+
+    quoteExecutedPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "quote_executed"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["quote_id", "rfq_id", "quote_creator_id", "rfq_creator_id", "order_id", "client_order_id", "market_ticker", "executed_ts"]
+          properties:
+            quote_id:
+              type: string
+              description: Unique identifier for the quote that was executed
+            rfq_id:
+              type: string
+              description: Identifier of the RFQ this quote was for
+            quote_creator_id:
+              type: string
+              description: Anonymized identifier for the quote creator
+            rfq_creator_id:
+              type: string
+              description: Anonymized identifier for the RFQ creator
+            order_id:
+              type: string
+              description: Your order ID resulting from the quote execution. Use this to match with fill messages
+            client_order_id:
+              type: string
+              description: Your client order ID for the executed order. Use this to correlate with fill messages
+            market_ticker:
+              type: string
+              description: Market ticker for the executed quote
+            executed_ts:
+              type: string
+              description: Timestamp when the quote was executed and orders were placed
+              format: date-time
+            subaccount:
+              type: integer
+              description: |
+                Optional - Present only when your side of this quote used a subaccount.
+                Contains your own subaccount number; the counterparty's subaccount is never shared.
+
+  securitySchemes:
+    apiKey:
+      type: apiKey
+      in: user
+      description: |
+        API key authentication required for WebSocket connections.
+        The API key should be provided during the WebSocket handshake.
+
+# WebSocket Error Codes Reference
+x-error-codes:
+  title: Error Codes
+  description: Complete reference of WebSocket API error codes
+  codes:
+    - code: 1
+      name: Unable to process message
+      description: General processing error
+    - code: 2
+      name: Params required
+      description: Missing params object in command
+    - code: 3
+      name: Channels required
+      description: Missing channels array in subscribe
+    - code: 4
+      name: Subscription IDs required
+      description: Missing sids in unsubscribe
+    - code: 5
+      name: Unknown command
+      description: Invalid command name
+    - code: 7
+      name: Unknown subscription ID
+      description: Subscription ID not found
+    - code: 8
+      name: Unknown channel name
+      description: Invalid channel in subscribe
+    - code: 9
+      name: Authentication required
+      description: Channel requires authenticated connection
+    - code: 10
+      name: Channel error
+      description: Channel-specific error
+    - code: 11
+      name: Invalid parameter
+      description: Malformed parameter value
+    - code: 12
+      name: Exactly one subscription ID is required
+      description: For update_subscription command
+    - code: 13
+      name: Unsupported action
+      description: Invalid action for update_subscription
+    - code: 14
+      name: Market Ticker required
+      description: Missing market specification (market_ticker or market_id)
+    - code: 15
+      name: Action required
+      description: Missing action in update_subscription
+    - code: 18
+      name: Command timeout
+      description: Server timed out while processing command
+    - code: 19
+      name: shard_factor must be > 0
+      description: Invalid shard_factor
+    - code: 20
+      name: shard_factor is required when shard_key is set
+      description: Missing shard_factor when shard_key is set
+    - code: 21
+      name: shard_key must be >= 0 and < shard_factor
+      description: Invalid shard_key
+    - code: 22
+      name: shard_factor must be <= 100
+      description: shard_factor too large
+    - code: 23
+      name: Match IDs required
+      description: Missing match_ids for the channel/action
+    - code: 24
+      name: Index IDs required
+      description: Missing index_ids for subscribe_indices/unsubscribe_indices on cfbenchmarks_value / cfbenchmarks_value_5hz
+    - code: 25
+      name: Subscription buffer overflow
+      description: The subscription's outbound buffer was exceeded
+    - code: 26
+      name: Subscription market limit exceeded
+      description: Adding markets would exceed the per-subscription market limit
+    - code: 27
+      name: Too many requests
+      description: The subscription exceeded its command rate limit
+    - code: 28
+      name: Underlying tickers required
+      description: Missing underlying_tickers for subscribe_underlyings/unsubscribe_underlyings on pyth_value

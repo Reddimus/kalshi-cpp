@@ -96,6 +96,8 @@ def tracked_cpp_files(repo_root: Path) -> list[Path]:
             continue
         if any(part.startswith("build") or part == "_deps" for part in relative.parts):
             continue
+        if not (repo_root / relative).exists():  # deleted but not yet staged
+            continue
         files.append(repo_root / relative)
     return files
 

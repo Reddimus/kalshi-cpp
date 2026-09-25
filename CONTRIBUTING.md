@@ -30,17 +30,24 @@ make test           # Build and run the tests
 make sanitize       # ASan + UBSan
 make tsan           # ThreadSanitizer
 make tidy           # clang-tidy build
-make lint           # clang-format 18 check + cpp_auto_audit
+make lint           # clang-format 18, cpp_auto_audit, generated-code check
+make codegen        # Regenerate the REST client from spec/openapi.yaml
 make format         # Apply clang-format in place
 make bench          # Google Benchmark suite
 make coverage       # lcov report (needs lcov)
 make clean          # Remove build directories
 ```
 
-Always run `make lint` before pushing. CI gates on both
-`clang-format --dry-run` and the `cpp_auto_audit.py` script that
-rejects bare `auto` for local variable declarations (see Code style
-below).
+Run `make lint` before pushing; CI runs the same checks. It needs
+clang-format 18 and PyYAML (`python3 -m pip install pyyaml`).
+
+## Generated code
+
+`include/kalshi/api.hpp`, `include/kalshi/models.hpp`, `src/api/operations/`,
+`src/api/json_meta.hpp`, `src/api/validate.hpp`, `tests/test_operation_routes.cpp`,
+and `docs/operations.md` come from `tools/codegen/generate.py`. Change the
+generator or `spec/openapi.yaml`, run `make codegen`, and commit both. CI rejects stale
+output. `docs/research.md` explains how to refresh the spec.
 
 ## Code style
 

@@ -8,6 +8,21 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `KalshiClient` covers all 117 operations in Kalshi Predictions OpenAPI 3.31.0,
+  up from 70. New areas include historical data, live data, fee changes, event
+  candlesticks and forecasts, order-group triggers and limits, intra-exchange
+  transfers, target balance allocation, block trades, API usage levels, search
+  filters, and FCM. [docs/operations.md](docs/operations.md) lists every one.
+- `tools/codegen/generate.py` generates the client, models, route tests, and
+  operation list from the vendored `spec/openapi.yaml`. CI fails if they drift.
+- Requests are validated before sending: required fields must be set and
+  fixed-point strings must parse.
+- `ErrorCode::NotFound` and `Error::api_code` (Kalshi's machine-readable code).
+  HTTP errors map to specific codes and keep Kalshi's error message.
+- Response parsing tolerates `null` where Kalshi's spec says a field cannot be
+  null, and unknown enum values read as `Unknown` instead of failing.
+- `collect_pages()` follows cursors for any list operation. `to_cents()`,
+  `to_contracts()`, and `parse_timestamp()` convert exact wire values.
 - Ed25519 API keys, which Kalshi recommends. `Signer` picks RSA-PSS or Ed25519
   from the loaded key and reports it through `key_type()`.
 - `HttpClient(ClientConfig)` sends unauthenticated requests for public market
@@ -23,7 +38,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   Read and Write token budgets. Waiters reserve tokens, so large batches are
   served in order instead of being starved. Defaults match the Basic tier, and
   `rate_limit_config()` builds the account's real budgets from
-  `get_account_api_limits()` and `get_endpoint_costs()`.
+  `get_account_api_limits()` and `get_account_endpoint_costs()`.
 - `HttpResponse::header()` for case-insensitive header lookup.
 
 ### Changed
@@ -43,9 +58,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `make bench` runs a Google Benchmark suite (`KALSHI_BUILD_BENCHMARKS`) in
   place of `tools/bench.sh`, which timed examples that exit immediately
   without credentials.
-- Example binaries are named after their sources (`example_get_markets`,
-  `example_get_daily_temp`, ...), and `make run-NAME` runs any of them.
-  `run-*` loads `.env` but no longer decodes `KALSHI_API_PRIVATE_KEY`; point
+- The examples are now `market_data`, `portfolio`, `place_and_cancel_order`
+  (demo only), and `stream_orderbook`, built as `example_NAME`. `make run-NAME`
+  loads `.env` but no longer decodes `KALSHI_API_PRIVATE_KEY`; point
   `KALSHI_API_KEY_FILE` at a PEM file instead.
 - `make configure-debug` and `make bench-compare` are gone. Use `make debug`,
   and compare `make bench` runs with Google Benchmark's `compare.py`.
@@ -54,6 +69,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- The hand-written REST parsers, the 0.5 model headers (`kalshi/models/`), and
+  the deprecated methods for routes Kalshi removed (announcements, search, live
+  data by ticker, bundle lookup, generic communications).
 - `RateLimiter` and `ScopedRateLimit`. They counted one token per
   millisecond-resolution interval and could not express Kalshi's budgets; use
   `TokenBucket`.
@@ -64,6 +82,29 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Migrating from 0.5
 
+- Models, parameters, and responses now use the spec's names and types from
+  `kalshi/models.hpp`. For example, `get_markets()` returns
+  `GetMarketsResponse{markets, cursor}`, orders use `CreateOrderV2Request`, and
+  `Order::ticker` replaces `Order::market_ticker`. Responses with one field
+  return that field directly (`get_market()` returns `Market`).
+- Timestamps stay RFC 3339 strings; `parse_timestamp()` converts them. The
+  integer cent and contract views are gone; `to_cents()` and `to_contracts()`
+  convert exactly or fail.
+- Methods drop Kalshi's "V2" suffix (`create_order`, `cancel_order`,
+  `batch_create_orders`). Methods for routes Kalshi removed are gone.
+- Path parameters are percent-encoded, and an empty one fails with
+  `InvalidRequest` instead of silently calling a different route.
+- `ErrorCode::Ok`, `Error::ok()`, and `Error::is_ok()` are gone; a `Result`
+  holds either a value or an error. `ErrorCode::NotFound` is new, so the
+  enumerators' numeric values changed. Any other 4xx is `InvalidRequest`, and
+  408 is `NetworkError`.
+- `KalshiClient` takes a `std::shared_ptr<const HttpTransport>`, and
+  `http_client()` and the non-const `transport()` are gone.
+- `collect_pages()` replaces `PaginatedIterator`, `Cursor`,
+  `PaginationParams`, and `PaginatedResponse`.
+- `derive_outcome_side()` and `derive_book_side()` are now `outcome_side()`
+  and `book_side()`, in `kalshi/helpers.hpp`. They return `Unknown` when the
+  side or action is `Unknown`.
 - `Signer` is copyable, and `WebSocketClient` stores its own copy, so the
   signer no longer has to outlive the client.
 - `HttpResponse::status_code` is an `int`. `ClientConfig::timeout` is in

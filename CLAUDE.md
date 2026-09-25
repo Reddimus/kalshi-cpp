@@ -3,6 +3,7 @@
 ## Required gates
 
 Run `make test`, `make lint`, and `./tools/test_consumers.sh` before review.
+`make lint` needs clang-format 18 and PyYAML.
 User-visible changes also require a `CHANGELOG.md` entry. The CI workflow is
 the source of truth for Linux, macOS, Windows, sanitizer, clang-tidy, Markdown,
 and consumer gates.
@@ -28,7 +29,10 @@ using an injected `HttpTransport`.
   `tools/cpp_auto_allowlist.txt` and enforced by `tools/cpp_auto_audit.py`.
 - Scope focused JSON scanners to the relevant object before reading repeated
   keys.
-- Keep outgoing wire keys in `src/api/json_bodies.hpp` and
-  `src/ws/ws_cmd_bodies.hpp`; their order is contract-tested.
+- `tools/codegen/generate.py` writes the REST models, `KalshiClient`, and
+  route tests from `spec/openapi.yaml`. Edit the spec, the generator, or
+  `tools/codegen/api.hpp.in`, then run `make codegen`; never edit its output.
+- Keep WebSocket command keys in `src/ws/ws_cmd_bodies.hpp`;
+  `tests/test_ws_commands.cpp` pins their order.
 - Format with the repository `.clang-format`: tabs, 100 columns, project
   includes before system includes.

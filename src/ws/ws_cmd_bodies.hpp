@@ -2,23 +2,9 @@
 // SPDX-License-Identifier: MIT
 #pragma once
 
-/// @file ws_cmd_bodies.hpp
-/// @brief Internal Glaze shim structs for outgoing WS command frames
-///
-/// NOT a public API. Lives under `src/` (NOT under `include/`) so it
-/// is never installed. Mirror of `src/api/json_bodies.hpp` for the WS
-/// subscribe / unsubscribe / update_subscription commands.
-///
-/// Kalshi's WS server rejects frames whose top-level keys are not in
-/// the documented order (`id`, then `cmd`, then `params`). The
-/// `glz::meta` specializations below enumerate fields in the same
-/// order the previous `nlohmann::ordered_json` impl used, and
-/// `tests/test_json_serialize.cpp` pins byte-exact equivalence
-/// against the pre-migration baselines.
-///
-/// IMPORTANT: only the OUTGOING command builders use this. The WS
-/// `handle_message` hot path uses the hand-rolled scanners in
-/// `kalshi/detail/ws_json.hpp` and is deliberately not migrated.
+// Outgoing WebSocket command frames. Kalshi expects the keys `id`, `cmd`, then
+// `params`; the `glz::meta` below fixes that order and
+// `tests/test_ws_commands.cpp` pins it.
 
 #include <cstdint>
 #include <optional>

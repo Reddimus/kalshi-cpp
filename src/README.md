@@ -1,23 +1,13 @@
 # Source layout
 
-Implementation code is split by dependency boundary.
-
-| Path | Purpose | CMake target |
+| Path | Contents | CMake target |
 | --- | --- | --- |
-| `api/` | Typed Predictions operations, parsers, and request bodies | `kalshi_api` |
-| `auth/` | RSA-PSS request signing | `kalshi_auth` |
-| `core/` | Error, rate-limit, and retry support | `kalshi_core` |
-| `http/` | Signed libcurl transport | `kalshi_http` |
-| `models/` | Out-of-line model code | `kalshi_models` |
-| `ws/` | libwebsockets client, commands, and connection state | `kalshi_ws` |
+| `api/` | `KalshiClient`, request plumbing, and helpers | `kalshi_api` |
+| `api/operations/` | One generated file per API tag. Do not edit | `kalshi_api` |
+| `auth/` | Ed25519 and RSA-PSS request signing | `kalshi_auth` |
+| `http/` | libcurl transport, retries, and rate limiting | `kalshi_http` |
+| `ws/` | libwebsockets client and frame parsing | `kalshi_ws` |
+| `json.hpp` | Private Glaze setup shared by the targets above | |
 
-Build and test from the repository root:
-
-```bash
-cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
-cmake --build build --parallel
-ctest --test-dir build --output-on-failure
-```
-
-Public interfaces belong in `include/kalshi/`. Keep wire-only structs and
-serialization helpers here unless consumers need them.
+`api/json_meta.hpp` and `api/validate.hpp` are generated too. Public headers
+live in `include/kalshi/`; anything only the implementation needs stays here.

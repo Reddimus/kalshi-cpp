@@ -1,4 +1,4 @@
-foreach(example basic_usage get_markets get_daily_temp)
+foreach(example market_data portfolio place_and_cancel_order stream_orderbook)
     add_executable(example_${example} ${example}.cpp)
     target_link_libraries(example_${example} PRIVATE kalshi::kalshi)
     kalshi_configure_target(example_${example})

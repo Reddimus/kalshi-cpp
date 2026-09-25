@@ -4,10 +4,14 @@ BUILD_DIR ?= build
 BUILD_TYPE ?= Release
 CMAKE_ARGS ?=
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+PYTHON ?= python3
 CLANG_FORMAT ?= $(shell command -v clang-format-18 2>/dev/null || command -v clang-format 2>/dev/null)
 CLANG_FORMAT_MAJOR := 18
+# Tracked and new C++ sources that exist on disk (deleted files are skipped).
+CPP_SOURCES = git ls-files -z --cached --others --exclude-standard '*.cpp' '*.hpp' | \
+	xargs -0 sh -c 'for f; do [ -e "$$f" ] && printf "%s\0" "$$f"; done' _
 
-.PHONY: all configure build debug test sanitize tsan tidy bench consumers lint lint-docs \
+.PHONY: all configure build debug test sanitize tsan tidy bench consumers codegen lint lint-docs \
 	format pre-commit install-hooks coverage clean help
 
 all: build
@@ -44,19 +48,24 @@ bench:
 consumers:
 	./tools/test_consumers.sh
 
+# Needs PyYAML and clang-format 18.
+codegen:
+	CLANG_FORMAT="$(CLANG_FORMAT)" $(PYTHON) tools/codegen/generate.py
+
 lint:
 	@test -n "$(CLANG_FORMAT)" || { echo "clang-format $(CLANG_FORMAT_MAJOR) is required"; exit 1; }
 	@major=$$($(CLANG_FORMAT) --version | sed -E 's/.*version ([0-9]+).*/\1/'); \
 		test "$$major" = "$(CLANG_FORMAT_MAJOR)" || \
 		{ echo "clang-format $(CLANG_FORMAT_MAJOR) is required; found $$major"; exit 1; }
-	git ls-files -z --cached --others --exclude-standard '*.cpp' '*.hpp' | xargs -0 $(CLANG_FORMAT) --dry-run --Werror
-	python3 tools/cpp_auto_audit.py
+	$(CPP_SOURCES) | xargs -0 $(CLANG_FORMAT) --dry-run --Werror
+	$(PYTHON) tools/cpp_auto_audit.py
+	CLANG_FORMAT="$(CLANG_FORMAT)" $(PYTHON) tools/codegen/generate.py --check
 
 lint-docs:
 	markdownlint-cli2
 
 format:
-	git ls-files -z --cached --others --exclude-standard '*.cpp' '*.hpp' | xargs -0 $(CLANG_FORMAT) -i
+	$(CPP_SOURCES) | xargs -0 $(CLANG_FORMAT) -i
 
 pre-commit: format lint
 
@@ -80,10 +89,10 @@ coverage:
 clean:
 	rm -rf build build-*
 
-# Runs an example, loading KALSHI_* settings from .env when present:
-#   make run-market_data
+# Runs an example with .env loaded and ARGS as its arguments:
+#   make run-market_data ARGS=KXHIGHNY
 run-%: build
-	@set -a; if [ -f .env ]; then . ./.env; fi; set +a; ./$(BUILD_DIR)/examples/example_$*
+	@set -a; if [ -f .env ]; then . ./.env; fi; set +a; ./$(BUILD_DIR)/examples/example_$* $(ARGS)
 
 help:
 	@echo "make build        Configure and build (BUILD_TYPE=$(BUILD_TYPE), BUILD_DIR=$(BUILD_DIR))"
@@ -94,11 +103,12 @@ help:
 	@echo "make tidy         clang-tidy build in build-tidy/"
 	@echo "make bench        Google Benchmark suite in build-bench/ (BENCH_ARGS=...)"
 	@echo "make consumers    Check install and FetchContent consumers"
-	@echo "make lint         clang-format $(CLANG_FORMAT_MAJOR) check and explicit-type audit"
+	@echo "make codegen      Regenerate the REST client from spec/openapi.yaml"
+	@echo "make lint         clang-format, explicit-type audit, generated-code check"
 	@echo "make lint-docs    markdownlint"
 	@echo "make format       Format C++ sources in place"
 	@echo "make pre-commit   format + lint"
 	@echo "make install-hooks  Run pre-commit on every git commit"
 	@echo "make coverage     lcov report in build-coverage/html"
-	@echo "make run-NAME     Run examples/NAME.cpp with .env loaded"
+	@echo "make run-NAME     Run examples/NAME.cpp with .env loaded (ARGS=...)"
 	@echo "make clean        Remove build directories"

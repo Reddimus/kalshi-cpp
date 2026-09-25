@@ -1,30 +1,6 @@
-// Copyright (c) 2026 PredictionMarketsAI
-// SPDX-License-Identifier: MIT
-//
-// Microbenchmarks + ctest regression guards for outgoing JSON
-// serialization and incoming WebSocket parsing.
-//
-// The outgoing case renders a representative 50-order batch. The
-// incoming case parses a representative trade frame. Both assert
-// generous ceilings that catch order-of-magnitude regressions without
-// turning normal CI timing variance into failures.
-//
-// The representative payload is a 50-order batch-create body — that's
-// the largest payload the SDK regularly emits (kalshi-trader sends
-// up to 64 orders per round of its scanner).
-//
-// Recorded baseline (x86_64-v3, GCC 13.3, -O3 -DNDEBUG, payload=5918B,
-// iters=1000):
-//
-//     nlohmann::ordered_json v3.11.3 : ~162 us/op  (pre-migration)
-//     glaze v7.6.0                   :   ~3 us/op  (post-migration)
-//     speedup                        :  ~55-60x
-//
-// The pre-migration baseline was a hand-built nlohmann benchmark
-// using the same payload shape (kept in commit history, not shipped
-// here); the speedup is dominated by avoiding the JSON-AST
-// allocation overhead since the previous batch path round-tripped
-// each inner order through `ordered_json::parse(serialize_one(...))`.
+// Coarse throughput guard for request serialization and WebSocket parsing.
+// It fails only on order-of-magnitude regressions, so normal CI timing noise
+// passes; use benchmarks/ for real measurements.
 
 #include "kalshi/detail/ws_message.hpp"
 
@@ -34,23 +10,21 @@
 #include <string>
 #include <vector>
 
-#include "../src/api/json_bodies.hpp"
+#include "support.hpp"
 
 namespace {
 
-kalshi::ser::BatchOrdersBody make_payload() {
-	kalshi::ser::BatchOrdersBody payload;
+kalshi::BatchCreateOrdersV2Request make_payload() {
+	kalshi::BatchCreateOrdersV2Request payload;
 	payload.orders.reserve(50);
 	for (int i = 0; i < 50; ++i) {
-		kalshi::ser::CreateOrderBody o;
+		kalshi::CreateOrderV2Request o;
 		o.ticker = "KXHIGHDEN-26MAY11-T" + std::to_string(50 + i);
-		o.side = (i % 2 == 0) ? "bid" : "ask";
+		o.side = i % 2 == 0 ? kalshi::BookSide::Bid : kalshi::BookSide::Ask;
 		o.count = std::to_string(1 + (i % 10)) + ".00";
 		o.price = "0." + std::to_string(30 + (i % 40)) + "00";
-		o.time_in_force = "good_till_canceled";
-		o.self_trade_prevention_type = "taker_at_cross";
-		// Sprinkle some optionals so the skip_null_members path is
-		// exercised on most-but-not-all fields.
+		o.time_in_force = kalshi::TimeInForce::GoodTillCanceled;
+		o.self_trade_prevention_type = kalshi::SelfTradePreventionType::TakerAtCross;
 		if (i % 3 == 0) {
 			o.client_order_id = "client-" + std::to_string(i);
 		}
@@ -67,12 +41,12 @@ kalshi::ser::BatchOrdersBody make_payload() {
 int main(int argc, char** argv) {
 	// Instrumented builds still check results, but their timings mean nothing.
 	const bool check_timing = !(argc > 1 && std::string_view{argv[1]} == "--no-timing");
-	const kalshi::ser::BatchOrdersBody payload = make_payload();
+	const kalshi::BatchCreateOrdersV2Request payload = make_payload();
 	const int kIterations = check_timing ? 1000 : 10;
 
 	// Warmup — let the allocator and CPU settle.
 	for (int i = 0; i < 50; ++i) {
-		volatile std::string warm = kalshi::ser::render_body(payload);
+		volatile std::string warm = kalshi::detail::encode(payload);
 		(void)warm;
 	}
 
@@ -80,7 +54,7 @@ int main(int argc, char** argv) {
 	std::size_t glaze_checksum = 0;
 	for (int i = 0; i < kIterations; ++i) {
 		std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
-		std::string out = kalshi::ser::render_body(payload);
+		std::string out = kalshi::detail::encode(payload);
 		std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
 		glaze_total += (t1 - t0);
 		glaze_checksum += out.size();
@@ -93,7 +67,7 @@ int main(int argc, char** argv) {
 
 	const double glaze_ms = glaze_total.count() / 1e6;
 	const double us_per_op = (glaze_total.count() / 1e3) / kIterations;
-	const std::string sample = kalshi::ser::render_body(payload);
+	const std::string sample = kalshi::detail::encode(payload);
 
 	std::printf("parse_benchmark: payload=%zuB iters=%d\n", sample.size(), kIterations);
 	std::printf("  glaze (serialize): %8.3f ms total  (%8.3f us/op)\n", glaze_ms, us_per_op);

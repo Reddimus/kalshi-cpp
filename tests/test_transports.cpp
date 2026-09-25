@@ -2,7 +2,6 @@
 // in-memory transport with scripted responses.
 
 #include "kalshi/api.hpp"
-#include "kalshi/pagination.hpp"
 #include "kalshi/rate_limit.hpp"
 #include "kalshi/retry.hpp"
 
@@ -275,18 +274,18 @@ TEST(RateLimitedTransport, BatchesLargerThanTheBucketFailClearly) {
 }
 
 TEST(RateLimitedTransport, MissingAccountLimitsKeepBasicTierDefaults) {
-	const kalshi::RateLimitConfig config =
-		kalshi::rate_limit_config(kalshi::AccountApiLimits{}, kalshi::EndpointCosts{});
+	const kalshi::RateLimitConfig config = kalshi::rate_limit_config(
+		kalshi::GetAccountApiLimitsResponse{}, kalshi::GetAccountEndpointCostsResponse{});
 	EXPECT_DOUBLE_EQ(config.read.refill_per_second, 200.0);
 	EXPECT_DOUBLE_EQ(config.write.capacity, 100.0);
 	EXPECT_DOUBLE_EQ(config.default_cost, 10.0);
 }
 
 TEST(RateLimitedTransport, ConfigComesFromAccountLimits) {
-	kalshi::AccountApiLimits limits;
+	kalshi::GetAccountApiLimitsResponse limits;
 	limits.read = {.refill_rate = 200, .bucket_capacity = 600};
 	limits.write = {.refill_rate = 100, .bucket_capacity = 100};
-	kalshi::EndpointCosts costs;
+	kalshi::GetAccountEndpointCostsResponse costs;
 	costs.default_cost = 10;
 	costs.endpoint_costs = {{"DELETE", "/trade-api/v2/portfolio/events/orders/batched", 2},
 							{"PATCH", "/ignored", 5}};
@@ -299,26 +298,4 @@ TEST(RateLimitedTransport, ConfigComesFromAccountLimits) {
 	ASSERT_EQ(config.costs.size(), 1U);
 	EXPECT_EQ(config.costs[0].method, kalshi::HttpMethod::DEL);
 	EXPECT_DOUBLE_EQ(config.costs[0].cost, 2.0);
-}
-
-TEST(Pagination, IteratorFollowsCursorsUntilExhausted) {
-	std::vector<std::string> cursors_seen;
-	kalshi::PaginatedIterator<int> pages(
-		[&cursors_seen](const kalshi::PaginationParams& params)
-			-> kalshi::Result<kalshi::PaginatedResponse<int>> {
-			const std::string cursor = params.cursor ? params.cursor->value : "";
-			cursors_seen.push_back(cursor);
-			if (cursor.empty()) {
-				return kalshi::PaginatedResponse<int>{{1, 2}, kalshi::Cursor{"page-2"}};
-			}
-			return kalshi::PaginatedResponse<int>{{3}, std::nullopt};
-		},
-		2);
-
-	const kalshi::Result<std::vector<int>> all = pages.fetch_all();
-
-	ASSERT_TRUE(all.has_value());
-	EXPECT_EQ(*all, (std::vector<int>{1, 2, 3}));
-	EXPECT_EQ(cursors_seen, (std::vector<std::string>{"", "page-2"}));
-	EXPECT_FALSE(pages.has_more());
 }

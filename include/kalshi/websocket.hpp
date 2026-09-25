@@ -2,7 +2,8 @@
 
 #include "kalshi/environment.hpp"
 #include "kalshi/error.hpp"
-#include "kalshi/models/market.hpp"
+#include "kalshi/helpers.hpp"
+#include "kalshi/models.hpp"
 #include "kalshi/signer.hpp"
 
 #include <atomic>
@@ -36,6 +37,16 @@ enum class Channel : std::uint8_t { OrderbookDelta, Trade, Fill, MarketLifecycle
 	}
 	return "orderbook_delta";
 }
+
+/// One price level. `price_cents` and `quantity` are 0 when the exact
+/// `price_dollars` or `quantity_fp` value is not a whole number of cents or
+/// contracts.
+struct OrderBookEntry {
+	std::int32_t price_cents{0};
+	std::int32_t quantity{0};
+	std::string price_dollars;
+	std::string quantity_fp;
+};
 
 /// Orderbook snapshot message
 struct OrderbookSnapshot {

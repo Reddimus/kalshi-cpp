@@ -27,7 +27,10 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential ninja-build \
-            pkg-config clang-format-18 libcurl4-openssl-dev libssl-dev libwebsockets-dev
+            pkg-config clang-format-18 python3-yaml libcurl4-openssl-dev libssl-dev \
+            libwebsockets-dev
+      - name: Lint
+        run: make lint CLANG_FORMAT=clang-format-18
       - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
         with:
           key: linux-release
@@ -37,8 +40,6 @@ jobs:
           -DKALSHI_WARNINGS_AS_ERRORS=ON -DKALSHI_BUILD_BENCHMARKS=ON"
       - name: Test
         run: make test
-      - name: Lint
-        run: make lint CLANG_FORMAT=clang-format-18
 
   build-macos:
     runs-on: macos-26

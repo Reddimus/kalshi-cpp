@@ -1,0 +1,49 @@
+#pragma once
+
+/// @file api.hpp
+/// @brief Typed client for every Kalshi Predictions REST operation.
+
+#include "kalshi/error.hpp"
+#include "kalshi/http_client.hpp"
+#include "kalshi/models.hpp"
+#include "kalshi/rate_limit.hpp"
+
+#include <memory>
+#include <string_view>
+
+namespace kalshi {
+
+/// Client for the Kalshi Predictions REST API. Each method maps to one
+/// operation in Kalshi's OpenAPI document, named after its operationId.
+///
+/// Failures come back as `Error`: `InvalidRequest` for a request the SDK
+/// rejects before sending (or HTTP 400/409/422), `AuthenticationError`,
+/// `NotFound`, `RateLimited`, `ServerError`, `NetworkError`, or `ParseError`.
+/// `Error::api_code` carries Kalshi's machine-readable code when it sends one.
+class KalshiClient {
+public:
+	/// Uses a libcurl client. It signs requests when constructed with a Signer.
+	explicit KalshiClient(HttpClient client);
+	/// Uses any transport, such as RetryingTransport or a test double.
+	explicit KalshiClient(std::shared_ptr<const HttpTransport> transport);
+	~KalshiClient();
+
+	KalshiClient(KalshiClient&&) noexcept;
+	KalshiClient& operator=(KalshiClient&&) noexcept;
+	KalshiClient(const KalshiClient&) = delete;
+	KalshiClient& operator=(const KalshiClient&) = delete;
+
+	[[nodiscard]] const HttpTransport& transport() const noexcept;
+
+@OPERATIONS@
+private:
+	struct Impl;
+	std::unique_ptr<Impl> impl_;
+};
+
+/// Builds a RateLimitedTransport config from `get_account_api_limits()` and
+/// `get_account_endpoint_costs()`.
+[[nodiscard]] RateLimitConfig rate_limit_config(const GetAccountApiLimitsResponse& limits,
+												const GetAccountEndpointCostsResponse& costs);
+
+} // namespace kalshi
