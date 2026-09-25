@@ -164,7 +164,8 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 	AuthHeaders headers;
 	detail::WsEndpoint endpoint;
 	std::uint32_t failures{0};
-	bool open{false}; // the current connection finished its handshake
+	bool open{false};			 // the current connection finished its handshake
+	bool failure_handled{false}; // on_failed() already dealt with this attempt
 	std::chrono::steady_clock::time_point opened_at;
 	std::minstd_rand rng;
 	Timer timer{};
@@ -427,6 +428,7 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 		info.ssl_connection = endpoint.use_ssl ? LCCSCF_USE_SSL : 0;
 		info.retry_and_idle_policy = &retry;
 		open = false;
+		failure_handled = false;
 		wsi = lws_client_connect_via_info(&info);
 		if (wsi == nullptr) {
 			return std::unexpected(Error::network("Failed to start the WebSocket connection"));
@@ -476,10 +478,9 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 		if (self->stopping) {
 			return;
 		}
-		const std::uint32_t before = self->failures;
 		// A synchronous failure may already have gone through on_failed(), which
-		// reported it and scheduled the next attempt.
-		if (Result<void> started = self->attempt(); !started && self->failures == before) {
+		// reported it and scheduled the next attempt or gave up.
+		if (Result<void> started = self->attempt(); !started && !self->failure_handled) {
 			self->deliver(WsError{0, started.error().message, std::nullopt, std::nullopt,
 								  std::nullopt, std::nullopt});
 			self->schedule_reconnect();
@@ -582,9 +583,11 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 	}
 
 	void on_failed(lws* connection, const std::string& reason) {
-		if (connection != wsi && wsi != nullptr) {
+		// libwebsockets may report one failed attempt more than once.
+		if ((connection != wsi && wsi != nullptr) || failure_handled) {
 			return;
 		}
+		failure_handled = true;
 		wsi = nullptr;
 		bool first = false;
 		{
