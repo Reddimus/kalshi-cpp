@@ -58,6 +58,8 @@ project(kalshi_installed_consumer LANGUAGES CXX)
 find_package(kalshi $minor CONFIG REQUIRED)
 add_executable(consumer main.cpp)
 target_link_libraries(consumer PRIVATE kalshi::kalshi)
+# Public headers must stay warning-free for projects that build with -Werror.
+target_compile_options(consumer PRIVATE -Wall -Wextra -Wpedantic -Werror)
 CMAKE
 cmake -S "$scratch_dir/installed" -B "$scratch_dir/installed-build" \
   -DCMAKE_PREFIX_PATH="$scratch_dir/prefix"
@@ -77,6 +79,8 @@ if(TARGET kalshi_tests OR TARGET example_market_data)
 endif()
 add_executable(consumer main.cpp)
 target_link_libraries(consumer PRIVATE kalshi::kalshi)
+# Public headers must stay warning-free for projects that build with -Werror.
+target_compile_options(consumer PRIVATE -Wall -Wextra -Wpedantic -Werror)
 CMAKE
 cmake -S "$scratch_dir/fetched" -B "$scratch_dir/fetched-build"
 cmake --build "$scratch_dir/fetched-build" --parallel

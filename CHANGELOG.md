@@ -6,6 +6,16 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-25
+
+### Fixed
+
+- Public headers compile without warnings under `-Wall -Wextra -Wpedantic`,
+  so projects that build with `-Werror` can include them. `Error` values in
+  `error.hpp` and `fixed_point.hpp` left a field uninitialized, which
+  `-Wmissing-field-initializers` reported. The consumer check now builds with
+  those flags.
+
 ## [0.6.0] - 2026-09-25
 
 0.6.0 rebuilds the SDK from Kalshi's published specs. `KalshiClient` covers all
@@ -763,7 +773,8 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.0...v0.5.1

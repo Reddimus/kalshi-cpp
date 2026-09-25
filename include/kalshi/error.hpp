@@ -29,19 +29,19 @@ struct Error {
 	std::string api_code;
 
 	[[nodiscard]] static Error network(std::string msg) {
-		return {ErrorCode::NetworkError, std::move(msg)};
+		return {ErrorCode::NetworkError, std::move(msg), 0, {}};
 	}
 
 	[[nodiscard]] static Error auth(std::string msg) {
-		return {ErrorCode::AuthenticationError, std::move(msg)};
+		return {ErrorCode::AuthenticationError, std::move(msg), 0, {}};
 	}
 
 	[[nodiscard]] static Error parse(std::string msg) {
-		return {ErrorCode::ParseError, std::move(msg)};
+		return {ErrorCode::ParseError, std::move(msg), 0, {}};
 	}
 
 	[[nodiscard]] static Error signing(std::string msg) {
-		return {ErrorCode::SigningError, std::move(msg)};
+		return {ErrorCode::SigningError, std::move(msg), 0, {}};
 	}
 };
 
