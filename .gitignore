@@ -49,3 +49,6 @@ __pycache__/
 *~
 .DS_Store
 Thumbs.db
+
+# Local Python environment for tools/
+.venv/

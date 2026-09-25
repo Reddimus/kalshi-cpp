@@ -63,6 +63,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Changed
 
+- libwebsockets is found through its own CMake package when one is installed
+  (vcpkg, Homebrew, and Ubuntu ship one), with pkg-config as the fallback on
+  every platform. The installed `kalshiConfig.cmake` finds it the same way and
+  reports kalshi-cpp as not found, instead of stopping, when it is missing.
 - CMake 3.31 or newer is required when Glaze is fetched (Glaze's own
   minimum), or 3.21 with `KALSHI_USE_SYSTEM_GLAZE=ON`. Glaze 8.3 or newer is
   enforced at compile time.

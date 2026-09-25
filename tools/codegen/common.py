@@ -63,10 +63,12 @@ def first_sentence(text: str | None) -> str:
     sentence = match.group(1) if match else text
     if len(sentence) <= 300:
         return sentence
-    cut = sentence[:297].rsplit(" ", 1)[0]
+    cut = sentence[:297]
+    if sentence[297] != " ":  # mid-word: back up to the last whole word
+        cut = cut.rsplit(" ", 1)[0]
     if cut.count("`") % 2:  # never end inside a code span
-        cut = cut[:cut.rindex("`")].rstrip()
-    return cut + "..."
+        cut = cut[:cut.rindex("`")].rstrip() or cut.replace("`", "")
+    return cut.rstrip() + "..."
 
 
 def doc_lines(text: str, indent: str, width: int = 96) -> list[str]:

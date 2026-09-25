@@ -4,7 +4,14 @@ include(CMakeFindDependencyMacro)
 
 find_dependency(OpenSSL 3.0)
 find_dependency(CURL)
+
 include("${CMAKE_CURRENT_LIST_DIR}/KalshiWebsockets.cmake")
+kalshi_find_websockets(FALSE)
+if(NOT DEFINED KALSHI_WEBSOCKETS_TARGET)
+    set(kalshi_FOUND FALSE)
+    set(kalshi_NOT_FOUND_MESSAGE "kalshi-cpp needs libwebsockets, which was not found")
+    return()
+endif()
 # The exported targets link the libwebsockets target this package was built
 # against; map it to whichever one was found here.
 if(NOT TARGET @KALSHI_WEBSOCKETS_TARGET@)

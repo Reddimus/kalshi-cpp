@@ -1,10 +1,9 @@
 name: Docs
 
-# Builds the Doxygen API reference on pull requests that touch it, and
-# publishes it to GitHub Pages for each release tag.
+# Builds the Doxygen API reference on pull requests that touch it. Deploys it
+# to GitHub Pages when dispatched, which release.yml does after it publishes a
+# release, so only released headers are documented.
 on:
-  push:
-    tags: ["v*"]
   pull_request:
     paths:
       - "include/**"
@@ -19,7 +18,7 @@ permissions:
 
 concurrency:
   group: docs-${{ github.event.pull_request.number || github.ref }}
-  cancel-in-progress: true
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 jobs:
   build:
@@ -34,13 +33,17 @@ jobs:
       - name: Build the API reference
         run: make docs
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
-        if: github.event_name != 'pull_request'
+        if: github.event_name == 'workflow_dispatch'
         with:
           path: build-docs/html
 
   deploy:
-    if: github.event_name != 'pull_request'
+    if: github.event_name == 'workflow_dispatch'
     needs: build
+    # One deploy at a time, in order, so an older release never lands last.
+    concurrency:
+      group: pages-deploy
+      cancel-in-progress: false
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:

@@ -8,18 +8,29 @@ not in a public issue.
 ```bash
 git clone https://github.com/Reddimus/kalshi-cpp.git
 cd kalshi-cpp
+```
 
-# Ubuntu 24.04. Its apt CMake is older than the 3.31 this build needs.
+On Ubuntu 24.04, whose apt CMake is older than the 3.31 this build needs:
+
+```bash
 sudo apt install build-essential ninja-build pkg-config clang-format-18 python3-yaml \
-    libssl-dev libcurl4-openssl-dev libwebsockets-dev
-pipx install cmake
-
+    pipx libssl-dev libcurl4-openssl-dev libwebsockets-dev
+pipx install cmake && pipx ensurepath   # then open a new shell
 make test
 ```
 
-On macOS, run `brew install cmake ninja pkg-config openssl libwebsockets llvm@18`
-and `python3 -m pip install pyyaml`. Windows builds use vcpkg; the
-`build-windows` job in `.github/workflows/ci.yml` has the steps.
+On macOS, Homebrew's `llvm@18` provides clang-format 18 without putting it on
+`PATH`, and PyYAML goes in a virtual environment:
+
+```bash
+brew install cmake ninja pkg-config openssl libwebsockets llvm@18
+python3 -m venv .venv && .venv/bin/pip install pyyaml
+export CLANG_FORMAT="$(brew --prefix llvm@18)/bin/clang-format" PYTHON=.venv/bin/python
+make test lint
+```
+
+Windows builds use vcpkg; the `build-windows` job in `.github/workflows/ci.yml`
+has the steps.
 
 ## Everyday commands
 
@@ -58,11 +69,12 @@ explains how to refresh the specs.
 - Public functions return `kalshi::Result<T>` (`std::expected<T, Error>`) and
   don't throw.
 - Spell out local variable types. `auto` is fine for structured bindings,
-  lambdas, and iterators named `it` or `iter`; mark anything else with a
-  `// auto-ok: reason` comment. `make lint` checks this.
+  lambdas, and iterators. Anything else needs an `// auto-ok: reason` comment
+  or an entry in `tools/cpp_auto_allowlist.txt`; `make lint` checks this.
 - `.clang-format` sets the layout: tabs, 100 columns, project includes before
   system includes.
-- Glaze reads and writes JSON. Don't add hand-written JSON scanners.
+- Glaze reads and writes JSON. `strip_null_members` is the only hand-written
+  scanner, and it runs only after a parse fails.
 - Keep tests offline. Inject an `HttpTransport`, or use the local HTTP and
   WebSocket servers in `tests/`.
 

@@ -96,6 +96,7 @@ configure_file(
 find_package(OpenSSL 3.0 REQUIRED)
 find_package(CURL REQUIRED)
 include(cmake/KalshiWebsockets.cmake)
+kalshi_find_websockets(TRUE)
 
 # Glaze is a private, header-only build dependency; installed headers never
 # include it. src/json.hpp rejects versions older than 8.3 at compile time,
