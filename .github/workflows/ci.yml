@@ -40,6 +40,16 @@ jobs:
           -DKALSHI_WARNINGS_AS_ERRORS=ON -DKALSHI_BUILD_BENCHMARKS=ON"
       - name: Test
         run: make test
+      # One iteration each, so a benchmark whose setup breaks fails here.
+      # Timings are never checked.
+      - name: Benchmark smoke run
+        run: |
+          ./build/benchmarks/kalshi_benchmarks --benchmark_dry_run=true \
+            --benchmark_out=build/benchmarks.json --benchmark_out_format=json
+          if grep -q '"error_occurred": true' build/benchmarks.json; then
+            echo "A benchmark failed; see its ERROR OCCURRED line above."
+            exit 1
+          fi
 
   build-macos:
     runs-on: macos-26

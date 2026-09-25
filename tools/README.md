@@ -14,4 +14,6 @@ parts of the generated headers; `codegen/ws.py` maps the AsyncAPI document.
 
 Benchmarks live in `benchmarks/`. Run them with `make bench`, and pass Google
 Benchmark flags through `BENCH_ARGS`, for example
-`make bench BENCH_ARGS=--benchmark_filter=WsParse`.
+`make bench BENCH_ARGS=--benchmark_filter=WsParse`. Each reports heap
+allocations per iteration as `allocs` and `alloc_bytes`, and on macOS the
+`instructions` per iteration, which stay steady on a busy machine.

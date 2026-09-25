@@ -35,6 +35,15 @@ include(GoogleTest)
 # Instrumented binaries can take several seconds to list tests on macOS runners.
 gtest_discover_tests(kalshi_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30)
 
+# Its own binary, because it replaces operator new for the whole process.
+if(TARGET kalshi_allocation_counter)
+    add_executable(kalshi_allocation_tests test_allocation_counter.cpp)
+    target_link_libraries(kalshi_allocation_tests PRIVATE kalshi_allocation_counter
+        GTest::gtest_main)
+    kalshi_configure_target(kalshi_allocation_tests)
+    gtest_discover_tests(kalshi_allocation_tests DISCOVERY_MODE PRE_TEST)
+endif()
+
 # Coarse throughput guard: fails only on order-of-magnitude regressions.
 # Instrumented builds run it for correctness only.
 add_executable(kalshi_parse_benchmark parse_benchmark.cpp)
