@@ -70,6 +70,8 @@ endif()
 function(kalshi_configure_target target)
     if(MSVC)
         target_compile_options(${target} PRIVATE /W4 $<$<BOOL:${KALSHI_WARNINGS_AS_ERRORS}>:/WX>)
+        # Standard getenv/gmtime are fine; MSVC's "secure" alternatives are not portable.
+        target_compile_definitions(${target} PRIVATE _CRT_SECURE_NO_WARNINGS)
     else()
         target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic
             -Wno-missing-field-initializers
