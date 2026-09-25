@@ -95,14 +95,7 @@ configure_file(
 
 find_package(OpenSSL 3.0 REQUIRED)
 find_package(CURL REQUIRED)
-if(WIN32)
-    find_package(libwebsockets CONFIG REQUIRED)
-    set(KALSHI_WEBSOCKETS_TARGET websockets_shared)
-else()
-    find_package(PkgConfig REQUIRED)
-    pkg_check_modules(WEBSOCKETS REQUIRED IMPORTED_TARGET libwebsockets)
-    set(KALSHI_WEBSOCKETS_TARGET PkgConfig::WEBSOCKETS)
-endif()
+include(cmake/KalshiWebsockets.cmake)
 
 # Glaze is a private, header-only build dependency; installed headers never
 # include it. src/json.hpp rejects versions older than 8.3 at compile time,
@@ -178,6 +171,7 @@ install(EXPORT kalshiTargets
     NAMESPACE kalshi::
     DESTINATION ${KALSHI_INSTALL_CMAKEDIR})
 install(FILES
+    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/KalshiWebsockets.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfigVersion.cmake
     DESTINATION ${KALSHI_INSTALL_CMAKEDIR})

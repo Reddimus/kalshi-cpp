@@ -8,6 +8,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- An API reference built from the headers with `make docs` and published to
+  <https://reddimus.github.io/kalshi-cpp/> for each release.
 - `WebSocketClient` covers every channel and command in Kalshi's AsyncAPI
   document: all 13 channels, `update_subscription` for markets, snapshots, CF
   Benchmarks indices, and Pyth underlyings, and `list_subscriptions`. Message

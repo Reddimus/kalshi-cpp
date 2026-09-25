@@ -4,11 +4,12 @@ include(CMakeFindDependencyMacro)
 
 find_dependency(OpenSSL 3.0)
 find_dependency(CURL)
-if(NOT WIN32)
-    find_dependency(PkgConfig)
-    pkg_check_modules(WEBSOCKETS REQUIRED IMPORTED_TARGET libwebsockets)
-else()
-    find_dependency(libwebsockets CONFIG)
+include("${CMAKE_CURRENT_LIST_DIR}/KalshiWebsockets.cmake")
+# The exported targets link the libwebsockets target this package was built
+# against; map it to whichever one was found here.
+if(NOT TARGET @KALSHI_WEBSOCKETS_TARGET@)
+    add_library(@KALSHI_WEBSOCKETS_TARGET@ INTERFACE IMPORTED)
+    target_link_libraries(@KALSHI_WEBSOCKETS_TARGET@ INTERFACE ${KALSHI_WEBSOCKETS_TARGET})
 endif()
 
 include("${CMAKE_CURRENT_LIST_DIR}/kalshiTargets.cmake")

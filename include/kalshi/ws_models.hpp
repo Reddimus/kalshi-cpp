@@ -174,10 +174,7 @@ enum class LifecyclePriceLevelStructure : std::uint8_t {
 	return "";
 }
 
-/// Field to annotate which of the event type this event is for: - `created` - Market created -
-/// `activated` - Market activated - `deactivated` - Market deactivated - `close_date_updated` -
-/// Market close date updated - `determined` - Market determined - `settled` - Market settled -
-/// `price_level_structu...
+/// Field to annotate which of the event type this event is for
 enum class MarketLifecycleV2EventType : std::uint8_t {
 	Unknown,					///< A value this SDK version does not know.
 	Created,					///< `created`
@@ -211,9 +208,7 @@ enum class MarketLifecycleV2EventType : std::uint8_t {
 	return "";
 }
 
-/// Field to annotate which of the event type this event is for: - `created` - Market created -
-/// `activated` - Market activated - `deactivated` - Market deactivated - `close_date_updated` -
-/// Market close date updated - `determined` - Market determined - `settled` - Market settled
+/// Field to annotate which of the event type this event is for
 enum class MultivariateMarketLifecycleEventType : std::uint8_t {
 	Unknown,		  ///< A value this SDK version does not know.
 	Created,		  ///< `created`
@@ -555,10 +550,7 @@ struct MarketLifecycleV2 {
 	std::optional<bool> is_deactivated;
 	/// Optional - This key will be emitted when the market is created
 	std::optional<LifecycleAdditionalMetadata> additional_metadata;
-	/// Field to annotate which of the event type this event is for: - `created` - Market created -
-	/// `activated` - Market activated - `deactivated` - Market deactivated - `close_date_updated`
-	/// - Market close date updated - `determined` - Market determined - `settled` - Market settled
-	/// - `price_level_structu...
+	/// Field to annotate which of the event type this event is for
 	MarketLifecycleV2EventType event_type{};
 	/// Optional - The market price level structure on creation or price_level_structure_updated
 	/// events
@@ -631,9 +623,7 @@ struct MultivariateMarketLifecycle {
 	std::optional<bool> is_deactivated;
 	/// Optional - This key will be emitted when the market is created
 	std::optional<LifecycleAdditionalMetadata> additional_metadata;
-	/// Field to annotate which of the event type this event is for: - `created` - Market created -
-	/// `activated` - Market activated - `deactivated` - Market deactivated - `close_date_updated`
-	/// - Market close date updated - `determined` - Market determined - `settled` - Market settled
+	/// Field to annotate which of the event type this event is for
 	MultivariateMarketLifecycleEventType event_type{};
 	/// Optional - The market price level structure on creation
 	std::optional<LifecyclePriceLevelStructure> price_level_structure;

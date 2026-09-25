@@ -8,13 +8,17 @@ Kalshi's OpenAPI document and streams market data over WebSockets. Requests are
 signed with Ed25519 or RSA-PSS keys, prices stay exact fixed-point strings, and
 every call returns `std::expected<T, kalshi::Error>` instead of throwing.
 
-The REST client is generated from [`spec/openapi.yaml`](spec/openapi.yaml), so
-model and field names match [Kalshi's API reference](https://docs.kalshi.com).
-Kalshi's separate Margin and Perpetuals API is out of scope.
+The client is generated from Kalshi's OpenAPI and AsyncAPI documents in
+[`spec/`](spec/), so type and field names match
+[Kalshi's API reference](https://docs.kalshi.com). The
+[API reference for this library](https://reddimus.github.io/kalshi-cpp/) is
+built from its headers. Kalshi's separate Margin and Perpetuals API is out of
+scope.
 
 ## Build
 
 You need a C++23 compiler, CMake 3.31+, OpenSSL 3, libcurl, and libwebsockets.
+Ubuntu 24.04's apt CMake is older; `pipx install cmake` gets a current one.
 
 ```bash
 brew install cmake openssl curl libwebsockets pkg-config    # macOS
@@ -168,7 +172,8 @@ in `.env`, then run `make run-portfolio`.
 make format lint test          # before every commit
 make sanitize tsan tidy        # ASan/UBSan, ThreadSanitizer, clang-tidy
 make consumers bench           # packaging check, benchmarks
-make codegen                   # after updating spec/openapi.yaml
+make codegen                   # after updating a spec in spec/
+make docs                      # API reference in build-docs/html
 ```
 
 [CONTRIBUTING.md](CONTRIBUTING.md) covers the workflow and release steps.

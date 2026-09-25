@@ -1,43 +1,30 @@
 # Security policy
 
-`kalshi-cpp` is a third-party C++ client for the Kalshi exchange API.
-It signs every request with an account-bound RSA private key, so a
-vulnerability that mishandles credentials or leaks request material
-could put live trading capital at risk. This file is the canonical
-contact path for reporting one.
+`kalshi-cpp` is a third-party C++ client for the Kalshi exchange API. It signs
+requests with an account's Ed25519 or RSA private key, so a bug that leaks a
+key or lets someone forge requests could put trading capital at risk.
 
 ## Supported versions
 
-Security fixes are made on the latest published `vX.Y.Z` tag. Older
-tags are not back-patched. Bump your `FetchContent_Declare(... GIT_TAG ...)`
-pin or your `find_package(kalshi X.Y.Z CONFIG REQUIRED)` constraint to
-the latest minor on the same major as part of the upgrade.
-
-| Version    | Supported          |
-| ---------- | ------------------ |
-| latest tag | :white_check_mark: |
-| older      | :x:                |
+Fixes go into the next release after the latest tag; older releases are not
+patched. Upgrade by moving your `GIT_TAG` or `find_package(kalshi X.Y CONFIG)`
+version to the new release.
 
 ## Reporting a vulnerability
 
-**Do not open a public issue.** Use GitHub's [private vulnerability
-reporting](https://github.com/Reddimus/kalshi-cpp/security/advisories/new)
-flow, which delivers the report to the maintainer privately and
-tracks coordinated disclosure.
+Don't open a public issue. Use GitHub's [private vulnerability
+reporting](https://github.com/Reddimus/kalshi-cpp/security/advisories/new),
+which reaches the maintainer privately and tracks disclosure.
 
-When reporting, please include:
+Include:
 
 - Affected version (tag or commit SHA)
 - A minimal reproduction or test case
 - Impact (credential leak / request forgery / DoS / something else)
 - Whether you've notified anyone else (e.g. Kalshi directly)
 
-You can expect:
-
-- Acknowledgement within **3 business days**
-- An initial assessment + severity rating within **7 business days**
-- A fix on a new `vX.Y.Z+1` tag, or a clear timeline if the fix is
-  larger
+You should hear back within 3 business days, and get an assessment within 7.
+The fix ships in a new release, or you get a timeline if it takes longer.
 
 ## Out of scope
 

@@ -3,6 +3,10 @@
 # - performance-enum-size: narrowing public enums would change the ABI for little gain.
 # - optin.performance.Padding: public parameter structs are ordered for readability and
 #   aggregate initialization, not layout.
+# - modernize-use-trailing-return-type, modernize-avoid-c-arrays: style preferences this
+#   code base does not follow; C arrays appear only at C API boundaries.
+# - modernize-use-nodiscard: [[nodiscard]] is placed deliberately on public results.
+# - modernize-use-auto: the project spells out local types (tools/cpp_auto_audit.py).
 Checks: >
   -*,
   bugprone-*,
@@ -12,19 +16,30 @@ Checks: >
   performance-*,
   -performance-enum-size,
   portability-*,
-  modernize-use-nullptr,
-  modernize-use-override,
-  modernize-use-equals-default,
-  modernize-use-equals-delete,
-  modernize-redundant-void-arg,
-  modernize-use-using,
+  modernize-*,
+  -modernize-use-trailing-return-type,
+  -modernize-avoid-c-arrays,
+  -modernize-use-nodiscard,
+  -modernize-use-auto,
+  readability-braces-around-statements,
+  readability-const-return-type,
   readability-container-size-empty,
-  readability-redundant-string-init,
+  readability-else-after-return,
+  readability-inconsistent-declaration-parameter-name,
   readability-make-member-function-const,
-  misc-unused-using-decls,
+  readability-misleading-indentation,
+  readability-redundant-control-flow,
+  readability-redundant-member-init,
+  readability-redundant-smartptr-get,
+  readability-redundant-string-init,
+  readability-simplify-boolean-expr,
   misc-definitions-in-headers,
-  cppcoreguidelines-virtual-class-destructor,
-  cppcoreguidelines-slicing
+  misc-unused-using-decls,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-missing-std-forward,
+  cppcoreguidelines-prefer-member-initializer,
+  cppcoreguidelines-slicing,
+  cppcoreguidelines-virtual-class-destructor
 WarningsAsErrors: '*'
 HeaderFilterRegex: '.*/(include/kalshi(/detail)?|src(/api|/auth|/http|/models|/ws)?)/[^/]+$'
 FormatStyle: file

@@ -11,7 +11,7 @@ CLANG_FORMAT_MAJOR := 18
 CPP_SOURCES = git ls-files -z --cached --others --exclude-standard '*.cpp' '*.hpp' | \
 	xargs -0 sh -c 'for f; do [ -e "$$f" ] && printf "%s\0" "$$f"; done' _
 
-.PHONY: all configure build debug test sanitize tsan tidy bench consumers codegen lint lint-docs \
+.PHONY: all configure build debug test sanitize tsan tidy bench consumers codegen docs lint lint-docs \
 	format pre-commit install-hooks coverage clean help
 
 all: build
@@ -47,6 +47,10 @@ bench:
 
 consumers:
 	./tools/test_consumers.sh
+
+# Needs Doxygen. Opens at build-docs/html/index.html.
+docs:
+	KALSHI_VERSION=$$(./tools/project_version.sh) doxygen Doxyfile
 
 # Needs PyYAML and clang-format 18.
 codegen:
@@ -103,7 +107,8 @@ help:
 	@echo "make tidy         clang-tidy build in build-tidy/"
 	@echo "make bench        Google Benchmark suite in build-bench/ (BENCH_ARGS=...)"
 	@echo "make consumers    Check install and FetchContent consumers"
-	@echo "make codegen      Regenerate the REST client from spec/openapi.yaml"
+	@echo "make codegen      Regenerate the REST client and WebSocket types from spec/"
+	@echo "make docs         Doxygen API reference in build-docs/html"
 	@echo "make lint         clang-format, explicit-type audit, generated-code check"
 	@echo "make lint-docs    markdownlint"
 	@echo "make format       Format C++ sources in place"
