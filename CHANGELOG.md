@@ -6,6 +6,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.0] - 2026-09-25
+
+0.6.0 rebuilds the SDK from Kalshi's published specs. `KalshiClient` covers all
+117 Predictions REST operations and `WebSocketClient` every channel, with the
+specs' names and types. The WebSocket client reconnects and resubscribes on its
+own, and Ed25519 keys, retries, and rate limits are new. This release breaks
+the 0.5 API; "Migrating from 0.5" below lists what changed.
+
 ### Added
 
 - An API reference built from the headers with `make docs` and published to
@@ -755,7 +763,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.2...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.0...v0.5.1
 [0.5.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.4.9...v0.5.0
