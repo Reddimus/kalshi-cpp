@@ -58,6 +58,8 @@ public:
 
 	[[nodiscard]] bool running() const { return context_ != nullptr && port_ > 0; }
 
+	[[nodiscard]] int port() const { return port_; }
+
 	[[nodiscard]] std::string url() const {
 		return "ws://127.0.0.1:" + std::to_string(port_) + "/trade-api/ws/v2";
 	}

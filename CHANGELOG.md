@@ -13,6 +13,24 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   view over the start of a longer buffer was counted from the bytes after
   it. Counting also no longer copies each order: 20 orders now take 6
   allocations instead of 26.
+- A connection the peer reset can no longer end the process with SIGPIPE.
+  `WebSocketClient` relied on libwebsockets ignoring SIGPIPE process-wide,
+  which an application that restores the default handler undoes. Its sockets
+  now set `SO_NOSIGPIPE` where the OS has it (macOS and the BSDs, which signal
+  the whole process), and its network thread blocks SIGPIPE (Linux, which
+  signals the writing thread). Callbacks on that thread see SIGPIPE blocked.
+- On macOS, the benchmarks' `allocs` and `alloc_bytes` no longer count the
+  allocation that recording the `instructions` counter makes.
+
+### Changed
+
+- `KALSHI_NATIVE_ARCH` stops at configure time when the compiler rejects
+  `-march=native` for the target, as in universal macOS builds, instead of
+  failing mid-build.
+- `make lint`, `make format`, and `make tidy` find Homebrew's keg-only
+  `llvm@18` without `PATH` changes.
+- README is shorter and states the macOS 13.3 minimum deployment target, which
+  CI now builds against.
 
 ## [0.6.1] - 2026-09-25
 

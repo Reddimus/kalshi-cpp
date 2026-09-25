@@ -59,14 +59,17 @@ std::uint64_t instructions_retired() noexcept {
 class LoopReport {
 public:
 	void report(benchmark::State& state) const {
+		// Read both before touching state.counters, whose map allocates.
 		const std::uint64_t instructions = instructions_retired();
+#ifdef KALSHI_COUNT_ALLOCATIONS
+		const kalshi::test::AllocationCount used = kalshi::test::allocations() - start_;
+#endif
 		if (instructions_ != 0 && instructions > instructions_) {
 			state.counters["instructions"] =
 				benchmark::Counter(static_cast<double>(instructions - instructions_),
 								   benchmark::Counter::kAvgIterations);
 		}
 #ifdef KALSHI_COUNT_ALLOCATIONS
-		const kalshi::test::AllocationCount used = kalshi::test::allocations() - start_;
 		state.counters["allocs"] =
 			benchmark::Counter(static_cast<double>(used.count), benchmark::Counter::kAvgIterations);
 		state.counters["alloc_bytes"] =

@@ -5,7 +5,10 @@ BUILD_TYPE ?= Release
 CMAKE_ARGS ?=
 JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
 PYTHON ?= python3
-CLANG_FORMAT ?= $(shell command -v clang-format-18 2>/dev/null || command -v clang-format 2>/dev/null)
+# Homebrew's llvm@18 is keg-only, so it is not on PATH.
+CLANG_FORMAT ?= $(firstword $(shell command -v clang-format-18 2>/dev/null) \
+	$(wildcard /opt/homebrew/opt/llvm@18/bin/clang-format /usr/local/opt/llvm@18/bin/clang-format) \
+	$(shell command -v clang-format 2>/dev/null))
 CLANG_FORMAT_MAJOR := 18
 # Tracked and new C++ sources that exist on disk (deleted files are skipped).
 CPP_SOURCES = git ls-files -z --cached --others --exclude-standard '*.cpp' '*.hpp' | \
