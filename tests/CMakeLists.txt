@@ -37,8 +37,9 @@ gtest_discover_tests(kalshi_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30)
 
 # Its own binary, because it replaces operator new for the whole process.
 if(TARGET kalshi_allocation_counter)
-    add_executable(kalshi_allocation_tests test_allocation_counter.cpp)
-    target_link_libraries(kalshi_allocation_tests PRIVATE kalshi_allocation_counter
+    add_executable(kalshi_allocation_tests test_allocation_counter.cpp
+        test_allocation_budgets.cpp)
+    target_link_libraries(kalshi_allocation_tests PRIVATE kalshi_allocation_counter kalshi::kalshi
         GTest::gtest_main)
     kalshi_configure_target(kalshi_allocation_tests)
     gtest_discover_tests(kalshi_allocation_tests DISCOVERY_MODE PRE_TEST)

@@ -19,6 +19,7 @@ memory.
 | `test_version.cpp` | `kalshi::VERSION` and its components |
 | `parse_benchmark.cpp` | A coarse throughput guard, run as its own test |
 | `test_allocation_counter.cpp` | The `operator new` counter in `support/`, in its own binary |
+| `test_allocation_budgets.cpp` | Hot paths whose allocations must not grow with the size of each item |
 | `test_ws_messages.cpp` | Every example frame in the AsyncAPI spec (generated) |
 | `test_ws_frames.cpp` | Control frames, discriminated types, nulls, unknown values |
 | `test_ws_subscriptions.cpp` | Command frames, held commands, resubscribing, gaps |
