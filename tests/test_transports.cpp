@@ -73,20 +73,23 @@ TEST(Retry, JitterStaysWithinTheConfiguredSpread) {
 	}
 }
 
-TEST(Retry, PostRetriesOnlyWhenTheServerRejectedIt) {
+TEST(Retry, WritesRetryOnlyWhenTheServerRejectedThem) {
 	const kalshi::RetryPolicy policy;
-	EXPECT_TRUE(kalshi::should_retry(kalshi::HttpMethod::POST, status(429), policy));
-	EXPECT_FALSE(kalshi::should_retry(kalshi::HttpMethod::POST, status(503), policy));
-	EXPECT_FALSE(
-		kalshi::should_retry(kalshi::HttpMethod::POST, kalshi::Error::network("reset"), policy));
+	const kalshi::Error reset = kalshi::Error::network("reset");
+	for (const kalshi::HttpMethod write :
+		 {kalshi::HttpMethod::POST, kalshi::HttpMethod::PUT, kalshi::HttpMethod::DEL}) {
+		EXPECT_TRUE(kalshi::should_retry(write, status(429), policy));
+		EXPECT_FALSE(kalshi::should_retry(write, status(503), policy));
+		EXPECT_FALSE(kalshi::should_retry(write, reset, policy));
+	}
 	EXPECT_TRUE(kalshi::should_retry(kalshi::HttpMethod::GET, status(503), policy));
-	EXPECT_TRUE(
-		kalshi::should_retry(kalshi::HttpMethod::DEL, kalshi::Error::network("reset"), policy));
+	EXPECT_TRUE(kalshi::should_retry(kalshi::HttpMethod::GET, reset, policy));
 	EXPECT_FALSE(kalshi::should_retry(kalshi::HttpMethod::GET, status(404), policy));
 
-	kalshi::RetryPolicy unsafe = policy;
-	unsafe.retry_non_idempotent = true;
-	EXPECT_TRUE(kalshi::should_retry(kalshi::HttpMethod::POST, status(503), unsafe));
+	kalshi::RetryPolicy writes = policy;
+	writes.retry_writes = true;
+	EXPECT_TRUE(kalshi::should_retry(kalshi::HttpMethod::POST, status(503), writes));
+	EXPECT_TRUE(kalshi::should_retry(kalshi::HttpMethod::DEL, reset, writes));
 }
 
 TEST(Retry, TransportRetriesTransientFailuresThenReturnsTheResult) {
@@ -121,11 +124,20 @@ TEST(Retry, TransportStopsAtMaxAttemptsAndNeverRepeatsAnAmbiguousPost) {
 	EXPECT_EQ(inner->calls, 1);
 }
 
-TEST(Retry, TransportWaitsAtLeastRetryAfter) {
+TEST(Retry, TransportHonorsRetryAfterUpToMaxDelay) {
 	const std::shared_ptr<ScriptedTransport> inner = std::make_shared<ScriptedTransport>();
+	inner->responses.emplace_back(kalshi::HttpResponse{429, "{}", {{"retry-after", "3600"}}});
+	inner->responses.emplace_back(status(200));
+	const kalshi::RetryingTransport capped(inner, fast_policy()); // max_delay is 5 ms
+	const std::chrono::steady_clock::time_point capped_start = std::chrono::steady_clock::now();
+	ASSERT_TRUE(capped.get("/markets").has_value());
+	EXPECT_LT(std::chrono::steady_clock::now() - capped_start, 500ms);
+
 	inner->responses.emplace_back(kalshi::HttpResponse{429, "{}", {{"retry-after", "1"}}});
 	inner->responses.emplace_back(status(200));
-	const kalshi::RetryingTransport transport(inner, fast_policy());
+	kalshi::RetryPolicy policy = fast_policy();
+	policy.max_delay = 2s;
+	const kalshi::RetryingTransport transport(inner, policy);
 
 	const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
 	const kalshi::Result<kalshi::HttpResponse> response = transport.get("/markets");
@@ -164,6 +176,18 @@ TEST(TokenBucket, AcquireForGivesUpWhenTokensCannotArriveInTime) {
 	EXPECT_FALSE(bucket.acquire_for(50.0, 100ms)); // needs 5 s
 	EXPECT_LT(std::chrono::steady_clock::now() - start, 50ms);
 	EXPECT_FALSE(bucket.acquire_for(500.0, 10s)); // more than capacity
+}
+
+TEST(TokenBucket, WaitersReserveTokensSoLaterCallersQueueBehindThem) {
+	kalshi::TokenBucket bucket(
+		{.capacity = 10.0, .refill_per_second = 100.0, .initial_tokens = 0.0});
+	std::thread waiter([&bucket] { EXPECT_TRUE(bucket.acquire_for(10.0, 1s)); });
+	std::this_thread::sleep_for(20ms);
+	// The waiter holds a reservation, so small requests cannot jump ahead of it.
+	EXPECT_FALSE(bucket.try_acquire(1.0));
+	EXPECT_DOUBLE_EQ(bucket.available(), 0.0);
+	waiter.join();
+	EXPECT_GT(bucket.wait_time(10.0), 50ms);
 }
 
 TEST(TokenBucket, ExtremeWaitsSaturateInsteadOfOverflowing) {
@@ -225,6 +249,31 @@ TEST(RateLimitedTransport, FailsFastInsteadOfWaitingPastMaxWait) {
 	ASSERT_FALSE(limited.has_value());
 	EXPECT_EQ(limited.error().code, kalshi::ErrorCode::RateLimited);
 	EXPECT_EQ(inner->calls, 1);
+}
+
+TEST(RateLimitedTransport, BatchesLargerThanTheBucketFailClearly) {
+	const std::shared_ptr<ScriptedTransport> inner = std::make_shared<ScriptedTransport>();
+	const kalshi::RateLimitedTransport transport(inner, kalshi::RateLimitConfig{});
+	std::string body = R"({"orders":[)";
+	for (int i = 0; i < 20; ++i) {
+		body += std::string(i == 0 ? "" : ",") + R"({"ticker":"T"})";
+	}
+	body += "]}";
+
+	const kalshi::Result<kalshi::HttpResponse> response =
+		transport.post("/portfolio/events/orders/batched", body);
+
+	ASSERT_FALSE(response.has_value());
+	EXPECT_EQ(response.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(inner->calls, 0);
+}
+
+TEST(RateLimitedTransport, MissingAccountLimitsKeepBasicTierDefaults) {
+	const kalshi::RateLimitConfig config =
+		kalshi::rate_limit_config(kalshi::AccountApiLimits{}, kalshi::EndpointCosts{});
+	EXPECT_DOUBLE_EQ(config.read.refill_per_second, 200.0);
+	EXPECT_DOUBLE_EQ(config.write.capacity, 100.0);
+	EXPECT_DOUBLE_EQ(config.default_cost, 10.0);
 }
 
 TEST(RateLimitedTransport, ConfigComesFromAccountLimits) {

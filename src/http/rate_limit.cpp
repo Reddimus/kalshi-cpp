@@ -31,10 +31,13 @@ void TokenBucket::refill(Clock::time_point now) const noexcept {
 
 std::chrono::nanoseconds TokenBucket::wait_time_locked(double cost) const noexcept {
 	cost = non_negative(cost);
+	if (cost > config_.capacity) {
+		return std::chrono::nanoseconds::max();
+	}
 	if (tokens_ >= cost) {
 		return std::chrono::nanoseconds::zero();
 	}
-	if (cost > config_.capacity || config_.refill_per_second <= 0.0) {
+	if (config_.refill_per_second <= 0.0) {
 		return std::chrono::nanoseconds::max();
 	}
 	const double seconds = (cost - tokens_) / config_.refill_per_second;
@@ -49,7 +52,7 @@ bool TokenBucket::try_acquire(double cost) noexcept {
 	const std::scoped_lock lock(mutex_);
 	refill(Clock::now());
 	cost = non_negative(cost);
-	if (tokens_ < cost) {
+	if (cost > config_.capacity || tokens_ < cost) {
 		return false;
 	}
 	tokens_ -= cost;
@@ -57,28 +60,22 @@ bool TokenBucket::try_acquire(double cost) noexcept {
 }
 
 bool TokenBucket::acquire_for(double cost, std::chrono::nanoseconds max_wait) {
-	const Clock::time_point start = Clock::now();
-	const Clock::time_point deadline = max_wait >= Clock::time_point::max() - start
-										   ? Clock::time_point::max()
-										   : start + std::max(max_wait, std::chrono::nanoseconds{});
-	while (true) {
-		std::chrono::nanoseconds wait{};
-		{
-			const std::scoped_lock lock(mutex_);
-			const Clock::time_point now = Clock::now();
-			refill(now);
-			wait = wait_time_locked(cost);
-			if (wait == std::chrono::nanoseconds::zero()) {
-				tokens_ -= non_negative(cost);
-				return true;
-			}
-			if (wait == std::chrono::nanoseconds::max() || wait > deadline - now) {
-				return false;
-			}
+	std::chrono::nanoseconds wait{};
+	{
+		const std::scoped_lock lock(mutex_);
+		refill(Clock::now());
+		wait = wait_time_locked(cost);
+		if (wait == std::chrono::nanoseconds::max() || wait > max_wait) {
+			return false;
 		}
-		// Other threads may take tokens meanwhile; the loop re-checks.
+		// Reserve now, possibly driving the balance negative, so later callers
+		// wait behind this one instead of racing it for refilled tokens.
+		tokens_ -= non_negative(cost);
+	}
+	if (wait > std::chrono::nanoseconds::zero()) {
 		std::this_thread::sleep_for(wait);
 	}
+	return true;
 }
 
 std::chrono::nanoseconds TokenBucket::wait_time(double cost) const noexcept {
@@ -90,7 +87,7 @@ std::chrono::nanoseconds TokenBucket::wait_time(double cost) const noexcept {
 double TokenBucket::available() const noexcept {
 	const std::scoped_lock lock(mutex_);
 	refill(Clock::now());
-	return tokens_;
+	return std::max(tokens_, 0.0);
 }
 
 void TokenBucket::reset() noexcept {

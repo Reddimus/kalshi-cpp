@@ -200,7 +200,7 @@ TEST(Signer, EncryptedKeysFailWithoutPrompting) {
 	ASSERT_NE(pem.find("ENCRYPTED"), std::string::npos);
 	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem("key", pem);
 	ASSERT_FALSE(signer.has_value());
-	EXPECT_EQ(signer.error().code, kalshi::ErrorCode::SigningError);
+	EXPECT_EQ(signer.error().code, kalshi::ErrorCode::InvalidKey);
 }
 
 TEST(Signer, UnsupportedKeyTypesFailAtLoadTime) {

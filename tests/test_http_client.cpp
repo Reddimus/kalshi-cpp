@@ -222,8 +222,8 @@ TEST(HttpClientLoopback, DeleteCarriesItsJsonBody) {
 }
 
 TEST(HttpClientLoopback, ErrorStatusesComeBackAsResponsesWithHeaders) {
-	const LoopbackServer server(
-		http_response(404, R"({"error":{"code":"not_found"}})", "X-Request-Id: abc123\r\n"));
+	const LoopbackServer server(http_response(404, R"({"error":{"code":"not_found"}})",
+											  "X-Request-Id: abc123\r\nX-Blank:   \r\n"));
 	const kalshi::HttpClient client(config_for(server));
 
 	const kalshi::Result<kalshi::HttpResponse> response = client.get("/markets/NOPE");
@@ -232,6 +232,7 @@ TEST(HttpClientLoopback, ErrorStatusesComeBackAsResponsesWithHeaders) {
 	EXPECT_EQ(response->status_code, 404);
 	EXPECT_EQ(response->header("x-request-id"), "abc123");
 	EXPECT_EQ(response->header("X-REQUEST-ID"), "abc123");
+	EXPECT_EQ(response->header("x-blank"), "");
 	EXPECT_FALSE(response->header("missing").has_value());
 }
 

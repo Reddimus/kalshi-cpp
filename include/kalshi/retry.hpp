@@ -21,15 +21,13 @@ struct RetryPolicy {
 	bool retry_on_network_error{true};
 	bool retry_on_rate_limit{true};
 	bool retry_on_server_error{true};
-	/// Also retry POST after network errors and 5xx responses. Off by default:
-	/// the first attempt may have reached the exchange, for example as a placed
-	/// order. A 429 always retries because the server rejected the request.
-	bool retry_non_idempotent{false};
+	/// Also retry POST, PUT, and DELETE after network errors and 5xx responses.
+	/// Off by default: the first attempt may have taken effect (an order placed,
+	/// a quote accepted, an order canceled), and a repeat would then double it
+	/// or fail misleadingly. A 429 always retries because the server rejected
+	/// the request without acting on it.
+	bool retry_writes{false};
 };
-
-[[nodiscard]] constexpr bool is_idempotent(HttpMethod method) noexcept {
-	return method != HttpMethod::POST;
-}
 
 [[nodiscard]] bool should_retry(HttpMethod method, const HttpResponse& response,
 								const RetryPolicy& policy) noexcept;
@@ -41,7 +39,7 @@ struct RetryPolicy {
 													const RetryPolicy& policy);
 
 /// Transport decorator that retries transient failures with exponential
-/// backoff. It honors a `Retry-After` header when the server sends one.
+/// backoff. A `Retry-After` header lengthens the wait, up to `max_delay`.
 ///
 ///     auto http = std::make_shared<kalshi::HttpClient>(signer);
 ///     kalshi::KalshiClient client{std::make_shared<kalshi::RetryingTransport>(http)};
