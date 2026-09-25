@@ -25,15 +25,17 @@ Windows uses vcpkg (the CI workflow has the exact invocations).
 ## Development workflow
 
 ```bash
-make debug          # Debug build with symbols
-make test           # Run unit tests (ctest)
-make lint           # clang-format --dry-run + cpp_auto_audit
+make debug          # Debug build in build-debug/
+make test           # Build and run the tests
+make sanitize       # ASan + UBSan
+make tsan           # ThreadSanitizer
+make tidy           # clang-tidy build
+make lint           # clang-format 18 check + cpp_auto_audit
 make format         # Apply clang-format in place
-make coverage       # lcov coverage report (Debug build)
-make clean          # Remove build/
+make bench          # Google Benchmark suite
+make coverage       # lcov report (needs lcov)
+make clean          # Remove build directories
 ```
-
-For ASan and UBSan, use the sanitizer commands in the top-level README.
 
 Always run `make lint` before pushing. CI gates on both
 `clang-format --dry-run` and the `cpp_auto_audit.py` script that
@@ -76,7 +78,8 @@ below).
 Releases are cut from `main` via tag push:
 
 ```bash
-# 1. Update CMakeLists.txt VERSION and move CHANGELOG.md entries into [X.Y.Z]
+# 1. Update CMakeLists.txt VERSION and move CHANGELOG.md entries into [X.Y.Z].
+#    release.yml refuses tags without a matching CHANGELOG section or passing CI.
 # 2. Commit the version bump
 git commit -am "chore(release): cut vX.Y.Z"
 git push origin main

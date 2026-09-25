@@ -64,9 +64,11 @@ kalshi::ser::BatchOrdersBody make_payload() {
 
 } // namespace
 
-int main() {
+int main(int argc, char** argv) {
+	// Instrumented builds still check results, but their timings mean nothing.
+	const bool check_timing = !(argc > 1 && std::string_view{argv[1]} == "--no-timing");
 	const kalshi::ser::BatchOrdersBody payload = make_payload();
-	constexpr int kIterations = 1000;
+	const int kIterations = check_timing ? 1000 : 10;
 
 	// Warmup — let the allocator and CPU settle.
 	for (int i = 0; i < 50; ++i) {
@@ -101,7 +103,7 @@ int main() {
 	// — that's ~10x the measured baseline and accounts for slower CI
 	// runners, Debug builds, and AddressSanitizer overhead.
 	constexpr double kMaxUsPerOp = 500.0;
-	if (us_per_op > kMaxUsPerOp) {
+	if (check_timing && us_per_op > kMaxUsPerOp) {
 		std::fprintf(stderr, "REGRESSION: %.3f us/op exceeds cap of %.0f us/op\n", us_per_op,
 					 kMaxUsPerOp);
 		return 1;
@@ -109,7 +111,7 @@ int main() {
 
 	constexpr std::string_view kTradeFrame =
 		R"({"type":"trade","sid":7,"msg":{"trade_id":"trade-1","market_ticker":"KXTEST-YES","yes_price_dollars":"0.4200","no_price_dollars":"0.5800","count_fp":"12.00","is_block_trade":false,"taker_side":"yes","taker_outcome_side":"yes","taker_book_side":"bid","ts":1788000000,"ts_ms":1788000000123}})";
-	constexpr int kParseIterations = 10000;
+	const int kParseIterations = check_timing ? 10000 : 100;
 	std::chrono::nanoseconds parse_total{0};
 	std::int64_t parse_checksum = 0;
 	for (int i = 0; i < kParseIterations; ++i) {
@@ -137,7 +139,7 @@ int main() {
 	std::printf("  WebSocket (parse): %8.3f ms total  (%8.3f us/op)\n", parse_total.count() / 1e6,
 				parse_us_per_op);
 	constexpr double kMaxParseUsPerOp = 500.0;
-	if (parse_us_per_op > kMaxParseUsPerOp) {
+	if (check_timing && parse_us_per_op > kMaxParseUsPerOp) {
 		std::fprintf(stderr, "REGRESSION: %.3f us/op exceeds WebSocket cap of %.0f us/op\n",
 					 parse_us_per_op, kMaxParseUsPerOp);
 		return 1;

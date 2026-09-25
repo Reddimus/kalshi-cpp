@@ -128,7 +128,7 @@ private:
 
 	void handle_snapshot(const OrderbookSnapshot& snap) {
 		std::lock_guard lock(mutex_);
-		auto& state = states_[snap.market_ticker];
+		LiveMarketState& state = states_[snap.market_ticker];
 		state.ticker = snap.market_ticker;
 		state.last_seq = snap.seq;
 
@@ -156,7 +156,7 @@ private:
 
 	void handle_delta(const OrderbookDelta& delta) {
 		std::lock_guard lock(mutex_);
-		auto& state = states_[delta.market_ticker];
+		LiveMarketState& state = states_[delta.market_ticker];
 		state.ticker = delta.market_ticker;
 		state.last_seq = delta.seq;
 
@@ -182,7 +182,7 @@ private:
 
 	void handle_trade(const WsTrade& trade) {
 		std::lock_guard lock(mutex_);
-		auto& state = states_[trade.market_ticker];
+		LiveMarketState& state = states_[trade.market_ticker];
 		state.ticker = trade.market_ticker;
 		state.last_trade_price = trade.yes_price;
 		state.last_trade_size = trade.count;

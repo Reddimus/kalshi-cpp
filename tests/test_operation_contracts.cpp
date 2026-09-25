@@ -873,12 +873,9 @@ TEST(OperationContracts, CurrentStringArrayFieldsAreParsedWithoutJsonFragments) 
 	ASSERT_TRUE(group.has_value());
 	EXPECT_EQ(group->order_ids, (std::vector<std::string>{"order-1", "order-2"}));
 #if defined(__clang__)
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 #endif
 	ASSERT_TRUE(client.get_order_group("group-1").has_value());
 #if defined(__clang__)
-#pragma clang diagnostic pop
 #endif
 	EXPECT_EQ(transport->path, "/portfolio/order_groups/group-1");
 
@@ -967,12 +964,9 @@ TEST(OperationContracts, RemovedGenericOperationsFailBeforeTransport) {
 	const std::shared_ptr<RecordingTransport> transport = std::make_shared<RecordingTransport>();
 	kalshi::KalshiClient client(transport);
 
-#pragma clang diagnostic push
-#pragma clang diagnostic ignored "-Wdeprecated-declarations"
 	EXPECT_FALSE(client.get_communication("legacy").has_value());
 	EXPECT_FALSE(client.lookup_multivariate_bundle("legacy", {}).has_value());
 	EXPECT_FALSE(client.get_live_datas({"legacy"}).has_value());
-#pragma clang diagnostic pop
 	EXPECT_TRUE(transport->path.empty());
 }
 

@@ -1,108 +1,49 @@
-# Prerequisites
-*.d
-
-# Compiled Object files
-*.slo
-*.lo
+# Build output
+build/
+build-*/
+cmake-build-*/
+_deps/
+Testing/
+CMakeUserPresets.json
+compile_commands.json
 *.o
 *.obj
-
-# Precompiled Headers
-*.gch
-*.pch
-
-# Linker files
-*.ilk
-
-# Debugger Files
-*.pdb
-
-# Compiled Dynamic libraries
+*.a
+*.lib
 *.so
 *.dylib
 *.dll
-
-# Fortran module files
-*.mod
-*.smod
-
-# Compiled Static libraries
-*.lai
-*.la
-*.a
-*.lib
-
-# Executables
 *.exe
-*.out
-*.app
+*.pdb
 
-# debug information files
-*.dwo
+# Coverage and sanitizer output
+*.gcda
+*.gcno
+*.gcov
+*.profraw
+*.profdata
+coverage/
+asan.log
+ubsan.log
 
-# Environment
+# Credentials: never commit keys or local settings
 .env
-
-# Build artifacts
-build/
-cmake-build-*/
-CMakeCache.txt
-CMakeFiles/
-cmake_install.cmake
-compile_commands.json
-Makefile.cmake
-
-# IDE
-.idea/
-.vscode/
-*.swp
-*.swo
-*~
-
-# Third-party downloaded artifacts
-third_party/*.tgz
-third_party/*.tar.gz
-third_party/package/
-third_party/kalshi-*/
-third_party/requests-*
-third_party/charset_normalizer-*
-third_party/idna-*
-third_party/urllib3-*
-third_party/certifi-*
-
-# Prompts
-.github/prompts/*
-
-# === Production-hardening patterns (added 2026-05-02) ===
-# Credentials — never commit secrets to a public SDK
+.env.*
 *.pem
 *.key
 *.p12
 *.pfx
-credentials.json
 credentials*.json
 secrets/
-service-account*.json
-gha-secrets.txt
 
-# Build cache
-_deps/
-build-*/
-
-# Coverage + analysis artifacts
-*.gcov
-*.gcda
-*.gcno
-coverage/
-*.profraw
-*.profdata
-
-# Sanitizer / valgrind output
-asan.log
-ubsan.log
-*.callgrind
-*.cachegrind
-
-# OS noise
+# Tooling
+.cache/
+.vcpkg-cache/
+vcpkg_installed/
+__pycache__/
+.idea/
+.vscode/
+*.swp
+*~
 .DS_Store
 Thumbs.db

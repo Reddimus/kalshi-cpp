@@ -6,137 +6,157 @@ on:
   pull_request:
   workflow_dispatch:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CTEST_OUTPUT_ON_FAILURE: "1"
+  UBSAN_OPTIONS: halt_on_error=1:print_stacktrace=1
+
 jobs:
   build-linux:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7.0.1
-
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake pkg-config clang-format \
-            libcurl4-openssl-dev libssl-dev libwebsockets-dev
-
+          sudo apt-get install -y --no-install-recommends build-essential ninja-build \
+            pkg-config clang-format-18 libcurl4-openssl-dev libssl-dev libwebsockets-dev
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: linux-release
       - name: Build
-        run: make build CMAKE_ARGS=-DKALSHI_WARNINGS_AS_ERRORS=ON
-
+        run: >-
+          make build CMAKE_ARGS="-G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -DKALSHI_WARNINGS_AS_ERRORS=ON -DKALSHI_BUILD_BENCHMARKS=ON"
       - name: Test
         run: make test
-
       - name: Lint
-        run: make lint
+        run: make lint CLANG_FORMAT=clang-format-18
 
   build-macos:
-    runs-on: macos-latest
+    runs-on: macos-26
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7.0.1
-
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install dependencies
-        # Lint runs only on Linux so we don't need clang-format from brew —
-        # brew tracks the latest LLVM, and clang-format formatting output
-        # changes between versions, so a brew bump can red-light CI for
-        # source that's correctly formatted under the project's pinned
-        # version. Format-of-record is the Linux apt-installed clang-format.
         run: |
-          brew install pkg-config curl openssl libwebsockets
-          echo "PKG_CONFIG_PATH=$(brew --prefix openssl)/lib/pkgconfig:$(brew --prefix libwebsockets)/lib/pkgconfig:$PKG_CONFIG_PATH" >> "$GITHUB_ENV"
-          echo "CMAKE_PREFIX_PATH=$(brew --prefix openssl);$(brew --prefix curl);$(brew --prefix libwebsockets)" >> "$GITHUB_ENV"
-
+          brew install ninja pkg-config libwebsockets
+          echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig:$(brew --prefix libwebsockets)/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: macos-release
       - name: Build
-        run: make build
-
+        run: >-
+          make build CMAKE_ARGS="-G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache
+          -DKALSHI_WARNINGS_AS_ERRORS=ON"
       - name: Test
         run: make test
 
+  # Builds against the Glaze release that vcpkg and Conan ship, so the minimum
+  # supported version stays tested alongside the FetchContent pin.
   build-windows:
-    runs-on: windows-latest
+    runs-on: windows-2025
+    timeout-minutes: 45
+    env:
+      VCPKG_BINARY_SOURCES: clear;files,${{ github.workspace }}\.vcpkg-cache,readwrite
     steps:
-      - uses: actions/checkout@v7.0.1
-
-      - name: Install dependencies (vcpkg)
-        # GitHub-hosted Windows runners ship vcpkg pre-installed at
-        # $env:VCPKG_INSTALLATION_ROOT. Pin the triplet so the resolved
-        # ABI matches what the CMake config-mode discovery expects.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: .vcpkg-cache
+          key: vcpkg-windows-${{ hashFiles('vcpkg.json') }}
+          restore-keys: vcpkg-windows-
+      - name: Configure
         shell: pwsh
         run: |
-          & "$env:VCPKG_INSTALLATION_ROOT/vcpkg.exe" install `
-            openssl:x64-windows curl:x64-windows libwebsockets:x64-windows
-          "VCPKG_TARGET_TRIPLET=x64-windows" | Out-File -FilePath $env:GITHUB_ENV -Append
-          "CMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" | Out-File -FilePath $env:GITHUB_ENV -Append
-
+          New-Item -ItemType Directory -Force .vcpkg-cache | Out-Null
+          # The manifest baseline can be newer than the runner's vcpkg checkout.
+          git -C "$env:VCPKG_INSTALLATION_ROOT" fetch --quiet origin master
+          cmake -S . -B build `
+            "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `
+            -DVCPKG_TARGET_TRIPLET=x64-windows `
+            -DKALSHI_USE_SYSTEM_GLAZE=ON `
+            -DKALSHI_WARNINGS_AS_ERRORS=ON
       - name: Build
-        shell: pwsh
-        run: |
-          cmake -S . -B build -DCMAKE_BUILD_TYPE=Release `
-            "-DCMAKE_TOOLCHAIN_FILE=$env:CMAKE_TOOLCHAIN_FILE" `
-            "-DVCPKG_TARGET_TRIPLET=$env:VCPKG_TARGET_TRIPLET"
-          cmake --build build --config Release -j
-
+        run: cmake --build build --config Release --parallel
       - name: Test
-        shell: pwsh
-        run: ctest --test-dir build --output-on-failure -C Release
-
-  markdown-lint:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v7.0.1
-      - uses: DavidAnson/markdownlint-cli2-action@v23
+        run: ctest --test-dir build -C Release --parallel 4
 
   sanitizer:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake pkg-config libcurl4-openssl-dev \
-            libssl-dev libwebsockets-dev
-      - name: Configure
-        run: >-
-          cmake -S . -B build-sanitized
-          -DCMAKE_BUILD_TYPE=Debug
-          -DKALSHI_ENABLE_LTO=OFF
-          -DKALSHI_ENABLE_SANITIZERS=ON
-          -DKALSHI_BUILD_EXAMPLES=OFF
-      - run: cmake --build build-sanitized --parallel
-      - run: ctest --test-dir build-sanitized --output-on-failure
+          sudo apt-get install -y --no-install-recommends build-essential ninja-build \
+            pkg-config libcurl4-openssl-dev libssl-dev libwebsockets-dev
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: linux-asan
+      - name: ASan and UBSan
+        run: make sanitize CMAKE_ARGS="-G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
+
+  tsan:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Install dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends build-essential ninja-build \
+            pkg-config libcurl4-openssl-dev libssl-dev libwebsockets-dev
+      - uses: hendrikmuhs/ccache-action@f09c25b45002a07be2955cbe52e8cee55643f89d # v1.2.24
+        with:
+          key: linux-tsan
+      # TSan cannot map its shadow memory with the runner kernel's default ASLR entropy.
+      - name: Lower ASLR entropy
+        run: sudo sysctl -w vm.mmap_rnd_bits=28
+      - name: ThreadSanitizer
+        run: make tsan CMAKE_ARGS="-G Ninja -DCMAKE_CXX_COMPILER_LAUNCHER=ccache"
 
   clang-tidy:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential clang-18 clang-tidy libc++-18-dev libc++abi-18-dev \
-            cmake pkg-config libcurl4-openssl-dev libssl-dev libwebsockets-dev
-      - name: Configure
-        # Clang 18 reports __cpp_concepts=201907 with libstdc++ 13, which hides
-        # std::expected even in C++23 mode. libc++ 18 provides the C++23 type
-        # and lets clang-tidy analyze the same public API the builds compile.
+          sudo apt-get install -y --no-install-recommends build-essential ninja-build \
+            clang-18 clang-tidy-18 libc++-18-dev libc++abi-18-dev pkg-config \
+            libcurl4-openssl-dev libssl-dev libwebsockets-dev
+      - name: Build with clang-tidy
+        # libc++ provides std::expected to clang 18; libstdc++ 13 hides it.
         run: >-
-          cmake -S . -B build-tidy
-          -DCMAKE_BUILD_TYPE=Debug
-          -DCMAKE_CXX_COMPILER=clang++-18
-          -DCMAKE_CXX_FLAGS=-stdlib=libc++
-          -DKALSHI_ENABLE_CLANG_TIDY=ON
-          -DKALSHI_ENABLE_LTO=OFF
-          -DKALSHI_BUILD_TESTS=OFF
-          -DKALSHI_BUILD_EXAMPLES=OFF
-      - run: cmake --build build-tidy --parallel
+          make tidy CMAKE_ARGS="-G Ninja -DCMAKE_CXX_COMPILER=clang++-18
+          -DCMAKE_CXX_FLAGS=-stdlib=libc++"
 
   consumer-smoke:
     runs-on: ubuntu-24.04
+    timeout-minutes: 30
     steps:
-      - uses: actions/checkout@v7.0.1
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - name: Install dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y --no-install-recommends \
-            build-essential cmake pkg-config libcurl4-openssl-dev \
-            libssl-dev libwebsockets-dev
-      - run: ./tools/test_consumers.sh
+          sudo apt-get install -y --no-install-recommends build-essential pkg-config \
+            libcurl4-openssl-dev libssl-dev libwebsockets-dev
+      - run: make consumers
+
+  markdown-lint:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: DavidAnson/markdownlint-cli2-action@21c1be1b93ad9ed58fa840aacc3f279cde2a72ff # v24.2.0

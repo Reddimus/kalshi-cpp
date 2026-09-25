@@ -1,16 +1,10 @@
 ## Summary
 
-<!-- 1-3 sentences. What changed and why. Link the upstream issue if any. -->
+<!-- What changed and why, in a few sentences. -->
 
-## Test plan
+## Checks
 
-<!-- Bullet list of how you verified the change. Include commands you ran. -->
-
-- [ ] `make lint` clean
-- [ ] `make test` passes (or specify which subset)
-- [ ] CHANGELOG.md updated under `## [Unreleased]` (if user-visible)
-- [ ] No new public API → no SemVer minor/major bump needed
-
-## Notes for reviewers
-
-<!-- Optional: anything subtle about the change, alternatives considered, follow-ups. -->
+- [ ] `make format lint test`
+- [ ] `make sanitize` and `./tools/test_consumers.sh` for build or API changes
+- [ ] `CHANGELOG.md` updated under `[Unreleased]` for user-visible changes
+- [ ] SemVer impact: none / patch / minor (new API) / breaking

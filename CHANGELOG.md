@@ -6,6 +6,29 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- CMake 3.31 or newer is required, matching Glaze's own minimum.
+- Release builds no longer force `-march=x86-64-v3` or LTO. Both are opt-in
+  through `KALSHI_NATIVE_ARCH` and `KALSHI_ENABLE_LTO` and apply only to
+  kalshi-cpp's own targets.
+- Tests and examples build by default only when kalshi-cpp is the top-level
+  project, so FetchContent consumers no longer need to turn them off.
+- The installed package version now uses `SameMinorVersion` compatibility,
+  because 0.x minor releases may break the API.
+- Glaze moved to v9.0.0. Set `KALSHI_USE_SYSTEM_GLAZE=ON` to build against an
+  installed Glaze 8.4 or newer.
+- `make bench` runs a Google Benchmark suite (`KALSHI_BUILD_BENCHMARKS`) in
+  place of `tools/bench.sh`, which timed examples that exit immediately
+  without credentials.
+
+### Fixed
+
+- OpenSSL, libcurl, and libwebsockets are private link dependencies. The
+  unused build-tree `export()` file is gone; use `cmake --install` or
+  FetchContent.
+- `make` uses every CPU on macOS, and `make install-hooks` works in worktrees.
+
 ## [0.5.2] - 2026-09-04
 
 ### Fixed

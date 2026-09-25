@@ -1,69 +1,67 @@
 name: Release
 
-# Auto-publish a GitHub Release when a vX.Y.Z tag is pushed.
-# Body is the matching section of CHANGELOG.md (between the "## [X.Y.Z]"
-# heading and the next "## " heading), so tag → release stays in sync
-# without a separate manual step.
+# Publishes a GitHub release when a vX.Y.Z tag is pushed. The notes are the
+# matching CHANGELOG.md section.
 
 on:
   push:
     tags:
       - "v[0-9]+.[0-9]+.[0-9]+"
-      - "v[0-9]+.[0-9]+.[0-9]+-*"
 
 permissions:
+  actions: read
   contents: write
 
 jobs:
   release:
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
     steps:
-      - uses: actions/checkout@v7.0.1
-        with:
-          fetch-depth: 0
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
-      - name: Verify tag matches CMakeLists project VERSION
-        # Pin the source-of-truth: the tag X.Y.Z must equal the
-        # `project(kalshi-cpp VERSION X.Y.Z ...)` field in
-        # CMakeLists.txt. Without this guard the two can drift
-        # silently and corrupt `find_package(kalshi VERSION
-        # X.Y.Z)` consumer queries (the generated
-        # kalshiConfigVersion.cmake tracks PROJECT_VERSION).
+      - name: Check the tag matches the CMake project version
         run: |
-          tag="${GITHUB_REF#refs/tags/}"
-          version="${tag#v}"
-          cmake_version=$(awk -F 'VERSION |LANGUAGES' '
-            /^project\(kalshi-cpp / { gsub(/[ \t]/,"",$2); print $2; exit }
-          ' CMakeLists.txt)
+          version="${GITHUB_REF_NAME#v}"
+          cmake_version=$(./tools/project_version.sh)
           if [ "$cmake_version" != "$version" ]; then
-            echo "::error::tag $tag implies version '$version' but CMakeLists.txt says '$cmake_version'" >&2
-            echo "Bump 'project(kalshi-cpp VERSION ...)' to match before tagging." >&2
+            echo "::error::tag $GITHUB_REF_NAME does not match CMakeLists.txt VERSION $cmake_version"
             exit 1
           fi
-          echo "OK: tag $tag matches CMakeLists VERSION $cmake_version"
 
-      - name: Extract release notes from CHANGELOG.md
+      - name: Extract release notes
         run: |
-          tag="${GITHUB_REF#refs/tags/}"
-          version="${tag#v}"
-          # Pipe directly to a file so `gh release create --notes-file`
-          # receives the changelog bytes unchanged.
+          version="${GITHUB_REF_NAME#v}"
           awk -v v="$version" '
-            $0 ~ "^## \\["v"\\]" { capture=1; next }
+            $0 ~ "^## \\[" v "\\]" { capture = 1; next }
             capture && /^## / { exit }
             capture { print }
-          ' CHANGELOG.md > /tmp/release_notes.md
-          if [ ! -s /tmp/release_notes.md ]; then
-            printf 'Release %s. See CHANGELOG.md for details.\n' "$tag" \
-              > /tmp/release_notes.md
+          ' CHANGELOG.md > "$RUNNER_TEMP/notes.md"
+          if ! grep -q '[^[:space:]]' "$RUNNER_TEMP/notes.md"; then
+            echo "::error::CHANGELOG.md has no [$version] section"
+            exit 1
           fi
 
-      - name: Create GitHub Release
+      - name: Wait for CI on the tagged commit
         env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          GH_TOKEN: ${{ github.token }}
         run: |
-          tag="${GITHUB_REF#refs/tags/}"
-          gh release create "$tag" \
-            --title "$tag" \
-            --notes-file /tmp/release_notes.md \
-            --verify-tag
+          for _ in $(seq 1 80); do
+            state=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --event push \
+              --commit "$GITHUB_SHA" --json status,conclusion \
+              --jq '.[0] | "\(.status) \(.conclusion)"')
+            case "$state" in
+              "completed success") echo "CI passed for $GITHUB_SHA"; exit 0 ;;
+              completed*) echo "::error::CI did not pass for $GITHUB_SHA: $state"; exit 1 ;;
+            esac
+            echo "CI state: ${state:-not started}"
+            sleep 30
+          done
+          echo "::error::timed out waiting for CI"
+          exit 1
+
+      - name: Publish the release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: >-
+          gh release create "$GITHUB_REF_NAME" --title "$GITHUB_REF_NAME"
+          --notes-file "$RUNNER_TEMP/notes.md" --verify-tag

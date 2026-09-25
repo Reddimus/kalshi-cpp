@@ -14,7 +14,7 @@ part of this client.
 
 ## Install and test
 
-Install OpenSSL, libcurl, libwebsockets, CMake 3.20+, and a C++23 compiler.
+Install OpenSSL, libcurl, libwebsockets, CMake 3.31+, and a C++23 compiler.
 
 ```bash
 brew install cmake openssl curl libwebsockets pkg-config
@@ -34,14 +34,12 @@ FetchContent_Declare(
   GIT_REPOSITORY https://github.com/Reddimus/kalshi-cpp.git
   GIT_TAG v0.5.2
 )
-set(KALSHI_BUILD_TESTS OFF CACHE BOOL "" FORCE)
-set(KALSHI_BUILD_EXAMPLES OFF CACHE BOOL "" FORCE)
 FetchContent_MakeAvailable(kalshi)
 target_link_libraries(myapp PRIVATE kalshi::kalshi)
 ```
 
-The same target is exported by `cmake --install` and `find_package(kalshi)`.
-Run `tools/test_consumers.sh` to verify both paths.
+Tests and examples build only when kalshi-cpp is the top-level project. The
+same target is exported by `cmake --install` and `find_package(kalshi)`.
 
 ## Read market data
 
@@ -116,11 +114,8 @@ route. Margin endpoints belong in a separate client and remain out of scope.
 ## Development gates
 
 ```bash
-make format && make lint
-cmake -S . -B build-sanitized -DKALSHI_ENABLE_SANITIZERS=ON -DKALSHI_ENABLE_LTO=OFF
-cmake --build build-sanitized --parallel
-ctest --test-dir build-sanitized --output-on-failure
-./tools/test_consumers.sh
+make format lint test
+make sanitize tsan consumers
 ```
 
 See [CONTRIBUTING.md](CONTRIBUTING.md) for contribution steps and

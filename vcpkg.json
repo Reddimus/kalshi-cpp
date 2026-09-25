@@ -1,0 +1,5 @@
+{
+  "$schema": "https://raw.githubusercontent.com/microsoft/vcpkg-tool/main/docs/vcpkg.schema.json",
+  "dependencies": ["curl", "glaze", "libwebsockets", "openssl"],
+  "builtin-baseline": "77fbf9646fe4dd331025fedb7ab6c79ca637ddd7"
+}

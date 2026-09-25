@@ -1,149 +1,104 @@
-# Kalshi C++ SDK - Root Makefile
-# Wraps CMake for convenient day-to-day workflow
+# Shortcuts around CMake for day-to-day work. Run `make help` for the list.
 
-BUILD_DIR := build
-CPP_AUTO_AUDIT := python3 tools/cpp_auto_audit.py
-CMAKE := cmake
-NPROC := $(shell nproc 2>/dev/null || echo 4)
-BENCH_ITERATIONS := 254
+BUILD_DIR ?= build
+BUILD_TYPE ?= Release
+CMAKE_ARGS ?=
+JOBS ?= $(shell getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)
+CLANG_FORMAT ?= $(shell command -v clang-format-18 2>/dev/null || command -v clang-format 2>/dev/null)
+CLANG_FORMAT_MAJOR := 18
 
-.PHONY: all build debug test lint clean configure configure-debug help bench bench-compare format pre-commit install-hooks coverage run-get_markets run-basic_usage run-get_daily_temp
+.PHONY: all configure build debug test sanitize tsan tidy bench consumers lint lint-docs \
+	format pre-commit install-hooks coverage clean help
 
-# Default target
 all: build
 
-# Configure CMake (if needed)
 configure:
-	@mkdir -p $(BUILD_DIR)
-	@cd $(BUILD_DIR) && $(CMAKE) .. -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON $(CMAKE_ARGS)
+	cmake -S . -B $(BUILD_DIR) -DCMAKE_BUILD_TYPE=$(BUILD_TYPE) $(CMAKE_ARGS)
 
-# Configure CMake for a Debug build (-O0 -g, sanitizer-friendly)
-configure-debug:
-	@mkdir -p $(BUILD_DIR)
-	@cd $(BUILD_DIR) && $(CMAKE) .. -DCMAKE_BUILD_TYPE=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS=ON $(CMAKE_ARGS)
-
-# Build all targets
 build: configure
-	@$(CMAKE) --build $(BUILD_DIR) -j$(NPROC)
+	cmake --build $(BUILD_DIR) --parallel $(JOBS)
 
-# Build all targets with Debug symbols + -O0 (for gdb/valgrind/asan)
-debug: configure-debug
-	@$(CMAKE) --build $(BUILD_DIR) -j$(NPROC)
+debug:
+	$(MAKE) build BUILD_DIR=build-debug BUILD_TYPE=Debug
 
-# Run tests
 test: build
-	@cd $(BUILD_DIR) && ctest --output-on-failure
+	ctest --test-dir $(BUILD_DIR) --output-on-failure --parallel $(JOBS)
 
-# Run linting (clang-format check)
+sanitize:
+	$(MAKE) test BUILD_DIR=build-asan BUILD_TYPE=Debug \
+		CMAKE_ARGS="-DKALSHI_ENABLE_SANITIZERS=ON -DKALSHI_BUILD_EXAMPLES=OFF $(CMAKE_ARGS)"
+
+tsan:
+	$(MAKE) test BUILD_DIR=build-tsan BUILD_TYPE=Debug \
+		CMAKE_ARGS="-DKALSHI_ENABLE_THREAD_SANITIZER=ON -DKALSHI_BUILD_EXAMPLES=OFF $(CMAKE_ARGS)"
+
+tidy:
+	$(MAKE) build BUILD_DIR=build-tidy BUILD_TYPE=Debug \
+		CMAKE_ARGS="-DKALSHI_ENABLE_CLANG_TIDY=ON -DKALSHI_BUILD_TESTS=OFF -DKALSHI_BUILD_EXAMPLES=OFF $(CMAKE_ARGS)"
+
+bench:
+	$(MAKE) build BUILD_DIR=build-bench BUILD_TYPE=Release \
+		CMAKE_ARGS="-DKALSHI_BUILD_BENCHMARKS=ON -DKALSHI_BUILD_TESTS=OFF -DKALSHI_BUILD_EXAMPLES=OFF $(CMAKE_ARGS)"
+	./build-bench/benchmarks/kalshi_benchmarks $(BENCH_ARGS)
+
+consumers:
+	./tools/test_consumers.sh
+
 lint:
-	@if command -v clang-format >/dev/null 2>&1; then \
-		echo "Checking code formatting..."; \
-		find src include tests examples \( -name '*.cpp' -o -name '*.hpp' \) -print0 | \
-			xargs -0 clang-format --dry-run --Werror && \
-		echo "Format check passed."; \
-	else \
-		echo "clang-format not found. Install clang-format to run lint."; \
-		exit 1; \
-	fi
-	$(CPP_AUTO_AUDIT)
+	@test -n "$(CLANG_FORMAT)" || { echo "clang-format $(CLANG_FORMAT_MAJOR) is required"; exit 1; }
+	@major=$$($(CLANG_FORMAT) --version | sed -E 's/.*version ([0-9]+).*/\1/'); \
+		test "$$major" = "$(CLANG_FORMAT_MAJOR)" || \
+		{ echo "clang-format $(CLANG_FORMAT_MAJOR) is required; found $$major"; exit 1; }
+	git ls-files -z --cached --others --exclude-standard '*.cpp' '*.hpp' | xargs -0 $(CLANG_FORMAT) --dry-run --Werror
+	python3 tools/cpp_auto_audit.py
 
+lint-docs:
+	markdownlint-cli2
 
-# Format code in place
 format:
-	@if command -v clang-format >/dev/null 2>&1; then \
-		echo "Formatting code..."; \
-		find src include tests examples \( -name '*.cpp' -o -name '*.hpp' \) -print0 | xargs -0 clang-format -i; \
-		echo "Done"; \
-	else \
-		echo "clang-format not found. Install clang-format to format code."; \
-		exit 1; \
-	fi
+	git ls-files -z --cached --others --exclude-standard '*.cpp' '*.hpp' | xargs -0 $(CLANG_FORMAT) -i
 
-# pre-commit: auto-format, then lint. Run before every commit to avoid
-# the recurring "push -> Linux CI lint fail -> follow-up fix PR" loop.
-# `format` is idempotent (running it again is a no-op) so this target
-# is safe to wire into a git pre-commit hook (see install-hooks below).
 pre-commit: format lint
 
-# install-hooks: drop a .git/hooks/pre-commit shim that runs `make pre-commit`
-# automatically on `git commit`. One-shot operator setup — no-op if the
-# hook is already installed.
+# Installs a hook that runs `make pre-commit`. Works in worktrees too.
 install-hooks:
-	@mkdir -p .git/hooks
-	@if [ -f .git/hooks/pre-commit ] && grep -q 'make pre-commit' .git/hooks/pre-commit 2>/dev/null; then \
-		echo "pre-commit hook already installed"; \
-	else \
-		printf '#!/bin/sh\nexec make pre-commit\n' > .git/hooks/pre-commit; \
-		chmod +x .git/hooks/pre-commit; \
-		echo "Installed .git/hooks/pre-commit -> make pre-commit"; \
-	fi
+	@hook="$$(git rev-parse --git-path hooks)/pre-commit"; \
+		printf '#!/bin/sh\nexec make pre-commit\n' > "$$hook" && chmod +x "$$hook" && \
+		echo "Installed $$hook"
 
-# Code coverage (requires lcov)
+# Needs lcov and genhtml.
 coverage:
-	@mkdir -p build-coverage
-	@cd build-coverage && $(CMAKE) .. -DCMAKE_BUILD_TYPE=Debug -DKALSHI_ENABLE_COVERAGE=ON -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
-	@$(CMAKE) --build build-coverage -j$(NPROC)
-	@cd build-coverage && ctest --output-on-failure
-	@lcov --capture --directory build-coverage --output-file build-coverage/coverage.info --ignore-errors mismatch
-	@lcov --remove build-coverage/coverage.info '/usr/*' '*/build-coverage/_deps/*' --output-file build-coverage/coverage_filtered.info --ignore-errors unused
-	@genhtml build-coverage/coverage_filtered.info --output-directory build-coverage/coverage-report
-	@echo "Coverage report: build-coverage/coverage-report/index.html"
+	$(MAKE) test BUILD_DIR=build-coverage BUILD_TYPE=Debug \
+		CMAKE_ARGS="-DKALSHI_ENABLE_COVERAGE=ON -DKALSHI_BUILD_EXAMPLES=OFF $(CMAKE_ARGS)"
+	lcov --capture --directory build-coverage --output-file build-coverage/coverage.info \
+		--ignore-errors mismatch,inconsistent
+	lcov --extract build-coverage/coverage.info "$(CURDIR)/src/*" "$(CURDIR)/include/*" \
+		--output-file build-coverage/coverage.info
+	genhtml build-coverage/coverage.info --output-directory build-coverage/html
+	@echo "Report: build-coverage/html/index.html"
 
-# Clean build artifacts
 clean:
-	@rm -rf $(BUILD_DIR) build-coverage
-	@echo "Cleaned build directory"
+	rm -rf build build-*
 
-# Run benchmark
-bench: build
-	@./tools/bench.sh $(BENCH_ITERATIONS)
+# Runs an example, loading KALSHI_* settings from .env when present:
+#   make run-market_data
+run-%: build
+	@set -a; if [ -f .env ]; then . ./.env; fi; set +a; ./$(BUILD_DIR)/examples/example_$*
 
-# Compare benchmarks between HEAD and working tree (or two refs)
-bench-compare:
-	@./tools/bench.sh --compare $(BENCH_ITERATIONS)
-
-# Load .env and run example (creates temp PEM if KALSHI_API_PRIVATE_KEY is set)
-define run_example
-	@if [ -f .env ]; then \
-		set -a && . ./.env && set +a && \
-		if [ -n "$$KALSHI_API_PRIVATE_KEY" ] && [ -z "$$KALSHI_API_KEY_FILE" ]; then \
-			TMPFILE=$$(mktemp) && \
-			echo "$$KALSHI_API_PRIVATE_KEY" | base64 -d | openssl rsa -inform DER -outform PEM -out $$TMPFILE 2>/dev/null && \
-			KALSHI_API_KEY_FILE=$$TMPFILE $(1) ; \
-			rm -f $$TMPFILE; \
-		else \
-			$(1); \
-		fi; \
-	else \
-		$(1); \
-	fi
-endef
-
-# Run examples
-run-get_markets: build
-	$(call run_example,./$(BUILD_DIR)/examples/example_markets)
-
-run-basic_usage: build
-	$(call run_example,./$(BUILD_DIR)/examples/example_basic)
-
-run-get_daily_temp: build
-	$(call run_example,./$(BUILD_DIR)/examples/example_daily_temp)
-
-# Help
 help:
-	@echo "Kalshi C++ SDK Build System"
-	@echo ""
-	@echo "Targets:"
-	@echo "  make build         - Configure and build the SDK (Release)"
-	@echo "  make debug         - Configure and build the SDK (Debug: -O0 -g, sanitizer-friendly)"
-	@echo "  make test          - Run tests"
-	@echo "  make bench         - Run benchmark ($(BENCH_ITERATIONS) iterations)"
-	@echo "  make bench-compare - Compare HEAD vs working tree"
-	@echo "  make lint          - Check code formatting"
-	@echo "  make format        - Format code in place"
-	@echo "  make coverage      - Generate code coverage report (requires lcov)"
-	@echo "  make clean         - Remove build artifacts"
-	@echo "  make help          - Show this help"
-	@echo ""
-	@echo "Variables:"
-	@echo "  BENCH_ITERATIONS=N  - Override benchmark iterations (default: 254)"
+	@echo "make build        Configure and build (BUILD_TYPE=$(BUILD_TYPE), BUILD_DIR=$(BUILD_DIR))"
+	@echo "make test         Build and run the test suite"
+	@echo "make debug        Debug build in build-debug/"
+	@echo "make sanitize     ASan + UBSan tests in build-asan/"
+	@echo "make tsan         ThreadSanitizer tests in build-tsan/"
+	@echo "make tidy         clang-tidy build in build-tidy/"
+	@echo "make bench        Google Benchmark suite in build-bench/ (BENCH_ARGS=...)"
+	@echo "make consumers    Check install and FetchContent consumers"
+	@echo "make lint         clang-format $(CLANG_FORMAT_MAJOR) check and explicit-type audit"
+	@echo "make lint-docs    markdownlint"
+	@echo "make format       Format C++ sources in place"
+	@echo "make pre-commit   format + lint"
+	@echo "make install-hooks  Run pre-commit on every git commit"
+	@echo "make coverage     lcov report in build-coverage/html"
+	@echo "make run-NAME     Run examples/NAME.cpp with .env loaded"
+	@echo "make clean        Remove build directories"

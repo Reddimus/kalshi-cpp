@@ -35,6 +35,9 @@ DECLARATION_AUTO = re.compile(
     r"auto(?:\s*[\*&])?\s*(?:\w+|\[)"
 )
 
+LAMBDA_INITIALIZER = re.compile(r"=\s*\[[^\]]*\]\s*(?:\(|\{|mutable\b|->|$)")
+ITERATOR_NAME = re.compile(r"\bauto\s*&?\s*(?:\w+_)?(?:it|iter|iterator)\b")
+
 ITERATOR_HINTS = (
     ".begin(",
     ".end(",
@@ -77,13 +80,8 @@ class Violation:
 
 
 def tracked_cpp_files(repo_root: Path) -> list[Path]:
-    # ``git ls-files`` returns tracked files only — a brand-new
-    # untracked test file is invisible to local audit but still
-    # caught by CI once it's committed, which makes the divergence
-    # surface as a CI fail after the developer thought they ran
-    # lint clean. Also include ``--others --exclude-standard`` so
-    # untracked-but-not-ignored files (typical for fresh test files)
-    # get audited too.
+    # Include untracked, non-ignored files so a new test file is audited
+    # locally before CI sees it.
     proc = subprocess.run(
         ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
         cwd=repo_root,
@@ -91,20 +89,14 @@ def tracked_cpp_files(repo_root: Path) -> list[Path]:
         capture_output=True,
         text=True,
     )
-    seen: set[Path] = set()
     files: list[Path] = []
-    for raw in proc.stdout.splitlines():
-        path = repo_root / raw
-        if path in seen:
+    for raw in sorted(set(proc.stdout.splitlines())):
+        relative = Path(raw)
+        if relative.suffix not in CPP_SUFFIXES:
             continue
-        seen.add(path)
-        if path.suffix not in CPP_SUFFIXES:
+        if any(part.startswith("build") or part == "_deps" for part in relative.parts):
             continue
-        if any(part.startswith("build") for part in path.parts):
-            continue
-        if "_deps" in path.parts:
-            continue
-        files.append(path)
+        files.append(repo_root / relative)
     return files
 
 
@@ -124,15 +116,14 @@ def read_allowlist(path: Path) -> list[AllowRule]:
 
 
 def is_lambda_closure(line: str) -> bool:
-    if "=" not in line:
-        return False
-    eq_index = line.find("=")
-    open_bracket = line.find("[", eq_index)
-    close_bracket = line.find("]", open_bracket + 1) if open_bracket != -1 else -1
-    return open_bracket != -1 and close_bracket != -1 and close_bracket > open_bracket
+    return LAMBDA_INITIALIZER.search(line) is not None
 
 
 def is_iterator_like(line: str) -> bool:
+    # std::string::find returns an index, so .find( counts only when the
+    # declared name reads as an iterator.
+    if ".find(" in line and not ITERATOR_NAME.search(line):
+        return False
     return any(hint in line for hint in ITERATOR_HINTS)
 
 

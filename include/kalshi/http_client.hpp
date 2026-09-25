@@ -90,7 +90,7 @@ class HttpClient final : public HttpTransport {
 public:
 	/// Create a client with the given signer and configuration
 	HttpClient(Signer signer, ClientConfig config = {});
-	~HttpClient();
+	~HttpClient() override;
 
 	HttpClient(HttpClient&&) noexcept;
 	HttpClient& operator=(HttpClient&&) noexcept;

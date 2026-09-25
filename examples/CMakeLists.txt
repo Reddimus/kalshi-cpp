@@ -1,11 +1,5 @@
-# Example: Basic API usage
-add_executable(example_basic basic_usage.cpp)
-target_link_libraries(example_basic PRIVATE kalshi)
-
-# Example: Get markets
-add_executable(example_markets get_markets.cpp)
-target_link_libraries(example_markets PRIVATE kalshi)
-
-# Example: Get daily temperature markets (high and low)
-add_executable(example_daily_temp get_daily_temp.cpp)
-target_link_libraries(example_daily_temp PRIVATE kalshi)
+foreach(example basic_usage get_markets get_daily_temp)
+    add_executable(example_${example} ${example}.cpp)
+    target_link_libraries(example_${example} PRIVATE kalshi::kalshi)
+    kalshi_configure_target(example_${example})
+endforeach()

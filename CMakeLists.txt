@@ -1,5 +1,9 @@
-cmake_minimum_required(VERSION 3.20)
-project(kalshi-cpp VERSION 0.5.2 LANGUAGES CXX)
+cmake_minimum_required(VERSION 3.31)
+project(kalshi-cpp
+    VERSION 0.5.2
+    DESCRIPTION "C++23 client for the Kalshi Predictions API"
+    HOMEPAGE_URL "https://github.com/Reddimus/kalshi-cpp"
+    LANGUAGES CXX)
 
 set(CMAKE_CXX_STANDARD 23)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
@@ -9,152 +13,116 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 include(GNUInstallDirs)
 include(CMakePackageConfigHelpers)
 
-# Options
-option(KALSHI_BUILD_TESTS "Build tests" ON)
-option(KALSHI_BUILD_EXAMPLES "Build examples" ON)
-option(KALSHI_ENABLE_LTO "Enable Link Time Optimization" ON)
-option(KALSHI_NATIVE_ARCH "Use -march=native for CPU-specific tuning" OFF)
+# Tests and examples default to ON only when this is the top-level project, so
+# FetchContent consumers get just the library.
+option(KALSHI_BUILD_TESTS "Build the test suite" ${PROJECT_IS_TOP_LEVEL})
+option(KALSHI_BUILD_EXAMPLES "Build the examples" ${PROJECT_IS_TOP_LEVEL})
+option(KALSHI_BUILD_BENCHMARKS "Build Google Benchmark targets" OFF)
+option(KALSHI_USE_SYSTEM_GLAZE "Use an installed Glaze instead of fetching it" OFF)
+option(KALSHI_ENABLE_LTO "Enable interprocedural optimization for project targets" OFF)
+option(KALSHI_NATIVE_ARCH "Compile project targets with -march=native" OFF)
 option(KALSHI_ENABLE_CLANG_TIDY "Run clang-tidy while compiling project targets" OFF)
 option(KALSHI_WARNINGS_AS_ERRORS "Treat project warnings as errors" OFF)
-
-if(KALSHI_ENABLE_CLANG_TIDY)
-    find_program(KALSHI_CLANG_TIDY_EXECUTABLE NAMES clang-tidy REQUIRED)
-endif()
-
-function(kalshi_configure_target target)
-    if(MSVC)
-        target_compile_options(${target} PRIVATE /W4)
-        if(KALSHI_WARNINGS_AS_ERRORS)
-            target_compile_options(${target} PRIVATE /WX)
-        endif()
-    else()
-        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic)
-        if(KALSHI_WARNINGS_AS_ERRORS)
-            target_compile_options(${target} PRIVATE -Werror)
-        endif()
-    endif()
-    if(KALSHI_ENABLE_CLANG_TIDY)
-        set_property(TARGET ${target} PROPERTY CXX_CLANG_TIDY
-            "${KALSHI_CLANG_TIDY_EXECUTABLE};--warnings-as-errors=*")
-    endif()
-endfunction()
-
-# Aggressive optimization flags for Release builds. MSVC has its own
-# Release flags via CMake's default; only override for GCC/Clang.
-if(NOT MSVC)
-    set(CMAKE_CXX_FLAGS_RELEASE "-O3 -DNDEBUG")
-endif()
-
-# Enable LTO if requested and supported
-if(KALSHI_ENABLE_LTO)
-    include(CheckIPOSupported)
-    check_ipo_supported(RESULT LTO_SUPPORTED OUTPUT LTO_ERROR)
-    if(LTO_SUPPORTED)
-        set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RELEASE ON)
-        message(STATUS "LTO enabled for Release builds")
-    else()
-        message(WARNING "LTO not supported: ${LTO_ERROR}")
-    endif()
-endif()
-
-# CPU-specific tuning. GCC/Clang only — MSVC uses /arch flags with
-# different semantics, so we leave its defaults alone.
-if(NOT MSVC)
-    if(KALSHI_NATIVE_ARCH)
-        set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=native")
-        message(STATUS "Using -march=native for CPU-specific optimizations")
-    else()
-        include(CheckCXXCompilerFlag)
-        check_cxx_compiler_flag("-march=x86-64-v3" COMPILER_SUPPORTS_X86_64_V3)
-        if(COMPILER_SUPPORTS_X86_64_V3)
-            set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -march=x86-64-v3")
-        else()
-            set(CMAKE_CXX_FLAGS_RELEASE "${CMAKE_CXX_FLAGS_RELEASE} -mtune=generic")
-        endif()
-    endif()
-endif()
-
-# Sanitizer support
-option(KALSHI_ENABLE_SANITIZERS "Enable AddressSanitizer and UBSanitizer" OFF)
+option(KALSHI_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(KALSHI_ENABLE_THREAD_SANITIZER "Enable ThreadSanitizer" OFF)
+option(KALSHI_ENABLE_COVERAGE "Enable gcov coverage instrumentation" OFF)
+
 if(KALSHI_ENABLE_SANITIZERS AND KALSHI_ENABLE_THREAD_SANITIZER)
     message(FATAL_ERROR "AddressSanitizer and ThreadSanitizer require separate builds")
 endif()
+
+if(KALSHI_ENABLE_CLANG_TIDY)
+    find_program(KALSHI_CLANG_TIDY_EXECUTABLE NAMES clang-tidy-18 clang-tidy REQUIRED)
+endif()
+
+if(KALSHI_ENABLE_LTO)
+    include(CheckIPOSupported)
+    check_ipo_supported(RESULT KALSHI_LTO_SUPPORTED OUTPUT KALSHI_LTO_ERROR)
+    if(NOT KALSHI_LTO_SUPPORTED)
+        message(WARNING "LTO is not supported: ${KALSHI_LTO_ERROR}")
+    endif()
+endif()
+
+# Instrumentation applies to every target in this tree, including fetched
+# dependencies, so ASan container checks and TSan see consistent code.
 if(KALSHI_ENABLE_SANITIZERS)
-    add_compile_options(-fsanitize=address,undefined -fno-omit-frame-pointer)
+    add_compile_options(-fsanitize=address,undefined -fno-sanitize-recover=all
+        -fno-omit-frame-pointer)
     add_link_options(-fsanitize=address,undefined)
-    message(STATUS "Sanitizers enabled (ASan + UBSan)")
 endif()
 if(KALSHI_ENABLE_THREAD_SANITIZER)
     if(MSVC)
-        message(FATAL_ERROR "ThreadSanitizer is not supported by this MSVC configuration")
+        message(FATAL_ERROR "ThreadSanitizer is not supported with MSVC")
     endif()
     add_compile_options(-fsanitize=thread -fno-omit-frame-pointer)
     add_link_options(-fsanitize=thread)
 endif()
-
-# Code coverage support
-option(KALSHI_ENABLE_COVERAGE "Enable code coverage instrumentation (gcov)" OFF)
 if(KALSHI_ENABLE_COVERAGE)
-    add_compile_options(--coverage -fprofile-arcs -ftest-coverage)
+    add_compile_options(--coverage)
     add_link_options(--coverage)
-    message(STATUS "Code coverage enabled")
 endif()
 
-# Generate version header from CMake PROJECT_VERSION. This is the single
-# source of truth for the SDK version — kalshi/version.hpp is regenerated
-# at configure time, so the C++ constexpr cannot drift from the CMake
-# project version (and from there, from the FetchContent tag consumers
-# pin to). See include/kalshi/version.hpp.in.
+# Applies warnings and opt-in tuning to targets this project owns.
+# -Wmissing-field-initializers is off because every aggregate member has a
+# default initializer, and GCC's -Wmaybe-uninitialized reports false positives
+# on std::optional at -O2 and above.
+function(kalshi_configure_target target)
+    if(MSVC)
+        target_compile_options(${target} PRIVATE /W4 $<$<BOOL:${KALSHI_WARNINGS_AS_ERRORS}>:/WX>)
+    else()
+        target_compile_options(${target} PRIVATE -Wall -Wextra -Wpedantic
+            -Wno-missing-field-initializers
+            $<$<CXX_COMPILER_ID:GNU>:-Wno-maybe-uninitialized>
+            $<$<BOOL:${KALSHI_WARNINGS_AS_ERRORS}>:-Werror>
+            $<$<BOOL:${KALSHI_NATIVE_ARCH}>:-march=native>)
+    endif()
+    if(KALSHI_ENABLE_LTO AND KALSHI_LTO_SUPPORTED)
+        set_property(TARGET ${target} PROPERTY INTERPROCEDURAL_OPTIMIZATION ON)
+    endif()
+    if(KALSHI_ENABLE_CLANG_TIDY)
+        set_property(TARGET ${target} PROPERTY CXX_CLANG_TIDY "${KALSHI_CLANG_TIDY_EXECUTABLE}")
+    endif()
+endfunction()
+
+# kalshi::VERSION and the CMake package version both come from PROJECT_VERSION.
 configure_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/include/kalshi/version.hpp.in
     ${CMAKE_CURRENT_BINARY_DIR}/include/kalshi/version.hpp
-    @ONLY
-)
+    @ONLY)
 
-# Find dependencies. Linux/macOS use pkg-config to locate
-# libwebsockets (apt/brew packages ship .pc files); Windows/MSVC
-# uses vcpkg's CMake config-mode export.
 find_package(OpenSSL REQUIRED)
 find_package(CURL REQUIRED)
-if(NOT WIN32)
+if(WIN32)
+    find_package(libwebsockets CONFIG REQUIRED)
+else()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(WEBSOCKETS REQUIRED IMPORTED_TARGET libwebsockets)
-else()
-    find_package(libwebsockets CONFIG REQUIRED)
 endif()
 
-include(FetchContent)
+# Glaze is a private, header-only build dependency; installed headers never
+# include it. Package managers supply their own copy (>= 8.4).
+if(KALSHI_USE_SYSTEM_GLAZE)
+    find_package(glaze REQUIRED)
+    if(glaze_VERSION VERSION_LESS 8.4)
+        message(FATAL_ERROR "kalshi-cpp requires Glaze 8.4 or newer, found ${glaze_VERSION}")
+    endif()
+else()
+    include(FetchContent)
+    FetchContent_Declare(glaze
+        GIT_REPOSITORY https://github.com/stephenberry/glaze.git
+        GIT_TAG v9.0.0
+        GIT_SHALLOW TRUE)
+    FetchContent_MakeAvailable(glaze)
+endif()
 
-# Glaze — JSON library (compile-time reflection). Used for outgoing
-# request serialization where stable key order matters (Kalshi's API
-# rejects unordered subscribe payloads). The REST response path uses
-# the hand-rolled scanners in detail/ws_json.hpp + the local helpers
-# in api/client.cpp and was deliberately stripped of any JSON library
-# in v0.0.7/v0.0.8 — DO NOT reintroduce a runtime parser there.
-# License: MIT. Shared v8.3.0 pin with spc-cpp avoids duplicate targets in consumers.
-FetchContent_Declare(
-    glaze
-    GIT_REPOSITORY https://github.com/stephenberry/glaze.git
-    GIT_TAG v8.3.0
-    GIT_SHALLOW TRUE
-)
-FetchContent_MakeAvailable(glaze)
-
-# Include directories
-include_directories(${PROJECT_SOURCE_DIR}/include)
-
-# Add subdirectories
 add_subdirectory(src)
 
 if(KALSHI_BUILD_TESTS)
     include(FetchContent)
-    FetchContent_Declare(
-        googletest
+    FetchContent_Declare(googletest
         GIT_REPOSITORY https://github.com/google/googletest.git
         GIT_TAG v1.18.0
-        GIT_SHALLOW TRUE
-    )
+        GIT_SHALLOW TRUE)
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
     set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(googletest)
@@ -162,15 +130,22 @@ if(KALSHI_BUILD_TESTS)
     add_subdirectory(tests)
 endif()
 
-foreach(target kalshi_core kalshi_auth kalshi_http kalshi_models kalshi_ws kalshi_api)
-    kalshi_configure_target(${target})
-endforeach()
-
 if(KALSHI_BUILD_EXAMPLES)
     add_subdirectory(examples)
 endif()
 
-# Install targets
+if(KALSHI_BUILD_BENCHMARKS)
+    include(FetchContent)
+    FetchContent_Declare(benchmark
+        GIT_REPOSITORY https://github.com/google/benchmark.git
+        GIT_TAG v1.9.5
+        GIT_SHALLOW TRUE)
+    set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
+    set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
+    FetchContent_MakeAvailable(benchmark)
+    add_subdirectory(benchmarks)
+endif()
+
 set(KALSHI_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/kalshi")
 
 install(TARGETS kalshi_core kalshi_auth kalshi_http kalshi_models kalshi_ws kalshi_api kalshi
@@ -178,8 +153,7 @@ install(TARGETS kalshi_core kalshi_auth kalshi_http kalshi_models kalshi_ws kals
     ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
     LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
     RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-)
+    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(DIRECTORY include/kalshi DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
     PATTERN "*.in" EXCLUDE)
 install(FILES ${CMAKE_CURRENT_BINARY_DIR}/include/kalshi/version.hpp
@@ -188,24 +162,16 @@ install(FILES ${CMAKE_CURRENT_BINARY_DIR}/include/kalshi/version.hpp
 configure_package_config_file(
     ${CMAKE_CURRENT_SOURCE_DIR}/cmake/kalshiConfig.cmake.in
     ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfig.cmake
-    INSTALL_DESTINATION ${KALSHI_INSTALL_CMAKEDIR}
-)
+    INSTALL_DESTINATION ${KALSHI_INSTALL_CMAKEDIR})
 write_basic_package_version_file(
     ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfigVersion.cmake
     VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMajorVersion
-)
-export(EXPORT kalshiTargets
-    FILE ${CMAKE_CURRENT_BINARY_DIR}/kalshiTargets.cmake
-    NAMESPACE kalshi::
-)
+    COMPATIBILITY SameMinorVersion)
 install(EXPORT kalshiTargets
     FILE kalshiTargets.cmake
     NAMESPACE kalshi::
-    DESTINATION ${KALSHI_INSTALL_CMAKEDIR}
-)
+    DESTINATION ${KALSHI_INSTALL_CMAKEDIR})
 install(FILES
     ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfig.cmake
     ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfigVersion.cmake
-    DESTINATION ${KALSHI_INSTALL_CMAKEDIR}
-)
+    DESTINATION ${KALSHI_INSTALL_CMAKEDIR})

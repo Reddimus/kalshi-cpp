@@ -4061,7 +4061,7 @@ Result<ApiKey> KalshiClient::generate_api_key(const GenerateApiKeyParams& params
 	std::string key_json = response->body;
 	if (response->body.find("\"api_key\"") != std::string::npos) {
 		// Extract the api_key object
-		auto start = response->body.find("\"api_key\"");
+		std::size_t start = response->body.find("\"api_key\"");
 		if (start != std::string::npos) {
 			start = response->body.find('{', start);
 			if (start != std::string::npos) {

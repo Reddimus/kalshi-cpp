@@ -150,8 +150,8 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 	// Set URL
 	curl_easy_setopt(impl_->curl, CURLOPT_URL, url.c_str());
 
-	// Set method
-	switch (method) {
+	// curl's type-checking macros make these branches look identical to clang-tidy.
+	switch (method) { // NOLINT(bugprone-branch-clone)
 		case HttpMethod::GET:
 			curl_easy_setopt(impl_->curl, CURLOPT_HTTPGET, 1L);
 			break;
