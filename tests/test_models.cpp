@@ -69,11 +69,6 @@ TEST(Models, PublicAggregatesHaveDeterministicDefaults) {
 	const kalshi::OrderBookEntry entry;
 	EXPECT_EQ(entry.price_cents, 0);
 	EXPECT_EQ(entry.quantity, 0);
-
-	const kalshi::RetryResult retry;
-	EXPECT_EQ(retry.total_delay.count(), 0);
-	EXPECT_EQ(retry.attempts_made, 0);
-	EXPECT_FALSE(retry.succeeded);
 }
 
 TEST(Models, PositionDefaultConstruction) {

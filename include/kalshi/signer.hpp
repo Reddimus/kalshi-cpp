@@ -2,7 +2,6 @@
 
 #include "kalshi/error.hpp"
 
-#include <chrono>
 #include <cstdint>
 #include <memory>
 #include <string>
@@ -10,53 +9,53 @@
 
 namespace kalshi {
 
-/// Authentication headers returned by the signer
+/// Headers that authenticate one request.
 struct AuthHeaders {
-	std::string access_key;
-	std::string signature;
-	std::string timestamp;
+	std::string access_key; ///< KALSHI-ACCESS-KEY
+	std::string signature;	///< KALSHI-ACCESS-SIGNATURE (base64)
+	std::string timestamp;	///< KALSHI-ACCESS-TIMESTAMP (Unix milliseconds)
 };
 
-/// RSA-PSS signer for Kalshi API authentication
+/// Algorithm of the loaded API key.
+enum class KeyType : std::uint8_t {
+	Rsa,	///< RSA-PSS with SHA-256 and a digest-length salt
+	Ed25519 ///< Ed25519 (RFC 8032)
+};
+
+/// Signs Kalshi requests with an API key.
 ///
-/// Creates signatures compatible with Kalshi's authentication scheme:
-/// - Message format: {timestamp}{method}{path}
-/// - Algorithm: RSA-PSS with SHA-256
-/// - Salt length: same as digest (32 bytes)
+/// The signed message is `timestamp + METHOD + path`, where the path starts at
+/// `/trade-api/...` and excludes the query string. The algorithm follows the
+/// key: RSA keys use RSA-PSS/SHA-256, Ed25519 keys use Ed25519.
+///
+/// Copies share the same immutable key, and signing is thread-safe.
 class Signer {
 public:
-	/// Create a signer from a PEM-encoded RSA private key
+	/// Loads an unencrypted PEM private key (PKCS#1 or PKCS#8). Encrypted
+	/// keys and algorithms other than RSA and Ed25519 are rejected.
 	[[nodiscard]] static Result<Signer> from_pem(std::string_view api_key_id,
 												 std::string_view pem_key);
 
-	/// Create a signer from a PEM file path
+	/// Reads a PEM private key from a file. See from_pem().
 	[[nodiscard]] static Result<Signer> from_pem_file(std::string_view api_key_id,
 													  std::string_view file_path);
 
-	~Signer();
-	Signer(Signer&&) noexcept;
-	Signer& operator=(Signer&&) noexcept;
-
-	// Non-copyable due to OpenSSL key ownership
-	Signer(const Signer&) = delete;
-	Signer& operator=(const Signer&) = delete;
-
-	/// Generate authentication headers for a request
+	/// Signs a request at the current time.
 	[[nodiscard]] Result<AuthHeaders> sign(std::string_view method, std::string_view path) const;
 
-	/// Generate authentication headers with a specific timestamp (for testing)
+	/// Signs a request at a fixed time. Useful for tests.
 	[[nodiscard]] Result<AuthHeaders> sign_with_timestamp(std::string_view method,
 														  std::string_view path,
 														  std::int64_t timestamp_ms) const;
 
-	/// Get the API key ID
 	[[nodiscard]] std::string_view api_key_id() const noexcept;
+	[[nodiscard]] KeyType key_type() const noexcept;
 
 private:
 	struct Impl;
-	std::unique_ptr<Impl> impl_;
+	std::shared_ptr<const Impl> impl_;
 
-	explicit Signer(std::unique_ptr<Impl> impl);
+	explicit Signer(std::shared_ptr<const Impl> impl) noexcept;
 };
 
 } // namespace kalshi

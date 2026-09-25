@@ -6,6 +6,22 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Ed25519 API keys, which Kalshi recommends. `Signer` picks RSA-PSS or Ed25519
+  from the loaded key and reports it through `key_type()`.
+- `HttpClient(ClientConfig)` sends unauthenticated requests for public market
+  data, so no API key is needed to read markets.
+- `Environment::{Production, Demo}` with `rest_base_url()`, `websocket_url()`,
+  `ClientConfig::for_environment()`, and `WsConfig::for_environment()`.
+- `RetryingTransport`, a transport decorator that retries network errors, 429s,
+  and 5xx responses with backoff. POST retries only on 429 unless
+  `RetryPolicy::retry_non_idempotent` is set, so an order is never placed twice.
+- `TokenBucket` and `RateLimitedTransport`, which pace requests to Kalshi's
+  Read and Write token budgets. `rate_limit_config()` builds the config from
+  `get_account_api_limits()` and `get_endpoint_costs()`.
+- `HttpResponse::header()` for case-insensitive header lookup.
+
 ### Changed
 
 - CMake 3.31 or newer is required when Glaze is fetched (Glaze's own
@@ -32,8 +48,36 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Tags with a pre-release suffix no longer trigger the release workflow. They
   never matched the CMake version check and could not publish.
 
+### Removed
+
+- `RateLimiter` and `ScopedRateLimit`. They counted one token per
+  millisecond-resolution interval and could not express Kalshi's budgets; use
+  `TokenBucket`.
+- `RetryingClient`, `with_retry()`, `calculate_retry_delay()`, and
+  `RetryResult`. Use `RetryingTransport` and `retry_delay()`.
+  `should_retry()` now takes the HTTP method.
+- `build_paginated_query()`, which did not percent-encode the cursor.
+
+### Migrating from 0.5
+
+- `Signer` is copyable, and `WebSocketClient` stores its own copy, so the
+  signer no longer has to outlive the client.
+- `HttpResponse::status_code` is an `int`. `ClientConfig::timeout` is in
+  milliseconds (assigning `std::chrono::seconds` still works), and
+  `ClientConfig::connect_timeout` is new.
+- `HttpClient`'s constructors are `explicit`.
+
 ### Fixed
 
+- A POST with an empty body (for example `create_subaccount()`) no longer makes
+  libcurl read the request body from standard input.
+- Timeouts pass `long` values to libcurl; the `int64` passed before was
+  undefined behavior on Windows.
+- Requests set `CURLOPT_NOSIGNAL`, a connect timeout, TCP keepalive, gzip, and
+  a `kalshi-cpp/<version>` User-Agent.
+- Encrypted private keys fail with an error instead of prompting for a
+  passphrase on the terminal. Unsupported key types fail when loaded rather
+  than on the first request, and file errors name the path.
 - OpenSSL, libcurl, and libwebsockets are private link dependencies. The
   unused build-tree `export()` file is gone; use `cmake --install` or
   FetchContent.
