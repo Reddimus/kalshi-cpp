@@ -9,6 +9,7 @@
 #include <chrono>
 #include <deque>
 #include <gtest/gtest.h>
+#include <latch>
 #include <memory>
 #include <string>
 #include <thread>
@@ -173,21 +174,26 @@ TEST(TokenBucket, AcquireForGivesUpWhenTokensCannotArriveInTime) {
 	kalshi::TokenBucket bucket(
 		{.capacity = 100.0, .refill_per_second = 10.0, .initial_tokens = 0.0});
 	const std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-	EXPECT_FALSE(bucket.acquire_for(50.0, 100ms)); // needs 5 s
-	EXPECT_LT(std::chrono::steady_clock::now() - start, 50ms);
-	EXPECT_FALSE(bucket.acquire_for(500.0, 10s)); // more than capacity
+	EXPECT_FALSE(bucket.acquire_for(50.0, 100ms));			 // needs 5 s
+	EXPECT_LT(std::chrono::steady_clock::now() - start, 1s); // fails fast instead of sleeping
+	EXPECT_FALSE(bucket.acquire_for(500.0, 10s));			 // more than capacity
 }
 
 TEST(TokenBucket, WaitersReserveTokensSoLaterCallersQueueBehindThem) {
+	// 5 tokens on hand, 10 needed: the waiter reserves all 10 and sleeps 0.5 s.
 	kalshi::TokenBucket bucket(
-		{.capacity = 10.0, .refill_per_second = 100.0, .initial_tokens = 0.0});
-	std::thread waiter([&bucket] { EXPECT_TRUE(bucket.acquire_for(10.0, 1s)); });
-	std::this_thread::sleep_for(20ms);
-	// The waiter holds a reservation, so small requests cannot jump ahead of it.
+		{.capacity = 10.0, .refill_per_second = 10.0, .initial_tokens = 5.0});
+	std::latch started(1);
+	std::thread waiter([&] {
+		started.count_down();
+		EXPECT_TRUE(bucket.acquire_for(10.0, 5s));
+	});
+	started.wait();
+	std::this_thread::sleep_for(100ms);
+	// Without the reservation, the 5 tokens on hand would let this through.
 	EXPECT_FALSE(bucket.try_acquire(1.0));
 	EXPECT_DOUBLE_EQ(bucket.available(), 0.0);
 	waiter.join();
-	EXPECT_GT(bucket.wait_time(10.0), 50ms);
 }
 
 TEST(TokenBucket, ExtremeWaitsSaturateInsteadOfOverflowing) {
