@@ -6,6 +6,22 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.6.1] - 2026-09-25
+
+### Fixed
+
+- Public headers compile without warnings under `-Wall -Wextra -Wpedantic`,
+  so projects that build with `-Werror` can include them. `Error` values in
+  `error.hpp` and `fixed_point.hpp` left a field uninitialized, which
+  `-Wmissing-field-initializers` reported. The consumer check now builds with
+  those flags.
+- A request refused by the local rate limiter reports `http_status` 0, since
+  no server answered; it reported 429.
+- README's examples copy the `Signer` instead of moving it, so later snippets
+  still have a key, and its Ubuntu setup installs a compiler and a new enough
+  CMake. The docs, comments, and pre-commit hook were corrected where the
+  final review found them out of date.
+
 ## [0.6.0] - 2026-09-25
 
 0.6.0 rebuilds the SDK from Kalshi's published specs. `KalshiClient` covers all
@@ -22,7 +38,7 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
   document: all 13 channels, `update_subscription` for markets, snapshots, CF
   Benchmarks indices, and Pyth underlyings, and `list_subscriptions`. Message
   types in `kalshi/ws_models.hpp` are generated from `spec/asyncapi.yaml`, and
-  [docs/channels.md](docs/channels.md) maps channels to them.
+  [docs/channels.md](https://github.com/Reddimus/kalshi-cpp/blob/main/docs/channels.md) maps channels to them.
 - The WebSocket client reconnects with backoff after a dropped connection,
   signs each attempt, and resubscribes with each subscription's current
   markets. `ws::Subscription` handles survive reconnects, and every
@@ -40,7 +56,7 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
   up from 70. New areas include historical data, live data, fee changes, event
   candlesticks and forecasts, order-group triggers and limits, intra-exchange
   transfers, target balance allocation, block trades, API usage levels, search
-  filters, and FCM. [docs/operations.md](docs/operations.md) lists every one.
+  filters, and FCM. [docs/operations.md](https://github.com/Reddimus/kalshi-cpp/blob/main/docs/operations.md) lists every one.
 - `tools/codegen/generate.py` generates the client, models, route tests, and
   operation list from the vendored `spec/openapi.yaml`. CI fails if they drift.
 - Requests are validated before sending: required fields must be set and
@@ -763,7 +779,8 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.1...HEAD
+[0.6.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.2...v0.6.0
 [0.5.2]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.1...v0.5.2
 [0.5.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.0...v0.5.1

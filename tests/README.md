@@ -13,6 +13,11 @@ memory.
 | `test_http_client.cpp` | The libcurl transport, POSIX only |
 | `test_transports.cpp` | Retries, token buckets, rate limiting |
 | `test_signer.cpp` | Ed25519 and RSA-PSS signing |
+| `test_helpers.cpp` | Cents, contracts, timestamps, order directions, pagination |
+| `test_fixed_point.cpp` | Exact decimal parsing and scaling |
+| `test_features.cpp` | Defaults for configs and enums |
+| `test_version.cpp` | `kalshi::VERSION` and its components |
+| `parse_benchmark.cpp` | A coarse throughput guard, run as its own test |
 | `test_ws_messages.cpp` | Every example frame in the AsyncAPI spec (generated) |
 | `test_ws_frames.cpp` | Control frames, discriminated types, nulls, unknown values |
 | `test_ws_subscriptions.cpp` | Command frames, held commands, resubscribing, gaps |

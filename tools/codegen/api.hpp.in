@@ -17,8 +17,9 @@ namespace kalshi {
 /// operation in Kalshi's OpenAPI document, named after its operationId.
 ///
 /// Failures come back as `Error`: `InvalidRequest` for a request the SDK
-/// rejects before sending (or HTTP 400/409/422), `AuthenticationError`,
-/// `NotFound`, `RateLimited`, `ServerError`, `NetworkError`, or `ParseError`.
+/// rejects before sending or another HTTP 4xx, `AuthenticationError`,
+/// `NotFound`, `RateLimited`, `ServerError`, `NetworkError`, `ParseError`,
+/// or `SigningError`.
 /// `Error::api_code` carries Kalshi's machine-readable code when it sends one.
 class KalshiClient {
 public:

@@ -18,7 +18,7 @@ namespace kalshi::detail {
 	return result;
 }
 
-/// Build the URL path covered by Kalshi's RSA-PSS signature.
+/// Build the URL path covered by Kalshi's request signature.
 ///
 /// Kalshi signs the full path from the host root, including the base URL's
 /// `/trade-api/v2` prefix, but excludes the query string.

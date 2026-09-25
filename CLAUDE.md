@@ -8,8 +8,8 @@ User-visible changes also require a `CHANGELOG.md` entry. The CI workflow is
 the source of truth for Linux, macOS, Windows, sanitizer, clang-tidy, Markdown,
 and consumer gates.
 
-Examples make authenticated network calls. Keep automated tests offline by
-using an injected `HttpTransport`.
+Examples call the live API, and most need a key. Keep automated tests offline
+by injecting an `HttpTransport` or using the local servers in `tests/`.
 
 ## Architecture
 
@@ -33,8 +33,9 @@ using an injected `HttpTransport`.
 
 ## Conventions
 
-- Use explicit local types. The permitted `auto` cases are recorded in
-  `tools/cpp_auto_allowlist.txt` and enforced by `tools/cpp_auto_audit.py`.
+- Use explicit local types. `tools/cpp_auto_audit.py` allows `auto` for
+  structured bindings, lambdas, and iterators; anything else needs an
+  `// auto-ok: reason` comment.
 - `tools/codegen/generate.py` writes the REST client from `spec/openapi.yaml`
   and the WebSocket types from `spec/asyncapi.yaml`. Edit a spec, the
   generator, or a `tools/codegen/*.in` template, then run `make codegen`;

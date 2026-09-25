@@ -7,9 +7,8 @@ Policy:
 - allow ``auto`` for iterator-like values
 - allow explicit one-off exceptions marked with ``auto-ok``
 
-Everything else is expected to spell out the type directly. Repos can
-carry a local allowlist while older files are being burned down. The
-allowlist format is one rule per line:
+Everything else is expected to spell out the type directly. The optional
+allowlist takes one rule per line:
 
     relative/path.cpp|line snippet
 

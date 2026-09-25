@@ -73,10 +73,11 @@ format:
 
 pre-commit: format lint
 
-# Installs a hook that runs `make pre-commit`. Works in worktrees too.
+# Installs a hook that runs `make lint` on every commit, so unformatted code
+# fails instead of being formatted after it is staged. Works in worktrees too.
 install-hooks:
 	@hook="$$(git rev-parse --git-path hooks)/pre-commit"; \
-		printf '#!/bin/sh\nexec make pre-commit\n' > "$$hook" && chmod +x "$$hook" && \
+		printf '#!/bin/sh\nexec make lint\n' > "$$hook" && chmod +x "$$hook" && \
 		echo "Installed $$hook"
 
 # Needs lcov and genhtml.
@@ -113,7 +114,7 @@ help:
 	@echo "make lint-docs    markdownlint"
 	@echo "make format       Format C++ sources in place"
 	@echo "make pre-commit   format + lint"
-	@echo "make install-hooks  Run pre-commit on every git commit"
+	@echo "make install-hooks  Run make lint on every git commit"
 	@echo "make coverage     lcov report in build-coverage/html"
 	@echo "make run-NAME     Run examples/NAME.cpp with .env loaded (ARGS=...)"
 	@echo "make clean        Remove build directories"

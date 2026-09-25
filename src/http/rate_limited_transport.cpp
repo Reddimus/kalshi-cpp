@@ -117,8 +117,9 @@ Result<HttpResponse> RateLimitedTransport::request(HttpMethod method, std::strin
 				std::to_string(bucket.config().capacity) + "; split the batch"});
 	}
 	if (!bucket.acquire_for(tokens, config_.max_wait)) {
-		return std::unexpected(Error{ErrorCode::RateLimited,
-									 "Rate-limit tokens would not refill within max_wait", 429});
+		// No server answered, so http_status stays 0.
+		return std::unexpected(Error{
+			ErrorCode::RateLimited, "Rate-limit tokens would not refill within max_wait", 0, {}});
 	}
 	return inner_->request(method, path, body);
 }

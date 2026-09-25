@@ -17,6 +17,8 @@
 | `kalshi/error.hpp` | `Error`, `ErrorCode`, and `Result<T>` |
 | `kalshi/environment.hpp` | Production and demo URLs |
 | `kalshi/fixed_point.hpp` | Exact decimal parsing |
+| `kalshi/raw_json.hpp` | `RawJson`, free-form JSON kept as text |
+| `kalshi/version.hpp` | `kalshi::VERSION` (generated at configure time) |
 
 Headers under `kalshi/detail/` support the implementation and tests. They are
 not a stable interface.

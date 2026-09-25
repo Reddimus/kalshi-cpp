@@ -14,13 +14,14 @@ class FixedPoint {
 public:
 	[[nodiscard]] static Result<FixedPoint> parse(std::string_view value) {
 		if (value.empty()) {
-			return std::unexpected(Error{ErrorCode::InvalidRequest, "fixed-point value is empty"});
+			return std::unexpected(
+				Error{ErrorCode::InvalidRequest, "fixed-point value is empty", 0, {}});
 		}
 
 		std::size_t index = value.front() == '-' ? 1 : 0;
 		if (index == value.size()) {
 			return std::unexpected(
-				Error{ErrorCode::InvalidRequest, "fixed-point value has no digits"});
+				Error{ErrorCode::InvalidRequest, "fixed-point value has no digits", 0, {}});
 		}
 
 		bool saw_digit = false;
@@ -37,10 +38,12 @@ public:
 				saw_decimal = true;
 				continue;
 			}
-			return std::unexpected(Error{ErrorCode::InvalidRequest, "invalid fixed-point value"});
+			return std::unexpected(
+				Error{ErrorCode::InvalidRequest, "invalid fixed-point value", 0, {}});
 		}
 		if (!saw_digit || (saw_decimal && !fractional_digit)) {
-			return std::unexpected(Error{ErrorCode::InvalidRequest, "invalid fixed-point value"});
+			return std::unexpected(
+				Error{ErrorCode::InvalidRequest, "invalid fixed-point value", 0, {}});
 		}
 		return FixedPoint(std::string(value));
 	}
@@ -51,8 +54,8 @@ public:
 	/// Returns InvalidRequest instead of rounding or saturating.
 	[[nodiscard]] Result<std::int64_t> scaled_integer(std::uint8_t scale) const {
 		if (scale > 18) {
-			return std::unexpected(
-				Error{ErrorCode::InvalidRequest, "fixed-point scale exceeds int64 capacity"});
+			return std::unexpected(Error{
+				ErrorCode::InvalidRequest, "fixed-point scale exceeds int64 capacity", 0, {}});
 		}
 
 		const bool negative = wire_.front() == '-';
@@ -67,7 +70,9 @@ public:
 			for (std::size_t i = fractional_start + scale; i < wire_.size(); ++i) {
 				if (wire_[i] != '0') {
 					return std::unexpected(Error{ErrorCode::InvalidRequest,
-												 "fixed-point conversion would lose precision"});
+												 "fixed-point conversion would lose precision",
+												 0,
+												 {}});
 				}
 			}
 		}
@@ -109,7 +114,7 @@ private:
 
 	[[nodiscard]] static Result<std::int64_t> overflow_error() {
 		return std::unexpected(
-			Error{ErrorCode::InvalidRequest, "fixed-point value does not fit in int64"});
+			Error{ErrorCode::InvalidRequest, "fixed-point value does not fit in int64", 0, {}});
 	}
 
 	std::string wire_;
