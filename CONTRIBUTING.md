@@ -89,8 +89,8 @@ explains how to refresh the specs.
 
 ## Pull requests
 
-- Name branches `feat/`, `fix/`, `docs/`, `ci/`, `refactor/`, `test/`, or
-  `chore/`.
+- Name branches `feat/`, `fix/`, `perf/`, `docs/`, `ci/`, `refactor/`, `test/`,
+  or `chore/`.
 - Title PRs as [Conventional Commits](https://www.conventionalcommits.org/),
   such as `fix(ws): keep subscriptions across reconnects`. PRs are
   squash-merged, so the title becomes the commit subject.

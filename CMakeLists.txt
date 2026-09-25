@@ -117,6 +117,19 @@ endif()
 
 add_subdirectory(src)
 
+# Replaces operator new to count allocations for kalshi_allocation_tests and
+# the benchmarks. It is an object library because the linker may skip a static
+# library member that only defines operator new. Sanitizer builds leave it out
+# because ASan and TSan replace operator new themselves; coverage builds skip
+# it too.
+if((KALSHI_BUILD_TESTS OR KALSHI_BUILD_BENCHMARKS) AND NOT KALSHI_ENABLE_SANITIZERS
+    AND NOT KALSHI_ENABLE_THREAD_SANITIZER AND NOT KALSHI_ENABLE_COVERAGE)
+    add_library(kalshi_allocation_counter OBJECT tests/support/allocation_counter.cpp)
+    target_include_directories(kalshi_allocation_counter PUBLIC ${PROJECT_SOURCE_DIR}/tests)
+    target_compile_definitions(kalshi_allocation_counter PUBLIC KALSHI_COUNT_ALLOCATIONS)
+    kalshi_configure_target(kalshi_allocation_counter)
+endif()
+
 if(KALSHI_BUILD_TESTS)
     include(FetchContent)
     FetchContent_Declare(googletest

@@ -73,7 +73,8 @@ int main(int argc, char** argv) {
 	std::printf("parse_benchmark: payload=%zuB iters=%d\n", sample.size(), kIterations);
 	std::printf("  glaze (serialize): %8.3f ms total  (%8.3f us/op)\n", glaze_ms, us_per_op);
 
-	// About 10x the measured cost of encoding a 50-order batch, to absorb slow runners.
+	// About 100x the 4 to 6 us that encoding a 50-order batch takes, so slow
+	// runners pass and only gross regressions fail.
 	constexpr double kMaxUsPerOp = 500.0;
 	if (check_timing && us_per_op > kMaxUsPerOp) {
 		std::fprintf(stderr, "REGRESSION: %.3f us/op exceeds cap of %.0f us/op\n", us_per_op,
