@@ -1,7 +1,7 @@
 # Fetching Glaze needs CMake 3.31; an installed Glaze works with 3.21.
 cmake_minimum_required(VERSION 3.21...4.4)
 project(kalshi-cpp
-    VERSION 0.5.2
+    VERSION 0.6.0
     DESCRIPTION "C++23 client for the Kalshi Predictions API"
     HOMEPAGE_URL "https://github.com/Reddimus/kalshi-cpp"
     LANGUAGES CXX)

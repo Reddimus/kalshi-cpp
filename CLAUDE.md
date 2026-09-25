@@ -18,6 +18,9 @@ using an injected `HttpTransport`.
 - WebSocketClient callbacks run on its network thread and may call any
   method, including the destructor. Keep that working when changing
   `src/ws/websocket.cpp`; `tests/test_ws_client.cpp` covers it.
+- libwebsockets 4.4+ calls `OPENSSL_cleanup()` when its last TLS context is
+  destroyed, which breaks all later TLS in the process. The context that
+  `keep_openssl_initialized()` never destroys is deliberate; keep it.
 - Public failures use `std::expected<T, Error>`. Preserve typed, non-throwing
   boundaries when validating input or transport state.
 - Glaze reads and writes every JSON payload. Glaze reflection needs types
