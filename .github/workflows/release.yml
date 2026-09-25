@@ -9,7 +9,7 @@ on:
       - "v[0-9]+.[0-9]+.[0-9]+"
 
 permissions:
-  actions: read
+  actions: write # dispatch CI when the tagged commit has no run yet
   contents: write
 
 jobs:
@@ -41,17 +41,25 @@ jobs:
             exit 1
           fi
 
-      - name: Wait for CI on the tagged commit
+      - name: Require passing CI on the tagged commit
         env:
           GH_TOKEN: ${{ github.token }}
         run: |
-          for _ in $(seq 1 80); do
-            state=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml --event push \
+          # Uses the newest CI run for this commit from any event. A commit
+          # that never ran CI (for example, not the head of a push) gets one.
+          dispatched=false
+          for _ in $(seq 1 90); do
+            state=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml \
               --commit "$GITHUB_SHA" --json status,conclusion \
               --jq '.[0] | "\(.status) \(.conclusion)"')
             case "$state" in
               "completed success") echo "CI passed for $GITHUB_SHA"; exit 0 ;;
               completed*) echo "::error::CI did not pass for $GITHUB_SHA: $state"; exit 1 ;;
+              "")
+                if [ "$dispatched" = false ]; then
+                  gh workflow run ci.yml --repo "$GITHUB_REPOSITORY" --ref "$GITHUB_REF_NAME"
+                  dispatched=true
+                fi ;;
             esac
             echo "CI state: ${state:-not started}"
             sleep 30

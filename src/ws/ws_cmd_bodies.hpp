@@ -21,10 +21,11 @@
 /// `kalshi/detail/ws_json.hpp` and is deliberately not migrated.
 
 #include <cstdint>
-#include <glaze/glaze.hpp>
 #include <optional>
 #include <string>
 #include <vector>
+
+#include "../json.hpp"
 
 namespace kalshi::ws_cmd {
 

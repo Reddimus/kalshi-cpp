@@ -14,7 +14,8 @@ part of this client.
 
 ## Install and test
 
-Install OpenSSL, libcurl, libwebsockets, CMake 3.31+, and a C++23 compiler.
+Install OpenSSL 3, libcurl, libwebsockets, CMake 3.31+ (3.21+ with an installed
+Glaze), and a C++23 compiler.
 
 ```bash
 brew install cmake openssl curl libwebsockets pkg-config

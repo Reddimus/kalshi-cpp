@@ -26,5 +26,5 @@ Checks: >
   cppcoreguidelines-virtual-class-destructor,
   cppcoreguidelines-slicing
 WarningsAsErrors: '*'
-HeaderFilterRegex: '.*/(include/kalshi|src)/.*'
+HeaderFilterRegex: '.*/(include/kalshi(/detail|/models)?|src(/api|/auth|/http|/ws)?)/[^/]+$'
 FormatStyle: file

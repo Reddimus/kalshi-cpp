@@ -872,11 +872,7 @@ TEST(OperationContracts, CurrentStringArrayFieldsAreParsedWithoutJsonFragments) 
 		client.get_order_group("group-1", {.subaccount = 0});
 	ASSERT_TRUE(group.has_value());
 	EXPECT_EQ(group->order_ids, (std::vector<std::string>{"order-1", "order-2"}));
-#if defined(__clang__)
-#endif
 	ASSERT_TRUE(client.get_order_group("group-1").has_value());
-#if defined(__clang__)
-#endif
 	EXPECT_EQ(transport->path, "/portfolio/order_groups/group-1");
 
 	transport->response_body =

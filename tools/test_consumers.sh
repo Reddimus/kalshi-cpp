@@ -17,13 +17,28 @@ write_consumer() {
 #include <kalshi/kalshi.hpp>
 #include <iostream>
 
+#include <kalshi/detail/ws_message.hpp>
+#include <memory>
+#include <string_view>
+
+namespace {
+class OfflineTransport final : public kalshi::HttpTransport {
+public:
+	kalshi::Result<kalshi::HttpResponse> request(kalshi::HttpMethod, std::string_view,
+												 std::string_view) const override {
+		return std::unexpected(kalshi::Error::network("offline"));
+	}
+};
+} // namespace
+
+// Calls into every static library so a missing link dependency fails here.
 int main() {
-	// Touch every static library so a missing link dependency fails here.
 	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem("id", "not a key");
-	const auto markets = &kalshi::KalshiClient::get_markets; // auto-ok: member pointer
-	const auto connect = &kalshi::WebSocketClient::connect; // auto-ok: member pointer
-	const auto request = &kalshi::HttpClient::request;      // auto-ok: member pointer
-	if (signer || !markets || !connect || !request)
+	kalshi::KalshiClient client{std::make_shared<OfflineTransport>()};
+	const kalshi::Result<kalshi::ExchangeStatus> status = client.get_exchange_status();
+	const bool ws_linked = !kalshi::detail::parse_ws_data_message("{}").has_value();
+	kalshi::RateLimiter limiter{kalshi::RateLimiter::Config{}};
+	if (signer || status || !ws_linked || limiter.available_tokens() == 0)
 		return 1;
 	std::cout << kalshi::VERSION;
 }
@@ -37,7 +52,7 @@ cmake --install "$scratch_dir/sdk-build" --prefix "$scratch_dir/prefix"
 
 write_consumer "$scratch_dir/installed"
 cat > "$scratch_dir/installed/CMakeLists.txt" <<CMAKE
-cmake_minimum_required(VERSION 3.31)
+cmake_minimum_required(VERSION 3.21)
 project(kalshi_installed_consumer LANGUAGES CXX)
 find_package(kalshi $minor CONFIG REQUIRED)
 add_executable(consumer main.cpp)
@@ -51,7 +66,7 @@ test "$("$scratch_dir/installed-build/consumer")" = "$version"
 # Tests and examples must stay off by default when consumed as a subproject.
 write_consumer "$scratch_dir/fetched"
 cat > "$scratch_dir/fetched/CMakeLists.txt" <<CMAKE
-cmake_minimum_required(VERSION 3.31)
+cmake_minimum_required(VERSION 3.21)
 project(kalshi_fetch_consumer LANGUAGES CXX)
 include(FetchContent)
 FetchContent_Declare(kalshi SOURCE_DIR "$repo_dir")

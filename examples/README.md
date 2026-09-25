@@ -23,7 +23,7 @@ make run-get_markets
 make run-get_daily_temp
 ```
 
-Pass `--stream` to `build/examples/example_daily_temp`, or set
+Pass `--stream` to `build/examples/example_get_daily_temp`, or set
 `KALSHI_STREAM=1`, to enable the WebSocket view. Press Ctrl+C to stop it.
 
 Examples make authenticated network calls. The automated test suite does not run

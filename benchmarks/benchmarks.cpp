@@ -77,6 +77,11 @@ std::string orders_page(int count) {
 void BM_RestParseMarketsPage(benchmark::State& state) {
 	const int count = static_cast<int>(state.range(0));
 	kalshi::KalshiClient client(std::make_shared<StaticTransport>(markets_page(count)));
+	const kalshi::Result<kalshi::PaginatedResponse<kalshi::Market>> check = client.get_markets();
+	if (!check || check->items.size() != static_cast<std::size_t>(count)) {
+		state.SkipWithError("markets page did not parse");
+		return;
+	}
 	for (auto _ : state) { // auto-ok: Google Benchmark loop idiom
 		kalshi::Result<kalshi::PaginatedResponse<kalshi::Market>> page = client.get_markets();
 		benchmark::DoNotOptimize(page);
@@ -88,6 +93,11 @@ BENCHMARK(BM_RestParseMarketsPage)->Arg(100)->Arg(1000);
 void BM_RestParseOrdersPage(benchmark::State& state) {
 	const int count = static_cast<int>(state.range(0));
 	kalshi::KalshiClient client(std::make_shared<StaticTransport>(orders_page(count)));
+	const kalshi::Result<kalshi::PaginatedResponse<kalshi::Order>> check = client.get_orders();
+	if (!check || check->items.size() != static_cast<std::size_t>(count)) {
+		state.SkipWithError("orders page did not parse");
+		return;
+	}
 	for (auto _ : state) { // auto-ok: Google Benchmark loop idiom
 		kalshi::Result<kalshi::PaginatedResponse<kalshi::Order>> page = client.get_orders();
 		benchmark::DoNotOptimize(page);
@@ -104,6 +114,10 @@ constexpr std::string_view kFillFrame =
 	R"({"type":"fill","sid":13,"msg":{"trade_id":"trade-1","order_id":"order-1","market_ticker":"KXTEST-YES","is_taker":true,"side":"yes","action":"buy","outcome_side":"yes","book_side":"bid","yes_price_dollars":"0.4200","count_fp":"3.00","fee_cost":"0.0200","post_position_fp":"10.00","purchased_side":"yes","exchange_index":1,"client_order_id":"client-1","ts":1788000000,"ts_ms":1788000000123}})";
 
 void BM_WsParse(benchmark::State& state, std::string_view frame) {
+	if (!kalshi::detail::parse_ws_data_message(frame)) {
+		state.SkipWithError("frame did not parse");
+		return;
+	}
 	for (auto _ : state) { // auto-ok: Google Benchmark loop idiom
 		std::optional<kalshi::WsMessage> message = kalshi::detail::parse_ws_data_message(frame);
 		benchmark::DoNotOptimize(message);

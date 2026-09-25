@@ -1,4 +1,5 @@
-cmake_minimum_required(VERSION 3.31)
+# Fetching Glaze needs CMake 3.31; an installed Glaze works with 3.21.
+cmake_minimum_required(VERSION 3.21...4.4)
 project(kalshi-cpp
     VERSION 0.5.2
     DESCRIPTION "C++23 client for the Kalshi Predictions API"
@@ -100,11 +101,12 @@ else()
 endif()
 
 # Glaze is a private, header-only build dependency; installed headers never
-# include it. Package managers supply their own copy (>= 8.4).
+# include it. src/json.hpp rejects versions older than 8.3 at compile time,
+# which also covers a Glaze another project declared through FetchContent.
 if(KALSHI_USE_SYSTEM_GLAZE)
     find_package(glaze REQUIRED)
-    if(glaze_VERSION VERSION_LESS 8.4)
-        message(FATAL_ERROR "kalshi-cpp requires Glaze 8.4 or newer, found ${glaze_VERSION}")
+    if(glaze_VERSION VERSION_LESS 8.3)
+        message(FATAL_ERROR "kalshi-cpp requires Glaze 8.3 or newer, found ${glaze_VERSION}")
     endif()
 else()
     include(FetchContent)
