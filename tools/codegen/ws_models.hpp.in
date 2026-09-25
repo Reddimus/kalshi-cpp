@@ -1,0 +1,78 @@
+#pragma once
+
+// WebSocket message types. They live in `kalshi::ws` because several share
+// names with REST models, such as `Trade` and `Fill`.
+
+#include "kalshi/models.hpp"
+
+#include <array>
+#include <cstdint>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <variant>
+#include <vector>
+
+namespace kalshi::ws {
+
+@ENUMS@
+/// A handle for one channel subscription. It stays the same across reconnects;
+/// the server's `sid` does not.
+struct Subscription {
+	std::int64_t id{0};
+	Channel channel{Channel::Unknown};
+
+	friend bool operator==(const Subscription&, const Subscription&) = default;
+};
+
+/// One data frame. `msg` holds the channel's payload.
+template <typename T>
+struct Update {
+	/// The server's subscription ID, which changes after a reconnect.
+	std::int64_t sid{0};
+	/// Present on sequenced channels. The client checks it for gaps.
+	std::optional<std::int64_t> seq;
+	/// The command that asked for this frame, such as a `get_snapshot`.
+	std::optional<std::int64_t> id;
+	/// `Subscription::id` of the subscription that produced the frame.
+	std::int64_t subscription{0};
+	T msg;
+};
+
+@STRUCTS@
+/// The server confirmed a subscription.
+struct Subscribed {
+	Subscription subscription;
+	std::int64_t sid{0};
+};
+
+/// The server ended a subscription after `unsubscribe`.
+struct Unsubscribed {
+	Subscription subscription;
+};
+
+/// An `update_subscription` succeeded. The lists hold what the subscription
+/// covers afterwards; market lists are empty when `skip_ticker_ack` was set.
+struct Updated {
+	Subscription subscription;
+	std::vector<std::string> market_tickers;
+	std::vector<std::string> market_ids;
+	std::vector<std::string> index_ids;
+	std::vector<std::string> underlying_tickers;
+};
+
+/// One entry of a `list_subscriptions` reply.
+struct ListedSubscription {
+	std::string channel;
+	std::int64_t sid{0};
+};
+
+/// The reply to `list_subscriptions`; `id` is the command's ID.
+struct SubscriptionList {
+	std::int64_t id{0};
+	std::vector<ListedSubscription> subscriptions;
+};
+
+@MESSAGE@
+@ERROR_CODES@
+} // namespace kalshi::ws

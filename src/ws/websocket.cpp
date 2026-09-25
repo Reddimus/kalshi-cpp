@@ -1,1047 +1,883 @@
 #include "kalshi/websocket.hpp"
 
-#include "kalshi/detail/callback_slot.hpp"
 #include "kalshi/detail/http_path.hpp"
-#include "kalshi/detail/ws_json.hpp"
-#include "kalshi/detail/ws_message.hpp"
-#include "kalshi/fixed_point.hpp"
 
-#include "subscription_registry.hpp"
-#include "ws_endpoint.hpp"
-
-// IMPORTANT: include order below is load-bearing on Windows.
-//
-// ``ws_cmd_bodies.hpp`` pulls in ``<glaze/glaze.hpp>``, whose templated
-// code (``glaze/core/buffer_traits.hpp``, ``glaze/util/fast_float.hpp``,
-// ``glaze/json/read.hpp``) leans on ``std::numeric_limits<T>::max()`` /
-// ``::min()``. ``<libwebsockets.h>`` transitively includes ``<windows.h>``
-// on MSVC, which by default ``#define``s ``max`` and ``min`` as
-// function-like macros — once those macros are live, every
-// ``std::numeric_limits<T>::max()`` token gets clobbered and the build
-// dies with a 100+ error cascade (C2589 / C3878 / C2760) in glaze
-// headers. PR #19 first Windows CI run reproduced exactly that.
-//
-// We force the Glaze shim BEFORE ``<libwebsockets.h>`` via
-// ``// clang-format off`` (the project's clang-format style otherwise
-// regroups quoted includes after angle-bracket ones, which would
-// undo the fix). We also belt-and-brace with ``NOMINMAX`` as a
-// target-level compile definition in ``src/CMakeLists.txt`` so any
-// future Windows header pulled in below this point stays safe.
-// clang-format off
-#include "ws_cmd_bodies.hpp"
-// clang-format on
-
+#include <algorithm>
+#include <array>
 #include <atomic>
-#include <charconv>
 #include <chrono>
+#include <cmath>
 #include <condition_variable>
 #include <cstring>
 #include <deque>
 #include <libwebsockets.h>
-#include <limits>
 #include <mutex>
+#include <random>
 #include <string>
 #include <thread>
+#include <utility>
+#include <variant>
 #include <vector>
 
-// Outgoing commands serialize through the Glaze structs in `ws_cmd_bodies.hpp`,
-// whose key order `tests/test_ws_commands.cpp` pins. Incoming frames use the
-// scanners in `kalshi/detail/ws_json.hpp`.
+#include "callback_slot.hpp"
+#include "frames.hpp"
+#include "subscriptions.hpp"
+#include "ws_endpoint.hpp"
 
 namespace kalshi {
 
-namespace detail {
-
-Result<WsEndpoint> parse_ws_endpoint(std::string_view url) {
-	bool use_ssl = false;
-	std::string_view remainder;
-	if (url.starts_with("wss://")) {
-		use_ssl = true;
-		remainder = url.substr(6);
-	} else if (url.starts_with("ws://")) {
-		remainder = url.substr(5);
-	} else {
-		return std::unexpected(
-			Error{ErrorCode::InvalidRequest, "WebSocket URL must use ws:// or wss://"});
-	}
-
-	const std::size_t path_pos = remainder.find_first_of("/?#");
-	const std::string_view authority = remainder.substr(0, path_pos);
-	if (authority.empty() || authority.find('@') != std::string_view::npos) {
-		return std::unexpected(
-			Error{ErrorCode::InvalidRequest, "WebSocket URL must contain a host"});
-	}
-	if (path_pos != std::string_view::npos && remainder[path_pos] == '#') {
-		return std::unexpected(
-			Error{ErrorCode::InvalidRequest, "WebSocket URL fragments are not supported"});
-	}
-
-	std::string_view host;
-	std::string_view port_text;
-	if (authority.front() == '[') {
-		const std::size_t closing_bracket = authority.find(']');
-		if (closing_bracket == std::string_view::npos || closing_bracket == 1) {
-			return std::unexpected(
-				Error{ErrorCode::InvalidRequest, "WebSocket URL contains an invalid IPv6 host"});
-		}
-		host = authority.substr(1, closing_bracket - 1);
-		const std::string_view suffix = authority.substr(closing_bracket + 1);
-		if (!suffix.empty()) {
-			if (!suffix.starts_with(':')) {
-				return std::unexpected(
-					Error{ErrorCode::InvalidRequest, "WebSocket URL contains an invalid host"});
-			}
-			port_text = suffix.substr(1);
-		}
-	} else {
-		const std::size_t colon = authority.rfind(':');
-		if (colon == std::string_view::npos) {
-			host = authority;
-		} else {
-			if (authority.find(':') != colon) {
-				return std::unexpected(
-					Error{ErrorCode::InvalidRequest, "IPv6 WebSocket hosts must use brackets"});
-			}
-			host = authority.substr(0, colon);
-			port_text = authority.substr(colon + 1);
-		}
-	}
-
-	if (host.empty()) {
-		return std::unexpected(
-			Error{ErrorCode::InvalidRequest, "WebSocket URL must contain a host"});
-	}
-	for (const char character : host) {
-		if (character == ' ' || character == '\t' || character == '\r' || character == '\n') {
-			return std::unexpected(
-				Error{ErrorCode::InvalidRequest, "WebSocket URL host contains whitespace"});
-		}
-	}
-
-	int port = use_ssl ? 443 : 80;
-	if (!port_text.empty()) {
-		unsigned int parsed_port = 0;
-		const auto [end, error] =
-			std::from_chars(port_text.data(), port_text.data() + port_text.size(), parsed_port);
-		if (error != std::errc{} || end != port_text.data() + port_text.size() ||
-			parsed_port == 0 || parsed_port > 65535) {
-			return std::unexpected(
-				Error{ErrorCode::InvalidRequest, "WebSocket URL contains an invalid port"});
-		}
-		port = static_cast<int>(parsed_port);
-	} else if (authority.ends_with(':')) {
-		return std::unexpected(
-			Error{ErrorCode::InvalidRequest, "WebSocket URL contains an invalid port"});
-	}
-
-	std::string path{"/"};
-	if (path_pos != std::string_view::npos) {
-		const std::string_view suffix = remainder.substr(path_pos);
-		path =
-			suffix.starts_with('?') ? std::string{"/"} + std::string{suffix} : std::string{suffix};
-		if (path.find('#') != std::string::npos) {
-			return std::unexpected(
-				Error{ErrorCode::InvalidRequest, "WebSocket URL fragments are not supported"});
-		}
-	}
-
-	return WsEndpoint{std::string{host}, std::move(path), port, use_ssl};
-}
-
-} // namespace detail
-
 namespace {
 
-/// Sentinel returned by ``config()`` on a moved-from client.
-///
-/// It lives at namespace scope rather than as a function-local static so
-/// that constructing it — ``WsConfig`` holds ``std::string`` members and
-/// therefore allocates — happens during this translation unit's dynamic
-/// initialization instead of inside a ``noexcept`` accessor, where a
-/// ``std::bad_alloc`` (or a throwing thread-safe-init guard) would call
-/// ``std::terminate``. The previous function-local static needed two
-/// ``NOLINT(bugprone-exception-escape)`` comments to build; removing the
-/// throwing construct removes the need to suppress the warning about it.
+// A namespace-scope object, so the noexcept config() accessor never
+// allocates while initializing a static.
 const WsConfig kMovedFromConfig{};
 
-std::int32_t exact_ws_integer(std::string_view wire, std::uint8_t scale) {
-	const Result<FixedPoint> parsed = FixedPoint::parse(wire);
-	if (!parsed)
-		return 0;
-	const Result<std::int64_t> value = parsed->scaled_integer(scale);
-	if (!value || *value < std::numeric_limits<std::int32_t>::min() ||
-		*value > std::numeric_limits<std::int32_t>::max())
-		return 0;
-	return static_cast<std::int32_t>(*value);
+Error moved_from() {
+	return Error::network("WebSocketClient was moved from");
 }
+
+// A connection that drops sooner than this counts as a failed attempt, so a
+// server that accepts and then closes at once still backs off and gives up.
+constexpr std::chrono::seconds kStableConnection{10};
+
+std::uint16_t seconds_field(std::chrono::seconds value) {
+	return static_cast<std::uint16_t>(std::clamp<std::int64_t>(value.count(), 1, 65535));
+}
+
+/// libwebsockets calls OPENSSL_cleanup() when the last context created with
+/// LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT is destroyed (4.4 and later). OpenSSL
+/// cannot start again after that, so every later TLS connection in the
+/// process would fail, REST calls included. One idle context that is never
+/// destroyed keeps that count above zero. The static pointer keeps it
+/// reachable, so leak checkers do not report it.
+void keep_openssl_initialized() {
+	static lws_context* const keeper = [] {
+		static const std::array<lws_protocols, 2> protocols{{
+			{"kalshi-keeper", lws_callback_http_dummy, 0, 0, 0, nullptr, 0},
+			{nullptr, nullptr, 0, 0, 0, nullptr, 0},
+		}};
+		lws_context_creation_info info{};
+		info.port = CONTEXT_PORT_NO_LISTEN;
+		info.protocols = protocols.data();
+		info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+		return lws_create_context(&info);
+	}();
+	(void)keeper;
+}
+
+/// Network threads of clients destroyed inside their own callbacks. Such a
+/// thread cannot join itself, so it finishes on its own; joining it here, at
+/// the latest from this object's destructor at exit, keeps it from racing
+/// process teardown. The destructor runs before OpenSSL's exit handler, which
+/// was registered earlier.
+class Orphans {
+public:
+	static Orphans& instance() {
+		static Orphans orphans;
+		return orphans;
+	}
+
+	Orphans(const Orphans&) = delete;
+	Orphans& operator=(const Orphans&) = delete;
+
+	~Orphans() {
+		try {
+			reap();
+		} catch (...) { // NOLINT(bugprone-empty-catch): process exit has no one to report to
+		}
+	}
+
+	void adopt(std::thread thread) {
+		const std::lock_guard lock(mutex_);
+		threads_.push_back(std::move(thread));
+	}
+
+	/// Joins every adopted thread except the calling one.
+	void reap() {
+		std::vector<std::thread> threads;
+		{
+			const std::lock_guard lock(mutex_);
+			threads.swap(threads_);
+		}
+		for (std::thread& thread : threads) {
+			if (thread.get_id() == std::this_thread::get_id()) {
+				adopt(std::move(thread));
+			} else if (thread.joinable()) {
+				thread.join();
+			}
+		}
+	}
+
+private:
+	Orphans() = default;
+
+	std::mutex mutex_;
+	std::vector<std::thread> threads_;
+};
 
 } // namespace
 
-namespace detail {
-
-struct LifecyclePriceRangeWire {
-	std::string start;
-	std::string end;
-	std::string step;
-};
-
-struct LifecycleAdditionalMetadataWire {
-	std::string name;
-	std::string title;
-	std::string yes_sub_title;
-	std::string no_sub_title;
-	std::string rules_primary;
-	std::string rules_secondary;
-	bool can_close_early{false};
-	std::string event_ticker;
-	std::int64_t expected_expiration_ts{0};
-	std::string strike_type;
-	std::optional<glz::raw_json> floor_strike;
-	std::optional<glz::raw_json> cap_strike;
-	std::optional<glz::raw_json> custom_strike;
-};
-
-struct LifecycleMessageWire {
-	std::string event_type;
-	std::string market_ticker;
-	std::int32_t exchange_index{0};
-	std::int64_t open_ts{0};
-	std::int64_t close_ts{0};
-	std::optional<std::int64_t> determination_ts;
-	std::optional<std::int64_t> settled_ts;
-	std::optional<std::string> result;
-	std::string settlement_value;
-	bool is_deactivated{false};
-	std::string price_level_structure;
-	std::vector<LifecyclePriceRangeWire> price_ranges;
-	std::string strike_type;
-	std::optional<glz::raw_json> floor_strike;
-	std::optional<glz::raw_json> cap_strike;
-	std::optional<glz::raw_json> custom_strike;
-	std::optional<std::string> yes_sub_title;
-	std::optional<LifecycleAdditionalMetadataWire> additional_metadata;
-};
-
-struct LifecycleEnvelopeWire {
-	std::string type;
-	std::int32_t sid{0};
-	LifecycleMessageWire msg;
-};
-
-std::optional<WsMessage> parse_ws_data_message(std::string_view input) {
-	const std::string_view json = input;
-	const std::string type = extract_string(json, "type");
-	const auto side = [&](std::string_view key) {
-		return extract_string(json, key) == "no" ? Side::No : Side::Yes;
-	};
-	const auto action = [&](std::string_view key) {
-		return extract_string(json, key) == "sell" ? Action::Sell : Action::Buy;
-	};
-	const auto outcome_side = [&](std::string_view key) {
-		return extract_string(json, key) == "no" ? OutcomeSide::No : OutcomeSide::Yes;
-	};
-	const auto book_side = [&](std::string_view key) {
-		return extract_string(json, key) == "ask" ? BookSide::Ask : BookSide::Bid;
-	};
-	const auto has_key = [&](std::string_view key) {
-		return find_json_key(json, key) != json.npos;
-	};
-	const auto orderbook_entries = [&](std::string_view current_key, std::string_view legacy_key) {
-		const bool current = has_key(current_key);
-		const std::vector<PriceQty> pairs =
-			extract_orderbook_entries(json, current ? current_key : legacy_key);
-		std::vector<OrderBookEntry> entries;
-		entries.reserve(pairs.size());
-		for (const PriceQty& pair : pairs) {
-			OrderBookEntry entry{};
-			entry.price_dollars = current ? pair.price_fp : std::string{};
-			entry.quantity_fp = current ? pair.quantity_fp : std::string{};
-			entry.price_cents = current ? exact_ws_integer(pair.price_fp, 2) : pair.price;
-			entry.quantity = current ? exact_ws_integer(pair.quantity_fp, 0) : pair.quantity;
-			entries.push_back(std::move(entry));
-		}
-		return entries;
+// Threads: connect() and disconnect() run on callers' threads; everything that
+// touches libwebsockets after connect() runs on `thread`, the service thread.
+// `mutex` guards the state both sides share. Service-thread-only members are
+// marked below.
+struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
+	// A libwebsockets timer whose owner can be recovered from its address.
+	struct Timer {
+		lws_sorted_usec_list_t sul;
+		Impl* owner{nullptr};
 	};
 
-	if (type == "orderbook_snapshot") {
-		OrderbookSnapshot snapshot;
-		snapshot.sid = extract_int(json, "sid");
-		snapshot.seq = extract_int(json, "seq");
-		snapshot.market_ticker = extract_string(json, "market_ticker");
-		snapshot.market_id = extract_string(json, "market_id");
-		snapshot.yes = orderbook_entries("yes_dollars_fp", "yes");
-		snapshot.no = orderbook_entries("no_dollars_fp", "no");
-		return snapshot;
+	Impl(Signer signer_in, WsConfig config_in)
+		: signer(std::move(signer_in)), config(std::move(config_in)), rng(std::random_device{}()) {
+		protocols[0] = lws_protocols{"kalshi-ws", &Impl::callback, 0, 65536, 0, nullptr, 0};
+		protocols[1] = lws_protocols{nullptr, nullptr, 0, 0, 0, nullptr, 0};
+		retry.secs_since_valid_ping = seconds_field(config.ping_interval);
+		retry.secs_since_valid_hangup = seconds_field(config.idle_timeout);
+		timer.owner = this;
 	}
-	if (type == "orderbook_delta") {
-		OrderbookDelta delta;
-		delta.sid = extract_int(json, "sid");
-		delta.seq = extract_int(json, "seq");
-		delta.market_ticker = extract_string(json, "market_ticker");
-		delta.market_id = extract_string(json, "market_id");
-		delta.client_order_id = extract_string(json, "client_order_id");
-		if (has_key("subaccount"))
-			delta.subaccount = extract_int64(json, "subaccount");
-		delta.price_dollars = extract_string(json, "price_dollars");
-		delta.delta_fp = extract_string(json, "delta_fp");
-		delta.price = exact_ws_integer(delta.price_dollars, 2);
-		delta.delta = exact_ws_integer(delta.delta_fp, 0);
-		delta.side = side("side");
-		delta.timestamp_iso = extract_string(json, "ts");
-		delta.timestamp_ms = extract_int64(json, "ts_ms");
-		return delta;
-	}
-	if (type == "trade") {
-		WsTrade trade;
-		trade.sid = extract_int(json, "sid");
-		trade.trade_id = extract_string(json, "trade_id");
-		trade.market_ticker = extract_string(json, "market_ticker");
-		trade.yes_price_dollars = extract_string(json, "yes_price_dollars");
-		trade.no_price_dollars = extract_string(json, "no_price_dollars");
-		trade.count_fp = extract_string(json, "count_fp");
-		trade.yes_price = exact_ws_integer(trade.yes_price_dollars, 2);
-		trade.no_price = exact_ws_integer(trade.no_price_dollars, 2);
-		trade.count = exact_ws_integer(trade.count_fp, 0);
-		trade.is_block_trade = extract_bool(json, "is_block_trade");
-		trade.taker_side = side("taker_side");
-		const std::string canonical_outcome = extract_string(json, "taker_outcome_side");
-		trade.taker_outcome_side =
-			canonical_outcome.empty()
-				? (trade.taker_side == Side::No ? OutcomeSide::No : OutcomeSide::Yes)
-				: outcome_side("taker_outcome_side");
-		const std::string canonical_book = extract_string(json, "taker_book_side");
-		trade.taker_book_side =
-			canonical_book.empty()
-				? (trade.taker_outcome_side == OutcomeSide::No ? BookSide::Ask : BookSide::Bid)
-				: book_side("taker_book_side");
-		trade.timestamp = extract_int64(json, "ts");
-		trade.timestamp_ms = extract_int64(json, "ts_ms");
-		return trade;
-	}
-	if (type == "fill") {
-		WsFill fill;
-		fill.sid = extract_int(json, "sid");
-		fill.trade_id = extract_string(json, "trade_id");
-		fill.order_id = extract_string(json, "order_id");
-		fill.market_ticker = extract_string(json, "market_ticker");
-		fill.exchange_index = extract_int(json, "exchange_index");
-		fill.is_taker = extract_bool(json, "is_taker");
-		fill.side = side("side");
-		fill.yes_price_dollars = extract_string(json, "yes_price_dollars");
-		fill.no_price_dollars = extract_string(json, "no_price_dollars");
-		fill.count_fp = extract_string(json, "count_fp");
-		fill.fee_cost = extract_string(json, "fee_cost");
-		fill.yes_price = exact_ws_integer(fill.yes_price_dollars, 2);
-		fill.no_price = exact_ws_integer(fill.no_price_dollars, 2);
-		fill.count = exact_ws_integer(fill.count_fp, 0);
-		fill.action = action("action");
-		const std::string canonical_outcome = extract_string(json, "outcome_side");
-		fill.outcome_side = canonical_outcome.empty() ? kalshi::outcome_side(fill.side, fill.action)
-													  : outcome_side("outcome_side");
-		const std::string canonical_book = extract_string(json, "book_side");
-		fill.book_side = canonical_book.empty() ? kalshi::book_side(fill.side, fill.action)
-												: book_side("book_side");
-		fill.timestamp = extract_int64(json, "ts");
-		fill.timestamp_ms = extract_int64(json, "ts_ms");
-		fill.client_order_id = extract_string(json, "client_order_id");
-		fill.post_position_fp = extract_string(json, "post_position_fp");
-		fill.purchased_side = side("purchased_side");
-		if (has_key("subaccount"))
-			fill.subaccount = extract_int64(json, "subaccount");
-		return fill;
-	}
-	if (type == "market_lifecycle" || type == "market_lifecycle_v2") {
-		LifecycleEnvelopeWire wire;
-		constexpr glz::opts read_options{.error_on_unknown_keys = false};
-		if (glz::read<read_options>(wire, json))
-			return std::nullopt;
-		MarketLifecycle lifecycle;
-		lifecycle.sid = wire.sid;
-		lifecycle.event_type = std::move(wire.msg.event_type);
-		lifecycle.market_ticker = std::move(wire.msg.market_ticker);
-		lifecycle.exchange_index = wire.msg.exchange_index;
-		lifecycle.open_ts = wire.msg.open_ts;
-		lifecycle.close_ts = wire.msg.close_ts;
-		lifecycle.determination_ts = wire.msg.determination_ts;
-		lifecycle.settled_ts = wire.msg.settled_ts;
-		lifecycle.result = std::move(wire.msg.result);
-		lifecycle.is_deactivated = wire.msg.is_deactivated;
-		lifecycle.yes_sub_title = std::move(wire.msg.yes_sub_title);
-		lifecycle.settlement_value_dollars = std::move(wire.msg.settlement_value);
-		lifecycle.price_level_structure = std::move(wire.msg.price_level_structure);
-		lifecycle.price_ranges.reserve(wire.msg.price_ranges.size());
-		for (LifecyclePriceRangeWire& range : wire.msg.price_ranges) {
-			lifecycle.price_ranges.push_back(
-				{std::move(range.start), std::move(range.end), std::move(range.step)});
-		}
-		lifecycle.strike_type = std::move(wire.msg.strike_type);
-		if (wire.msg.floor_strike)
-			lifecycle.floor_strike = std::move(wire.msg.floor_strike->str);
-		if (wire.msg.cap_strike)
-			lifecycle.cap_strike = std::move(wire.msg.cap_strike->str);
-		if (wire.msg.custom_strike)
-			lifecycle.custom_strike_json = std::move(wire.msg.custom_strike->str);
-		if (wire.msg.additional_metadata) {
-			LifecycleAdditionalMetadata metadata;
-			metadata.name = std::move(wire.msg.additional_metadata->name);
-			metadata.title = std::move(wire.msg.additional_metadata->title);
-			metadata.yes_sub_title = std::move(wire.msg.additional_metadata->yes_sub_title);
-			metadata.no_sub_title = std::move(wire.msg.additional_metadata->no_sub_title);
-			metadata.rules_primary = std::move(wire.msg.additional_metadata->rules_primary);
-			metadata.rules_secondary = std::move(wire.msg.additional_metadata->rules_secondary);
-			metadata.can_close_early = wire.msg.additional_metadata->can_close_early;
-			metadata.event_ticker = std::move(wire.msg.additional_metadata->event_ticker);
-			metadata.expected_expiration_ts = wire.msg.additional_metadata->expected_expiration_ts;
-			metadata.strike_type = std::move(wire.msg.additional_metadata->strike_type);
-			if (wire.msg.additional_metadata->floor_strike)
-				metadata.floor_strike = std::move(wire.msg.additional_metadata->floor_strike->str);
-			if (wire.msg.additional_metadata->cap_strike)
-				metadata.cap_strike = std::move(wire.msg.additional_metadata->cap_strike->str);
-			if (wire.msg.additional_metadata->custom_strike)
-				metadata.custom_strike_json =
-					std::move(wire.msg.additional_metadata->custom_strike->str);
-			lifecycle.additional_metadata = std::move(metadata);
-		}
-		return lifecycle;
-	}
-	return std::nullopt;
-}
 
-} // namespace detail
-
-// Forward declaration for the callback
-struct WsImplData;
-static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in,
-					   size_t len);
-
-namespace {
-
-std::string channel_to_string(Channel channel) {
-	switch (channel) {
-		case Channel::OrderbookDelta:
-			return "orderbook_delta";
-		case Channel::Trade:
-			return "trade";
-		case Channel::Fill:
-			return "fill";
-		case Channel::MarketLifecycle:
-			return "market_lifecycle_v2";
-	}
-	return "";
-}
-
-std::string build_subscribe_command(std::int32_t id, Channel channel,
-									const std::vector<std::string>& market_tickers) {
-	ws_cmd::SubscribeCmd cmd;
-	cmd.id = id;
-	cmd.cmd = "subscribe";
-	cmd.params.channels = {channel_to_string(channel)};
-	if (!market_tickers.empty()) {
-		cmd.params.market_tickers = market_tickers;
-	}
-	return ws_cmd::render_cmd(cmd);
-}
-
-std::string build_unsubscribe_command(std::int32_t id, std::int32_t sid) {
-	ws_cmd::UnsubscribeCmd cmd;
-	cmd.id = id;
-	cmd.cmd = "unsubscribe";
-	cmd.params.sids = {sid};
-	return ws_cmd::render_cmd(cmd);
-}
-
-std::string build_update_command(std::int32_t id, std::int32_t sid, const std::string& action,
-								 Channel channel, const std::vector<std::string>& market_tickers) {
-	ws_cmd::UpdateCmd cmd;
-	cmd.id = id;
-	cmd.cmd = "update_subscription";
-	cmd.params.action = action;
-	cmd.params.channel = std::string(to_string(channel));
-	cmd.params.sids = {sid};
-	cmd.params.market_tickers = market_tickers;
-	return ws_cmd::render_cmd(cmd);
-}
-
-} // anonymous namespace
-
-// Implementation data structure - exposed for callback
-struct WsImplData {
-	Signer signer;
-	WsConfig config;
-
-	std::atomic<bool> connected{false};
-	std::atomic<bool> should_stop{false};
-
+	const Signer signer;
+	const WsConfig config;
 	detail::CallbackSlot<void(const WsMessage&)> message_callback;
 	detail::CallbackSlot<void(const WsError&)> error_callback;
-	detail::CallbackSlot<void(bool)> state_callback;
-	std::atomic<std::int32_t> next_command_id{1};
-	std::atomic<std::uint16_t> reconnect_attempts{0}; ///< Current reconnect attempts (0-65535)
+	detail::CallbackSlot<void(WsState)> state_callback;
 
-	// libwebsockets context and connection
+	std::mutex lifecycle; // serializes connect() and disconnect() on callers' threads
+
+	mutable std::mutex mutex;
+	std::condition_variable changed;
+	WsState state{WsState::Disconnected};
+	std::atomic<bool> stopping{false};
+	std::optional<Error> connect_error; // why the first attempt failed
+	bool established{false};			// this session connected at least once
+	std::deque<std::string> outbox;
+	detail::SubscriptionRegistry registry;
 	lws_context* context{nullptr};
-	std::thread service_thread;
+	std::thread thread;
+	std::thread::id service_id;
 
-	// Send queue - deque provides contiguous storage and efficient front removal
-	std::mutex send_mutex;
-	std::deque<std::string> send_queue;
-	std::string current_send_buffer;
-	/// Live libwebsockets connection handle. Guarded by ``send_mutex``.
-	///
-	/// Callers queue sends from their own threads while connect() and
-	/// disconnect() replace this handle. Leaving it unsynchronized was a
-	/// data race (ThreadSanitizer flags it), and it also let a queued send
-	/// hand libwebsockets a handle whose context had already been
-	/// destroyed. Clearing it under the same lock the senders hold, and
-	/// before the owning context is torn down, closes both.
+	// Service thread only.
 	lws* wsi{nullptr};
+	std::string rx;
+	std::vector<unsigned char> tx;
+	AuthHeaders headers;
+	detail::WsEndpoint endpoint;
+	std::uint32_t failures{0};
+	bool open{false};			 // the current connection finished its handshake
+	bool failure_handled{false}; // on_failed() already dealt with this attempt
+	std::chrono::steady_clock::time_point opened_at;
+	std::minstd_rand rng;
+	Timer timer{};
+	lws_retry_bo_t retry{};
+	std::array<lws_protocols, 2> protocols{};
 
-	// Receive buffer
-	std::string recv_buffer;
+	[[nodiscard]] bool on_service_thread() const {
+		const std::lock_guard lock(mutex);
+		return service_id == std::this_thread::get_id();
+	}
 
-	// Track server-assigned subscription IDs: client command id -> server sid.
-	ws_detail::SubscriptionRegistry subscriptions;
+	// ----- callbacks to the user --------------------------------------------
 
-	// Auth headers for handshake
-	AuthHeaders auth_headers;
-
-	WsImplData(Signer s, WsConfig c) : signer(std::move(s)), config(std::move(c)) {}
-
-	~WsImplData() {
-		if (context) {
-			lws_context_destroy(context);
+	void deliver(const WsMessage& message) const {
+		if (!stopping) {
+			message_callback.invoke(message);
 		}
 	}
 
-	std::int32_t get_next_id() { return next_command_id.fetch_add(1); }
-
-	void queue_send(const std::string& msg) {
-		std::lock_guard lock(send_mutex);
-		send_queue.push_back(msg);
-		if (wsi) {
-			lws_callback_on_writable(wsi);
+	void deliver(const WsError& error) const {
+		if (!stopping) {
+			error_callback.invoke(error);
 		}
 	}
 
-	void invoke_message_callback(const WsMessage& msg) noexcept { message_callback.invoke(msg); }
-
-	void invoke_error_callback(const WsError& err) noexcept { error_callback.invoke(err); }
-
-	void invoke_state_callback(bool connected_state) noexcept {
-		state_callback.invoke(connected_state);
+	void report(WsState next) const {
+		if (!stopping || next == WsState::Disconnected) {
+			state_callback.invoke(next);
+		}
 	}
 
-	// Parse incoming JSON message and dispatch to appropriate callback
-	void handle_message(const std::string& json);
-};
+	// ----- lifecycle ---------------------------------------------------------
 
-struct WebSocketClient::Impl {
-	std::unique_ptr<WsImplData> data;
-
-	Impl(Signer s, WsConfig c) : data(std::make_unique<WsImplData>(std::move(s), std::move(c))) {}
-};
-
-// libwebsockets fixes this callback ABI, including the adjacent opaque pointers.
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-static int ws_callback(struct lws* wsi, enum lws_callback_reasons reason, void* user, void* in,
-					   size_t len) {
-	(void)user;
-	WsImplData* impl = static_cast<WsImplData*>(lws_context_user(lws_get_context(wsi)));
-
-	if (!impl)
-		return 0;
-
-	switch (reason) {
-		case LWS_CALLBACK_CLIENT_ESTABLISHED:
-			impl->connected = true;
-			impl->reconnect_attempts = 0;
-			impl->subscriptions.clear();
-			impl->invoke_state_callback(true);
-			break;
-
-		case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
-			impl->connected = false;
-			if (in) {
-				impl->invoke_error_callback({0, std::string(static_cast<char*>(in), len)});
-			}
-			impl->invoke_state_callback(false);
-			break;
-
-		case LWS_CALLBACK_CLIENT_CLOSED:
-			impl->connected = false;
-			impl->subscriptions.clear();
-			impl->invoke_state_callback(false);
-			break;
-
-		case LWS_CALLBACK_CLIENT_RECEIVE:
-			if (in && len > 0) {
-				impl->recv_buffer.append(static_cast<char*>(in), len);
-
-				// Check if this is the final fragment
-				if (lws_is_final_fragment(wsi)) {
-					impl->handle_message(impl->recv_buffer);
-					impl->recv_buffer.clear();
-				}
-			}
-			break;
-
-		case LWS_CALLBACK_CLIENT_WRITEABLE: {
-			std::lock_guard lock(impl->send_mutex);
-			if (!impl->send_queue.empty()) {
-				std::string msg = impl->send_queue.front();
-				impl->send_queue.pop_front();
-
-				// Allocate buffer with LWS_PRE padding
-				std::vector<unsigned char> buf(LWS_PRE + msg.size());
-				std::memcpy(buf.data() + LWS_PRE, msg.data(), msg.size());
-
-				int written = lws_write(wsi, buf.data() + LWS_PRE, msg.size(), LWS_WRITE_TEXT);
-				if (written < static_cast<int>(msg.size())) {
-					impl->invoke_error_callback({-1, "Failed to write to WebSocket"});
-				}
-
-				// If there are more messages, request another callback
-				if (!impl->send_queue.empty()) {
-					lws_callback_on_writable(wsi);
-				}
-			}
-			break;
+	Result<void> connect() {
+		if (on_service_thread()) {
+			return std::unexpected(
+				Error::network("connect() cannot run inside a WebSocket callback"));
 		}
-
-		case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER: {
-			// Add authentication headers to the WebSocket upgrade request
-			unsigned char** p = reinterpret_cast<unsigned char**>(in);
-			unsigned char* end = (*p) + len;
-
-			// Helper to add a header. libwebsockets expects header names to include ':'.
-			auto add_header = [&](const char* name, const std::string& value) -> bool {
-				if (lws_add_http_header_by_name(
-						wsi, reinterpret_cast<const unsigned char*>(name),
-						reinterpret_cast<const unsigned char*>(value.c_str()),
-						static_cast<int>(value.length()), p, end) != 0) {
-					return false;
-				}
-				return true;
-			};
-
-			if (!add_header("KALSHI-ACCESS-KEY:", impl->auth_headers.access_key) ||
-				!add_header("KALSHI-ACCESS-SIGNATURE:", impl->auth_headers.signature) ||
-				!add_header("KALSHI-ACCESS-TIMESTAMP:", impl->auth_headers.timestamp)) {
-				return -1; // Header buffer overflow
-			}
-			break;
-		}
-
-		default:
-			break;
-	}
-
-	return 0;
-}
-
-void WsImplData::handle_message(const std::string& json) {
-	// Simple JSON type detection
-	size_t type_pos = json.find("\"type\"");
-	if (type_pos == std::string::npos)
-		return;
-
-	size_t colon = json.find(':', type_pos);
-	if (colon == std::string::npos)
-		return;
-
-	size_t quote1 = json.find('"', colon);
-	if (quote1 == std::string::npos)
-		return;
-
-	size_t quote2 = json.find('"', quote1 + 1);
-	if (quote2 == std::string::npos)
-		return;
-
-	std::string msg_type = json.substr(quote1 + 1, quote2 - quote1 - 1);
-
-	// Extract helpers live in detail/ws_json.hpp so the unit tests can
-	// exercise them directly — the original in-lambda versions were
-	// private to this translation unit.
-	auto extract_int = [&](const std::string& key) { return detail::extract_int(json, key); };
-
-	auto extract_string = [&](const std::string& key) { return detail::extract_string(json, key); };
-
-	if (msg_type == "error") {
-		WsError err;
-		// Look for nested msg object
-		size_t msg_pos = json.find("\"msg\"");
-		if (msg_pos != std::string::npos) {
-			err.code = extract_int("code");
-			err.message = extract_string("message");
-			if (err.message.empty()) {
-				// No explicit message field — fall back to the documented
-				// error-code name (e.g. code 7 → "Unknown subscription ID").
-				// The pre-fix fallback `extract_string("msg")` returned the
-				// first quoted token inside the `msg` object, which is the
-				// `"code"` key name itself, surfacing as message="code" in
-				// consumer logs. The find-first scanner anti-pattern caught
-				// in 2026-05-15 production logs against kalshi-websocket.
-				err.message = std::string{ws_error_code_name(err.code)};
+		const std::lock_guard lifecycle_lock(lifecycle);
+		{
+			const std::lock_guard lock(mutex);
+			if (state == WsState::Connected) {
+				return {};
 			}
 		}
-		invoke_error_callback(err);
-	} else if (msg_type == "subscribed") {
-		// Track server subscription ID: {"type":"subscribed","id":1,"msg":{"sid":12345,...}}
-		std::int32_t client_id = extract_int("id");
-		std::int32_t server_sid = extract_int("sid");
-		if (client_id > 0 && server_sid > 0) {
-			subscriptions.register_ack(client_id, server_sid);
+		stop();
+		reap(); // a session that dropped or gave up
+
+		Result<detail::WsEndpoint> parsed = detail::parse_ws_endpoint(config.url);
+		if (!parsed) {
+			return std::unexpected(std::move(parsed.error()));
 		}
-	} else if (std::optional<WsMessage> message = detail::parse_ws_data_message(json)) {
-		invoke_message_callback(*message);
+		endpoint = std::move(*parsed);
+
+		lws_context_creation_info info{};
+		info.port = CONTEXT_PORT_NO_LISTEN;
+		info.protocols = protocols.data();
+		info.user = this;
+		// Needed for client TLS; keep_openssl_initialized() stops its cleanup.
+		keep_openssl_initialized();
+		info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+		// Bounds each reconnect's handshake the way connect_timeout bounds the first.
+		info.timeout_secs = static_cast<unsigned int>(std::max<std::int64_t>(
+			1, std::chrono::ceil<std::chrono::seconds>(config.connect_timeout).count()));
+		lws_context* created = lws_create_context(&info);
+		if (created == nullptr) {
+			return std::unexpected(Error::network("Failed to create the WebSocket context"));
+		}
+		{
+			const std::lock_guard lock(mutex);
+			context = created;
+			stopping = false;
+			state = WsState::Connecting;
+			established = false;
+			connect_error.reset();
+			outbox.clear();
+			failures = 0;
+		}
+		wsi = nullptr; // no service thread runs yet
+		open = false;
+
+		if (Result<void> started = attempt(); !started) {
+			std::optional<Error> reason;
+			{
+				const std::lock_guard lock(mutex);
+				reason = connect_error; // libwebsockets may have reported why
+			}
+			stop();
+			{
+				// Clear the shared pointer first so a concurrent stop() cannot wake
+				// a destroyed context.
+				const std::lock_guard lock(mutex);
+				context = nullptr;
+			}
+			lws_context_destroy(created);
+			return std::unexpected(reason ? std::move(*reason) : std::move(started.error()));
+		}
+		{
+			const std::lock_guard lock(mutex);
+			thread = std::thread([self = shared_from_this()] { self->run(); });
+			service_id = thread.get_id();
+		}
+
+		std::unique_lock lock(mutex);
+		const bool settled = changed.wait_for(lock, config.connect_timeout, [&] {
+			return state == WsState::Connected || connect_error.has_value() || stopping ||
+				   established;
+		});
+		// A connection that opened and dropped at once is reconnecting already.
+		if (state == WsState::Connected || (established && !stopping && config.auto_reconnect)) {
+			return {};
+		}
+		Error error =
+			Error::network("Timed out after " + std::to_string(config.connect_timeout.count()) +
+						   " ms waiting for the WebSocket handshake");
+		if (connect_error) {
+			error = *connect_error;
+		} else if (established && !stopping) {
+			error = Error::network("The WebSocket connection closed right after it opened");
+		} else if (settled) {
+			error = Error::network("Disconnected while connecting");
+		}
+		lock.unlock();
+		stop();
+		reap();
+		return std::unexpected(std::move(error));
 	}
-}
 
-static const struct lws_protocols protocols[] = {{.name = "kalshi-ws",
-												  .callback = ws_callback,
-												  .per_session_data_size = 0,
-												  .rx_buffer_size = 65536},
-												 LWS_PROTOCOL_LIST_TERM};
-
-WebSocketClient::WebSocketClient(Signer signer, WsConfig config)
-	: impl_(std::make_unique<Impl>(std::move(signer), std::move(config))) {}
-
-WebSocketClient::~WebSocketClient() {
-	disconnect();
-}
-
-WebSocketClient::WebSocketClient(WebSocketClient&&) noexcept = default;
-
-WebSocketClient& WebSocketClient::operator=(WebSocketClient&&) noexcept = default;
-
-Result<void> WebSocketClient::connect() {
-	if (!impl_) {
-		return std::unexpected(Error::network("Client moved-from"));
+	/// Ends the session without waiting for the service thread, and returns
+	/// whether one was running. Subscriptions stay registered for the next
+	/// connect() unless `forget` is set. Calls no user code, so it is safe
+	/// under `lifecycle`.
+	bool stop(bool forget = false) {
+		bool was_up = false;
+		{
+			const std::lock_guard lock(mutex);
+			was_up = state != WsState::Disconnected;
+			stopping = true;
+			state = WsState::Disconnected;
+			if (forget) {
+				registry.clear();
+			} else {
+				registry.on_disconnected();
+			}
+			outbox.clear();
+			if (context != nullptr) {
+				lws_cancel_service(context);
+			}
+		}
+		changed.notify_all();
+		return was_up;
 	}
-	std::unique_ptr<WsImplData>& data = impl_->data;
 
-	if (data->connected) {
+	/// Joins a stopped service thread. Never called on that thread.
+	void reap() {
+		std::thread worker;
+		{
+			const std::lock_guard lock(mutex);
+			worker = std::move(thread);
+		}
+		if (worker.joinable()) {
+			worker.join();
+		}
+		const std::lock_guard lock(mutex);
+		service_id = {};
+	}
+
+	void disconnect() {
+		bool was_up = stop(true); // also interrupts a connect() in progress
+		if (!on_service_thread()) {
+			const std::lock_guard lifecycle_lock(lifecycle);
+			// A connect() may have started a new session before we got the lock.
+			was_up = stop(true) || was_up;
+			reap();
+		} // else the thread exits once this callback returns; connect() or ~Impl reaps it
+		if (was_up) {
+			report(WsState::Disconnected);
+		}
+	}
+
+	/// Tears everything down for the destructor. Failures, such as a thread
+	/// that cannot be joined, have no caller to report to.
+	void destroy() noexcept {
+		try {
+			teardown();
+		} catch (...) { // NOLINT(bugprone-empty-catch): see above
+		}
+	}
+
+	void teardown() {
+		message_callback.set(nullptr);
+		error_callback.set(nullptr);
+		state_callback.set(nullptr);
+		stop(true);
+		if (on_service_thread()) {
+			// The thread holds its own reference and finishes after this callback.
+			std::thread self;
+			{
+				const std::lock_guard lock(mutex);
+				self = std::move(thread);
+			}
+			if (self.joinable()) {
+				Orphans::instance().adopt(std::move(self));
+			}
+			return;
+		}
+		const std::lock_guard lifecycle_lock(lifecycle);
+		stop(true); // in case a connect() started a session before we got the lock
+		reap();
+		Orphans::instance().reap();
+	}
+
+	void run() {
+		lws_context* active = nullptr;
+		{
+			const std::lock_guard lock(mutex);
+			active = context;
+		}
+		while (!stopping) {
+			if (lws_service(active, 0) < 0 && stop()) {
+				report(WsState::Disconnected);
+			}
+		}
+		{
+			const std::lock_guard lock(mutex);
+			context = nullptr;
+		}
+		// The timer lives in this object, not the context; unlink it first so a
+		// later connect() never touches the destroyed context's timer list.
+		lws_sul_cancel(&timer.sul);
+		lws_context_destroy(active);
+		timer.sul = lws_sorted_usec_list_t{};
+		wsi = nullptr;
+		open = false;
+	}
+
+	// ----- connection attempts (service thread, or before it starts) ---------
+
+	Result<void> attempt() {
+		Result<AuthHeaders> signed_headers =
+			signer.sign("GET", detail::request_signing_path("", endpoint.path));
+		if (!signed_headers) {
+			return std::unexpected(std::move(signed_headers.error()));
+		}
+		headers = std::move(*signed_headers);
+
+		lws_context* active = nullptr;
+		{
+			const std::lock_guard lock(mutex);
+			active = context;
+		}
+		lws_client_connect_info info{};
+		info.context = active;
+		info.address = endpoint.host.c_str();
+		info.port = endpoint.port;
+		info.path = endpoint.path.c_str();
+		info.host = endpoint.host.c_str();
+		// Kalshi rejects upgrades that carry an Origin header, so leave it unset.
+		info.origin = nullptr;
+		info.ssl_connection = endpoint.use_ssl ? LCCSCF_USE_SSL : 0;
+		info.retry_and_idle_policy = &retry;
+		open = false;
+		failure_handled = false;
+		wsi = lws_client_connect_via_info(&info);
+		if (wsi == nullptr) {
+			return std::unexpected(Error::network("Failed to start the WebSocket connection"));
+		}
 		return {};
 	}
 
-	// Reap any leftover state from a partial previous connection. A
-	// LWS_CALLBACK_CLIENT_CONNECTION_ERROR sets ``connected = false`` but
-	// does NOT join the service thread or destroy the lws context — the
-	// caller's reconnect-on-error loop then calls connect() again. Without
-	// this reap, the std::thread move-assignment on the new
-	// ``data->service_thread = std::thread(...)`` below hits a still-
-	// joinable thread, which std::terminate's the process with the
-	// classic ``terminate called without an active exception`` followed
-	// by SIGSEGV (exit 139). Production seen ~5 times/day on
-	// kalshi-websocket before this fix.
-	if (data->service_thread.joinable()) {
-		data->should_stop = true;
-		if (!detail::join_thread_unless_current(data->service_thread)) {
-			return std::unexpected(
-				Error::network("Cannot reconnect from the WebSocket service callback"));
+	std::chrono::milliseconds backoff() {
+		const double doubled =
+			static_cast<double>(config.reconnect_delay.count()) *
+			std::pow(2.0, static_cast<double>(std::min<std::uint32_t>(failures, 20)));
+		const double capped =
+			std::min(doubled, static_cast<double>(config.max_reconnect_delay.count()));
+		std::uniform_real_distribution<double> jitter(0.5, 1.0);
+		return std::chrono::milliseconds{
+			static_cast<std::chrono::milliseconds::rep>(std::llround(capped * jitter(rng)))};
+	}
+
+	void schedule_reconnect() {
+		if (stopping) {
+			return;
+		}
+		if (config.max_reconnect_attempts != 0 && failures >= config.max_reconnect_attempts) {
+			{
+				const std::lock_guard lock(mutex);
+				state = WsState::Disconnected;
+			}
+			report(WsState::Disconnected);
+			deliver(WsError{0,
+							"Gave up reconnecting after " + std::to_string(failures) + " attempts",
+							std::nullopt, std::nullopt, std::nullopt, std::nullopt});
+			return;
+		}
+		const std::chrono::milliseconds delay = backoff();
+		++failures;
+		lws_context* active = nullptr;
+		{
+			const std::lock_guard lock(mutex);
+			active = context;
+		}
+		lws_sul_schedule(active, 0, &timer.sul, &Impl::on_timer,
+						 std::chrono::duration_cast<std::chrono::microseconds>(delay).count());
+	}
+
+	static void on_timer(lws_sorted_usec_list_t* sul) {
+		Impl* self = reinterpret_cast<Timer*>(sul)->owner;
+		if (self->stopping) {
+			return;
+		}
+		// A synchronous failure may already have gone through on_failed(), which
+		// reported it and scheduled the next attempt or gave up.
+		if (Result<void> started = self->attempt(); !started && !self->failure_handled) {
+			self->deliver(WsError{0, started.error().message, std::nullopt, std::nullopt,
+								  std::nullopt, std::nullopt});
+			self->schedule_reconnect();
 		}
 	}
-	// Retire the stale handle before destroying the context that owns it.
-	{
-		const std::lock_guard<std::mutex> lock(data->send_mutex);
-		data->wsi = nullptr;
-	}
-	if (data->context) {
-		lws_context_destroy(data->context);
-		data->context = nullptr;
-	}
-	data->should_stop = false;
 
-	const Result<detail::WsEndpoint> endpoint_result = detail::parse_ws_endpoint(data->config.url);
-	if (!endpoint_result) {
-		return std::unexpected(endpoint_result.error());
-	}
-	const detail::WsEndpoint& endpoint = *endpoint_result;
+	// ----- libwebsockets events (service thread) -----------------------------
 
-	// Generate auth headers
-	const std::string signing_path = detail::request_signing_path("", endpoint.path);
-	Result<AuthHeaders> auth_result = data->signer.sign("GET", signing_path);
-	if (!auth_result) {
-		return std::unexpected(auth_result.error());
-	}
-	data->auth_headers = *auth_result;
-
-	// Create context
-	struct lws_context_creation_info ctx_info {};
-	std::memset(&ctx_info, 0, sizeof(ctx_info));
-	ctx_info.port = CONTEXT_PORT_NO_LISTEN;
-	ctx_info.protocols = protocols;
-	ctx_info.user = data.get();
-	ctx_info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
-
-	data->context = lws_create_context(&ctx_info);
-	if (!data->context) {
-		return std::unexpected(Error::network("Failed to create WebSocket context"));
+	// libwebsockets fixes this callback ABI, including the adjacent opaque pointers.
+	// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+	static int callback(lws* connection, lws_callback_reasons reason, void* /*user*/, void* in,
+						std::size_t len) {
+		lws_context* owner = lws_get_context(connection);
+		Impl* self = owner == nullptr ? nullptr : static_cast<Impl*>(lws_context_user(owner));
+		return self == nullptr ? 0 : self->on_event(connection, reason, in, len);
 	}
 
-	// Create connection
-	struct lws_client_connect_info conn_info {};
-	std::memset(&conn_info, 0, sizeof(conn_info));
-	conn_info.context = data->context;
-	conn_info.address = endpoint.host.c_str();
-	conn_info.port = endpoint.port;
-	conn_info.path = endpoint.path.c_str();
-	conn_info.host = endpoint.host.c_str();
-	// Kalshi rejects websocket upgrades that include an Origin header
-	// (403), while the documented Python websockets example sends no
-	// Origin and succeeds. Leave this unset so libwebsockets omits it.
-	conn_info.origin = nullptr;
-
-	if (endpoint.use_ssl) {
-		conn_info.ssl_connection = LCCSCF_USE_SSL;
-	}
-
-	lws* connection = lws_client_connect_via_info(&conn_info);
-	if (!connection) {
-		lws_context_destroy(data->context);
-		data->context = nullptr;
-		return std::unexpected(Error::network("Failed to initiate WebSocket connection"));
-	}
-	{
-		const std::lock_guard<std::mutex> lock(data->send_mutex);
-		data->wsi = connection;
-	}
-
-	// Start service thread
-	data->service_thread = std::thread([&data = this->impl_->data]() {
-		while (!data->should_stop && data->context) {
-			lws_service(data->context, 50);
+	int on_event(lws* connection, lws_callback_reasons reason, void* in, std::size_t len) {
+		switch (reason) {
+			case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
+				return append_headers(connection, in, len);
+			case LWS_CALLBACK_CLIENT_ESTABLISHED:
+				on_established(connection);
+				return 0;
+			case LWS_CALLBACK_CLIENT_RECEIVE:
+				if (connection != wsi || stopping) {
+					return stopping ? -1 : 0;
+				}
+				rx.append(static_cast<const char*>(in), len);
+				if (lws_is_final_fragment(connection) != 0 &&
+					lws_remaining_packet_payload(connection) == 0) {
+					on_frame(connection);
+					rx.clear();
+				}
+				return 0;
+			case LWS_CALLBACK_CLIENT_WRITEABLE:
+				return connection == wsi ? write_next(connection) : 0;
+			case LWS_CALLBACK_CLIENT_CONNECTION_ERROR:
+				on_failed(connection, in == nullptr
+										  ? std::string{"connection failed"}
+										  : std::string(static_cast<const char*>(in), len));
+				return 0;
+			case LWS_CALLBACK_CLIENT_CLOSED:
+				on_closed(connection);
+				return 0;
+			case LWS_CALLBACK_EVENT_WAIT_CANCELLED:
+				if (wsi != nullptr && !stopping) {
+					const std::lock_guard lock(mutex);
+					if (!outbox.empty()) {
+						lws_callback_on_writable(wsi);
+					}
+				}
+				return 0;
+			default:
+				return 0;
 		}
-	});
-
-	// Wait briefly for connection (with timeout)
-	std::chrono::steady_clock::time_point start = std::chrono::steady_clock::now();
-	while (!data->connected && !data->should_stop) {
-		std::chrono::steady_clock::duration elapsed = std::chrono::steady_clock::now() - start;
-		if (elapsed > std::chrono::seconds(10)) {
-			disconnect();
-			return std::unexpected(Error::network("Connection timeout"));
-		}
-		std::this_thread::sleep_for(std::chrono::milliseconds(10));
 	}
 
-	return {};
+	int append_headers(lws* connection, void* in, std::size_t len) const {
+		unsigned char** cursor = static_cast<unsigned char**>(in);
+		unsigned char* end = *cursor + len;
+		const std::array<std::pair<const char*, const std::string*>, 3> fields{{
+			{"KALSHI-ACCESS-KEY:", &headers.access_key},
+			{"KALSHI-ACCESS-SIGNATURE:", &headers.signature},
+			{"KALSHI-ACCESS-TIMESTAMP:", &headers.timestamp},
+		}};
+		for (const std::pair<const char*, const std::string*>& field : fields) {
+			if (lws_add_http_header_by_name(
+					connection, reinterpret_cast<const unsigned char*>(field.first),
+					reinterpret_cast<const unsigned char*>(field.second->data()),
+					static_cast<int>(field.second->size()), cursor, end) != 0) {
+				return -1;
+			}
+		}
+		return 0;
+	}
+
+	void on_established(lws* connection) {
+		std::vector<std::string> frames;
+		{
+			const std::lock_guard lock(mutex);
+			if (stopping) {
+				return;
+			}
+			wsi = connection;
+			state = WsState::Connected;
+			established = true;
+			registry.on_connected(frames);
+			outbox.assign(std::make_move_iterator(frames.begin()),
+						  std::make_move_iterator(frames.end()));
+		}
+		rx.clear();
+		open = true;
+		opened_at = std::chrono::steady_clock::now();
+		changed.notify_all();
+		if (!frames.empty()) {
+			lws_callback_on_writable(connection);
+		}
+		report(WsState::Connected);
+	}
+
+	void on_failed(lws* connection, const std::string& reason) {
+		// libwebsockets may report one failed attempt more than once.
+		if ((connection != wsi && wsi != nullptr) || failure_handled) {
+			return;
+		}
+		failure_handled = true;
+		wsi = nullptr;
+		bool first = false;
+		{
+			const std::lock_guard lock(mutex);
+			first = !established;
+			if (first) {
+				connect_error = Error::network("WebSocket connection failed: " + reason);
+			}
+		}
+		if (first) {
+			changed.notify_all();
+			return;
+		}
+		deliver(WsError{0, "Reconnect failed: " + reason, std::nullopt, std::nullopt, std::nullopt,
+						std::nullopt});
+		schedule_reconnect();
+	}
+
+	void on_closed(lws* connection) {
+		if (connection != wsi) {
+			return;
+		}
+		if (!open) {
+			// Some platforms report a refused upgrade as a close, not an error.
+			on_failed(connection, "the server closed the connection during the handshake");
+			return;
+		}
+		open = false;
+		wsi = nullptr;
+		const bool stable = std::chrono::steady_clock::now() - opened_at >= kStableConnection;
+		WsState next = WsState::Disconnected;
+		{
+			const std::lock_guard lock(mutex);
+			registry.on_disconnected();
+			outbox.clear();
+			if (stopping) {
+				return;
+			}
+			next = config.auto_reconnect ? WsState::Reconnecting : WsState::Disconnected;
+			state = next;
+		}
+		changed.notify_all();
+		report(next);
+		if (next == WsState::Reconnecting) {
+			if (stable) {
+				failures = 0;
+			}
+			schedule_reconnect();
+		}
+	}
+
+	int write_next(lws* connection) {
+		std::string frame;
+		bool more = false;
+		{
+			const std::lock_guard lock(mutex);
+			if (outbox.empty() || stopping) {
+				return stopping ? -1 : 0;
+			}
+			frame = std::move(outbox.front());
+			outbox.pop_front();
+			more = !outbox.empty();
+		}
+		tx.resize(LWS_PRE + frame.size());
+		std::memcpy(tx.data() + LWS_PRE, frame.data(), frame.size());
+		const int written =
+			lws_write(connection, tx.data() + LWS_PRE, frame.size(), LWS_WRITE_TEXT);
+		if (written < static_cast<int>(frame.size())) {
+			deliver(WsError{0, "Failed to write to the WebSocket", std::nullopt, std::nullopt,
+							std::nullopt, std::nullopt});
+			return -1; // drop the connection; reconnecting resends the subscriptions
+		}
+		if (more) {
+			lws_callback_on_writable(connection);
+		}
+		return 0;
+	}
+
+	void on_frame(lws* connection) {
+		detail::Frame frame = detail::parse_frame(rx);
+		detail::Reaction reaction;
+		std::optional<WsMessage> data;
+		{
+			const std::lock_guard lock(mutex);
+			if (WsMessage* message = std::get_if<WsMessage>(&frame)) {
+				reaction = registry.on_data(*message, config.resync_on_gap);
+				data = std::move(*message);
+			} else if (const detail::SubscribedFrame* subscribed =
+						   std::get_if<detail::SubscribedFrame>(&frame)) {
+				reaction = registry.on_subscribed(*subscribed);
+			} else if (const detail::UnsubscribedFrame* unsubscribed =
+						   std::get_if<detail::UnsubscribedFrame>(&frame)) {
+				reaction = registry.on_unsubscribed(*unsubscribed);
+			} else if (const detail::OkFrame* ok = std::get_if<detail::OkFrame>(&frame)) {
+				reaction = registry.on_ok(*ok);
+			} else if (const detail::ErrorFrame* error = std::get_if<detail::ErrorFrame>(&frame)) {
+				reaction = registry.on_error(*error);
+			} else if (const detail::MalformedFrame* malformed =
+						   std::get_if<detail::MalformedFrame>(&frame)) {
+				reaction.error = WsError{0,
+										 "Could not parse a " + malformed->type + " frame",
+										 std::nullopt,
+										 std::nullopt,
+										 std::nullopt,
+										 std::nullopt};
+			}
+			for (std::string& command : reaction.frames) {
+				outbox.push_back(std::move(command));
+			}
+		}
+		if (!reaction.frames.empty()) {
+			lws_callback_on_writable(connection);
+		}
+		// A gap is reported before the frame that reveals it.
+		if (reaction.error) {
+			deliver(*reaction.error);
+		}
+		if (data) {
+			deliver(*data);
+		}
+		if (reaction.message) {
+			deliver(*reaction.message);
+		}
+	}
+
+	// ----- commands from callers' threads ------------------------------------
+
+	/// Queues frames and wakes the service thread. Requires `mutex`.
+	void queue(std::vector<std::string>& frames) {
+		if (frames.empty()) {
+			return;
+		}
+		for (std::string& frame : frames) {
+			outbox.push_back(std::move(frame));
+		}
+		if (context != nullptr) {
+			lws_cancel_service(context);
+		}
+	}
+};
+
+WebSocketClient::WebSocketClient(Signer signer, WsConfig config)
+	: impl_(std::make_shared<Impl>(std::move(signer), std::move(config))) {}
+
+WebSocketClient::~WebSocketClient() {
+	if (impl_) {
+		impl_->destroy();
+	}
+}
+
+WebSocketClient::WebSocketClient(WebSocketClient&& other) noexcept = default;
+
+WebSocketClient& WebSocketClient::operator=(WebSocketClient&& other) noexcept {
+	if (this != &other) {
+		if (impl_) {
+			impl_->destroy();
+		}
+		impl_ = std::move(other.impl_);
+	}
+	return *this;
+}
+
+Result<void> WebSocketClient::connect() {
+	return impl_ ? impl_->connect() : std::unexpected(moved_from());
 }
 
 void WebSocketClient::disconnect() {
-	// The defaulted move ctor / move-assignment leave the moved-from
-	// object's impl_ as nullptr. ~WebSocketClient unconditionally
-	// calls disconnect(), so without this guard the implicit
-	// destructor on a moved-from instance dereferences the nullptr
-	// below (auto& data = impl_->data) and segfaults. The same
-	// pattern exists in polymarket-cpp's clob::WebSocketClient and
-	// polymarket::us::ws::Subscriber — pinning the contract here.
+	if (impl_) {
+		impl_->disconnect();
+	}
+}
+
+WsState WebSocketClient::state() const noexcept {
 	if (!impl_) {
-		return;
+		return WsState::Disconnected;
 	}
-	std::unique_ptr<WsImplData>& data = impl_->data;
-
-	if (!data->context) {
-		return;
-	}
-
-	data->should_stop = true;
-	data->connected = false;
-	data->subscriptions.clear();
-	// Retire the handle first: a queue_send() racing this teardown must
-	// see nullptr rather than a handle whose context is about to go away.
-	{
-		const std::lock_guard<std::mutex> lock(data->send_mutex);
-		data->wsi = nullptr;
-	}
-
-	if (data->service_thread.joinable()) {
-		if (!detail::join_thread_unless_current(data->service_thread)) {
-			data->invoke_state_callback(false);
-			return;
-		}
-	}
-
-	if (data->context) {
-		lws_context_destroy(data->context);
-		data->context = nullptr;
-	}
-
-	data->invoke_state_callback(false);
+	const std::lock_guard lock(impl_->mutex);
+	return impl_->state;
 }
 
 bool WebSocketClient::is_connected() const noexcept {
-	if (!impl_) {
-		return false;
-	}
-	return impl_->data->connected;
+	return state() == WsState::Connected;
 }
 
-Result<SubscriptionId>
-WebSocketClient::subscribe_orderbook(const std::vector<std::string>& market_tickers) {
+Result<ws::Subscription> WebSocketClient::subscribe(ws::Channel channel,
+													ws::SubscribeParams params) {
 	if (!impl_) {
-		return std::unexpected(Error::network("Client moved-from"));
+		return std::unexpected(moved_from());
 	}
-	std::unique_ptr<WsImplData>& data = impl_->data;
+	if (channel == ws::Channel::Unknown) {
+		return std::unexpected(Error{ErrorCode::InvalidRequest, "A channel is required", 0, {}});
+	}
+	std::vector<std::string> frames;
+	const std::lock_guard lock(impl_->mutex);
+	const ws::Subscription subscription = impl_->registry.subscribe(
+		channel, std::move(params), impl_->state == WsState::Connected, frames);
+	impl_->queue(frames);
+	return subscription;
+}
 
-	if (!data->connected) {
+Result<void> WebSocketClient::unsubscribe(ws::Subscription subscription) {
+	if (!impl_) {
+		return std::unexpected(moved_from());
+	}
+	std::vector<std::string> frames;
+	const std::lock_guard lock(impl_->mutex);
+	Result<void> result = impl_->registry.unsubscribe(subscription, frames);
+	impl_->queue(frames);
+	return result;
+}
+
+Result<void> WebSocketClient::update_subscription(ws::Subscription subscription,
+												  const ws::UpdateSubscriptionParams& params) {
+	if (!impl_) {
+		return std::unexpected(moved_from());
+	}
+	std::vector<std::string> frames;
+	const std::lock_guard lock(impl_->mutex);
+	Result<void> result =
+		impl_->registry.update(subscription, params, impl_->state == WsState::Connected, frames);
+	impl_->queue(frames);
+	return result;
+}
+
+Result<void> WebSocketClient::add_markets(ws::Subscription subscription,
+										  std::vector<std::string> market_tickers) {
+	ws::UpdateSubscriptionParams params;
+	params.action = ws::UpdateAction::AddMarkets;
+	params.market_tickers = std::move(market_tickers);
+	return update_subscription(subscription, params);
+}
+
+Result<void> WebSocketClient::remove_markets(ws::Subscription subscription,
+											 std::vector<std::string> market_tickers) {
+	ws::UpdateSubscriptionParams params;
+	params.action = ws::UpdateAction::DeleteMarkets;
+	params.market_tickers = std::move(market_tickers);
+	return update_subscription(subscription, params);
+}
+
+Result<void> WebSocketClient::request_snapshot(ws::Subscription subscription,
+											   std::vector<std::string> market_tickers) {
+	ws::UpdateSubscriptionParams params;
+	params.action = ws::UpdateAction::GetSnapshot;
+	params.market_tickers = std::move(market_tickers);
+	return update_subscription(subscription, params);
+}
+
+Result<std::int64_t> WebSocketClient::list_subscriptions() {
+	if (!impl_) {
+		return std::unexpected(moved_from());
+	}
+	std::vector<std::string> frames;
+	const std::lock_guard lock(impl_->mutex);
+	if (impl_->state != WsState::Connected) {
 		return std::unexpected(Error::network("Not connected"));
 	}
-
-	if (market_tickers.empty()) {
-		return std::unexpected(Error{ErrorCode::InvalidRequest, "market_tickers required"});
-	}
-
-	std::int32_t id = data->get_next_id();
-	std::string cmd = build_subscribe_command(id, Channel::OrderbookDelta, market_tickers);
-	data->queue_send(cmd);
-
-	return SubscriptionId{.sid = id, .channel = Channel::OrderbookDelta};
+	const std::int64_t id = impl_->registry.list_subscriptions(frames);
+	impl_->queue(frames);
+	return id;
 }
 
-Result<SubscriptionId>
-WebSocketClient::subscribe_trades(const std::vector<std::string>& market_tickers) {
+std::vector<ws::Subscription> WebSocketClient::subscriptions() const {
 	if (!impl_) {
-		return std::unexpected(Error::network("Client moved-from"));
+		return {};
 	}
-	std::unique_ptr<WsImplData>& data = impl_->data;
-
-	if (!data->connected) {
-		return std::unexpected(Error::network("Not connected"));
-	}
-
-	std::int32_t id = data->get_next_id();
-	std::string cmd = build_subscribe_command(id, Channel::Trade, market_tickers);
-	data->queue_send(cmd);
-
-	return SubscriptionId{.sid = id, .channel = Channel::Trade};
+	const std::lock_guard lock(impl_->mutex);
+	return impl_->registry.subscriptions();
 }
 
-Result<SubscriptionId>
-WebSocketClient::subscribe_fills(const std::vector<std::string>& market_tickers) {
-	if (!impl_) {
-		return std::unexpected(Error::network("Client moved-from"));
+void WebSocketClient::on_message(std::function<void(const WsMessage&)> callback) {
+	if (impl_) {
+		impl_->message_callback.set(std::move(callback));
 	}
-	std::unique_ptr<WsImplData>& data = impl_->data;
-
-	if (!data->connected) {
-		return std::unexpected(Error::network("Not connected"));
-	}
-
-	std::int32_t id = data->get_next_id();
-	std::string cmd = build_subscribe_command(id, Channel::Fill, market_tickers);
-	data->queue_send(cmd);
-
-	return SubscriptionId{.sid = id, .channel = Channel::Fill};
 }
 
-Result<SubscriptionId> WebSocketClient::subscribe_lifecycle() {
-	if (!impl_) {
-		return std::unexpected(Error::network("Client moved-from"));
+void WebSocketClient::on_error(std::function<void(const WsError&)> callback) {
+	if (impl_) {
+		impl_->error_callback.set(std::move(callback));
 	}
-	std::unique_ptr<WsImplData>& data = impl_->data;
-
-	if (!data->connected) {
-		return std::unexpected(Error::network("Not connected"));
-	}
-
-	std::int32_t id = data->get_next_id();
-	std::string cmd = build_subscribe_command(id, Channel::MarketLifecycle, {});
-	data->queue_send(cmd);
-
-	return SubscriptionId{.sid = id, .channel = Channel::MarketLifecycle};
 }
 
-Result<void> WebSocketClient::unsubscribe(SubscriptionId sub_id) {
-	if (!impl_) {
-		return std::unexpected(Error::network("Client moved-from"));
+void WebSocketClient::on_state_change(std::function<void(WsState)> callback) {
+	if (impl_) {
+		impl_->state_callback.set(std::move(callback));
 	}
-	std::unique_ptr<WsImplData>& data = impl_->data;
-
-	if (!data->connected) {
-		return std::unexpected(Error::network("Not connected"));
-	}
-
-	std::int32_t id = data->get_next_id();
-	std::string cmd = build_unsubscribe_command(id, data->subscriptions.resolve(sub_id.sid));
-	data->subscriptions.erase(sub_id.sid);
-	data->queue_send(cmd);
-
-	return {};
-}
-
-Result<void> WebSocketClient::add_markets(SubscriptionId sub_id,
-										  const std::vector<std::string>& market_tickers) {
-	if (!impl_) {
-		return std::unexpected(Error::network("Client moved-from"));
-	}
-	std::unique_ptr<WsImplData>& data = impl_->data;
-
-	if (!data->connected) {
-		return std::unexpected(Error::network("Not connected"));
-	}
-
-	if (market_tickers.empty()) {
-		return std::unexpected(Error{ErrorCode::InvalidRequest, "market_tickers required"});
-	}
-
-	std::int32_t id = data->get_next_id();
-	std::string cmd = build_update_command(id, data->subscriptions.resolve(sub_id.sid),
-										   "add_markets", sub_id.channel, market_tickers);
-	data->queue_send(cmd);
-
-	return {};
-}
-
-Result<void> WebSocketClient::remove_markets(SubscriptionId sub_id,
-											 const std::vector<std::string>& market_tickers) {
-	if (!impl_) {
-		return std::unexpected(Error::network("Client moved-from"));
-	}
-	std::unique_ptr<WsImplData>& data = impl_->data;
-
-	if (!data->connected) {
-		return std::unexpected(Error::network("Not connected"));
-	}
-
-	if (market_tickers.empty()) {
-		return std::unexpected(Error{ErrorCode::InvalidRequest, "market_tickers required"});
-	}
-
-	std::int32_t id = data->get_next_id();
-	std::string cmd = build_update_command(id, data->subscriptions.resolve(sub_id.sid),
-										   "delete_markets", sub_id.channel, market_tickers);
-	data->queue_send(cmd);
-
-	return {};
-}
-
-void WebSocketClient::on_message(WsMessageCallback callback) {
-	if (!impl_) {
-		return;
-	}
-	impl_->data->message_callback.set(std::move(callback));
-}
-
-void WebSocketClient::on_error(WsErrorCallback callback) {
-	if (!impl_) {
-		return;
-	}
-	impl_->data->error_callback.set(std::move(callback));
-}
-
-void WebSocketClient::on_state_change(WsStateCallback callback) {
-	if (!impl_) {
-		return;
-	}
-	impl_->data->state_callback.set(std::move(callback));
 }
 
 const WsConfig& WebSocketClient::config() const noexcept {
-	// Returning a reference through a nullptr would crash; surface the
-	// moved-from sentinel instead so accessors stay safe (matches the
-	// null-guard pattern in disconnect() / is_connected()).
-	return impl_ ? impl_->data->config : kMovedFromConfig;
+	return impl_ ? impl_->config : kMovedFromConfig;
 }
 
 } // namespace kalshi

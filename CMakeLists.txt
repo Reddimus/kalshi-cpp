@@ -97,9 +97,11 @@ find_package(OpenSSL 3.0 REQUIRED)
 find_package(CURL REQUIRED)
 if(WIN32)
     find_package(libwebsockets CONFIG REQUIRED)
+    set(KALSHI_WEBSOCKETS_TARGET websockets_shared)
 else()
     find_package(PkgConfig REQUIRED)
     pkg_check_modules(WEBSOCKETS REQUIRED IMPORTED_TARGET libwebsockets)
+    set(KALSHI_WEBSOCKETS_TARGET PkgConfig::WEBSOCKETS)
 endif()
 
 # Glaze is a private, header-only build dependency; installed headers never

@@ -14,7 +14,8 @@
 #include <type_traits>
 #include <vector>
 
-#include "json_meta.hpp"
+#include "../json_nulls.hpp"
+#include "../models/json_meta.hpp"
 
 namespace kalshi {
 
@@ -80,11 +81,6 @@ private:
 	std::string text_;
 	bool has_query_{false};
 };
-
-/// Drops object members whose value is `null`, so they read as absent. Kalshi
-/// sometimes sends null for fields its spec marks non-nullable; this keeps
-/// those responses parseable. Nulls inside arrays are kept.
-[[nodiscard]] std::string strip_null_members(std::string_view json);
 
 /// Maps an unsuccessful response to an Error, reading Kalshi's error body.
 [[nodiscard]] Error http_error(const HttpResponse& response, std::string_view operation);

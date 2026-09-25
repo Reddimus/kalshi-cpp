@@ -43,10 +43,12 @@ clang-format 18 and PyYAML (`python3 -m pip install pyyaml`).
 
 ## Generated code
 
-`include/kalshi/api.hpp`, `include/kalshi/models.hpp`, `src/api/operations/`,
-`src/api/json_meta.hpp`, `src/api/validate.hpp`, `tests/test_operation_routes.cpp`,
-and `docs/operations.md` come from `tools/codegen/generate.py`. Change the
-generator or `spec/openapi.yaml`, run `make codegen`, and commit both. CI rejects stale
+`tools/codegen/generate.py` writes the REST client from `spec/openapi.yaml`
+and the WebSocket messages from `spec/asyncapi.yaml`: `include/kalshi/api.hpp`,
+`models.hpp`, and `ws_models.hpp`, `src/api/operations/`, `src/api/validate.hpp`,
+`src/models/json_meta.hpp`, `src/ws/wire.hpp`, `tests/test_operation_routes.cpp`,
+`tests/test_ws_messages.cpp`, `docs/operations.md`, and `docs/channels.md`.
+Change the generator or a spec, run `make codegen`, and commit both. CI rejects stale
 output. `docs/research.md` explains how to refresh the spec.
 
 ## Code style

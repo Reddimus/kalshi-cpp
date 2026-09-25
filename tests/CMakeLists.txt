@@ -9,18 +9,24 @@ add_executable(kalshi_tests
     test_signer.cpp
     test_transports.cpp
     test_version.cpp
-    test_ws_commands.cpp
+    test_ws_client.cpp
+    test_ws_frames.cpp
     test_ws_lifecycle.cpp
-    test_ws_parser.cpp
-    test_ws_subscription_registry.cpp)
+    test_ws_messages.cpp
+    test_ws_subscriptions.cpp)
 # Tests reach implementation headers under src/, which include Glaze.
 target_include_directories(kalshi_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
     ${PROJECT_SOURCE_DIR}/src/api
     ${PROJECT_SOURCE_DIR}/src/ws)
 target_link_libraries(kalshi_tests PRIVATE
-    kalshi::kalshi glaze::glaze OpenSSL::Crypto GTest::gtest_main GTest::gmock)
+    kalshi::kalshi glaze::glaze OpenSSL::Crypto ${KALSHI_WEBSOCKETS_TARGET} GTest::gtest_main
+    GTest::gmock)
 kalshi_configure_target(kalshi_tests)
+if(WIN32)
+    # The WebSocket test server includes <libwebsockets.h>, which pulls in <windows.h>.
+    target_compile_definitions(kalshi_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+endif()
 # The generated route tests also cover operations Kalshi marks deprecated.
 set_source_files_properties(test_operation_routes.cpp PROPERTIES COMPILE_OPTIONS
     "$<IF:$<CXX_COMPILER_ID:MSVC>,/wd4996,-Wno-deprecated-declarations>")
@@ -32,7 +38,8 @@ gtest_discover_tests(kalshi_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30)
 # Coarse throughput guard: fails only on order-of-magnitude regressions.
 # Instrumented builds run it for correctness only.
 add_executable(kalshi_parse_benchmark parse_benchmark.cpp)
-target_include_directories(kalshi_parse_benchmark PRIVATE ${PROJECT_SOURCE_DIR}/src/api)
+target_include_directories(kalshi_parse_benchmark PRIVATE ${PROJECT_SOURCE_DIR}/src/api
+    ${PROJECT_SOURCE_DIR}/src/ws)
 target_link_libraries(kalshi_parse_benchmark PRIVATE kalshi::kalshi glaze::glaze)
 kalshi_configure_target(kalshi_parse_benchmark)
 if(KALSHI_ENABLE_SANITIZERS OR KALSHI_ENABLE_THREAD_SANITIZER OR KALSHI_ENABLE_COVERAGE)

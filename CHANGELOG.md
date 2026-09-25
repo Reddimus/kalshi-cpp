@@ -8,6 +8,24 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Added
 
+- `WebSocketClient` covers every channel and command in Kalshi's AsyncAPI
+  document: all 13 channels, `update_subscription` for markets, snapshots, CF
+  Benchmarks indices, and Pyth underlyings, and `list_subscriptions`. Message
+  types in `kalshi/ws_models.hpp` are generated from `spec/asyncapi.yaml`, and
+  [docs/channels.md](docs/channels.md) maps channels to them.
+- The WebSocket client reconnects with backoff after a dropped connection,
+  signs each attempt, and resubscribes with each subscription's current
+  markets. `ws::Subscription` handles survive reconnects, and every
+  `ws::Update` names its subscription.
+- Commands on a subscription the server has not confirmed yet wait for the
+  confirmation, so they never name a stale `sid`.
+- Skipped sequence numbers are reported to `on_error`, and order book gaps
+  request fresh snapshots (`WsConfig::resync_on_gap`).
+- `WsConfig::connect_timeout`, `ping_interval`, `idle_timeout`, and
+  `max_reconnect_delay`. A silent connection is pinged and then dropped, which
+  triggers a reconnect.
+- `WsError` carries the failed command's `id`, `sid`, `seq`, and subscription,
+  and `WsState` reports connecting, connected, reconnecting, and disconnected.
 - `KalshiClient` covers all 117 operations in Kalshi Predictions OpenAPI 3.31.0,
   up from 70. New areas include historical data, live data, fee changes, event
   candlesticks and forecasts, order-group triggers and limits, intra-exchange
@@ -69,6 +87,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Removed
 
+- The hand-written WebSocket frame scanners (`kalshi/detail/ws_json.hpp`),
+  `classify_lifecycle_event()`, and the integer cent and contract fields on
+  WebSocket messages; use `to_cents()` and `to_contracts()`.
 - The hand-written REST parsers, the 0.5 model headers (`kalshi/models/`), and
   the deprecated methods for routes Kalshi removed (announcements, search, live
   data by ticker, bundle lookup, generic communications).
@@ -82,6 +103,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Migrating from 0.5
 
+- WebSocket: `subscribe(ws::Channel, ws::SubscribeParams)` replaces
+  `subscribe_orderbook()` and the other per-channel methods and returns a
+  `ws::Subscription`. Messages arrive as `ws::Update<T>`, such as
+  `ws::Update<ws::OrderbookDelta>`, with the payload in `msg` and field names
+  from the spec. `on_state_change` receives a `WsState`, and
+  `max_reconnect_attempts` now defaults to 0 (keep trying).
+- Subscriptions can be made before `connect()`; they are sent once connected.
+  `disconnect()` forgets them.
 - Models, parameters, and responses now use the spec's names and types from
   `kalshi/models.hpp`. For example, `get_markets()` returns
   `GetMarketsResponse{markets, cursor}`, orders use `CreateOrderV2Request`, and
@@ -117,6 +146,18 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- WebSocket error frames keep the server's message; the client read a
+  `message` key Kalshi does not send and always fell back to a generic name.
+- `update_subscription` no longer sends an undocumented `channel` parameter,
+  and fill `action` values such as `sell_to_close` no longer read as `buy`.
+- `connect()` returns the actual failure at once instead of waiting 10
+  seconds and reporting a timeout.
+- Sends from other threads no longer call libwebsockets directly, which it
+  does not allow; they wake the network thread instead.
+- Destroying a `WebSocketClient` inside one of its own callbacks is safe.
+- With libwebsockets 4.4 or newer, ending a WebSocket session no longer shuts
+  down OpenSSL for the whole process. Every later TLS connection failed after
+  that, REST calls included.
 - A POST with an empty body (for example `create_subaccount()`) no longer makes
   libcurl read the request body from standard input.
 - Timeouts pass `long` values to libcurl; the `int64` passed before was

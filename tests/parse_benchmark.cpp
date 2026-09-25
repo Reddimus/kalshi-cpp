@@ -2,7 +2,7 @@
 // It fails only on order-of-magnitude regressions, so normal CI timing noise
 // passes; use benchmarks/ for real measurements.
 
-#include "kalshi/detail/ws_message.hpp"
+#include "kalshi/websocket.hpp"
 
 #include <chrono>
 #include <cstdio>
@@ -10,6 +10,7 @@
 #include <string>
 #include <vector>
 
+#include "frames.hpp"
 #include "support.hpp"
 
 namespace {
@@ -83,27 +84,27 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 
-	constexpr std::string_view kTradeFrame =
+	const std::string kTradeFrame =
 		R"({"type":"trade","sid":7,"msg":{"trade_id":"trade-1","market_ticker":"KXTEST-YES","yes_price_dollars":"0.4200","no_price_dollars":"0.5800","count_fp":"12.00","is_block_trade":false,"taker_side":"yes","taker_outcome_side":"yes","taker_book_side":"bid","ts":1788000000,"ts_ms":1788000000123}})";
 	const int kParseIterations = check_timing ? 10000 : 100;
 	std::chrono::nanoseconds parse_total{0};
 	std::int64_t parse_checksum = 0;
 	for (int i = 0; i < kParseIterations; ++i) {
 		const std::chrono::steady_clock::time_point t0 = std::chrono::steady_clock::now();
-		const std::optional<kalshi::WsMessage> message =
-			kalshi::detail::parse_ws_data_message(kTradeFrame);
+		const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(kTradeFrame);
 		const std::chrono::steady_clock::time_point t1 = std::chrono::steady_clock::now();
 		parse_total += t1 - t0;
 		if (!message) {
 			std::fprintf(stderr, "WebSocket parser rejected the benchmark frame\n");
 			return 1;
 		}
-		const kalshi::WsTrade* trade = std::get_if<kalshi::WsTrade>(&*message);
+		const kalshi::ws::Update<kalshi::ws::Trade>* trade =
+			std::get_if<kalshi::ws::Update<kalshi::ws::Trade>>(&*message);
 		if (!trade) {
 			std::fprintf(stderr, "WebSocket parser returned the wrong message type\n");
 			return 1;
 		}
-		parse_checksum += trade->yes_price + trade->count;
+		parse_checksum += trade->sid + static_cast<std::int64_t>(trade->msg.count_fp.size());
 	}
 	if (parse_checksum == 0) {
 		std::fprintf(stderr, "WebSocket parser checksum is zero\n");
