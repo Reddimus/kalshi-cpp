@@ -1,0 +1,36 @@
+# API reference for GitHub Pages. `make docs` writes it to build-docs/html.
+# Only settings that differ from Doxygen's defaults are listed.
+
+PROJECT_NAME           = kalshi-cpp
+PROJECT_NUMBER         = $(KALSHI_VERSION)
+PROJECT_BRIEF          = "C++23 client for Kalshi's Predictions API"
+OUTPUT_DIRECTORY       = build-docs
+
+INPUT                  = README.md \
+                         docs/operations.md \
+                         docs/channels.md \
+                         docs/api-coverage.md \
+                         docs/research.md \
+                         CHANGELOG.md \
+                         CONTRIBUTING.md \
+                         SECURITY.md \
+                         include/kalshi
+FILE_PATTERNS          = *.hpp *.md
+EXCLUDE                = include/kalshi/detail
+USE_MDFILE_AS_MAINPAGE = README.md
+STRIP_FROM_PATH        = include
+STRIP_FROM_INC_PATH    = include
+
+# Generated models document their fields from the spec where it does, so list
+# every member rather than hiding undocumented ones.
+EXTRACT_ALL            = YES
+JAVADOC_AUTOBRIEF      = YES
+BUILTIN_STL_SUPPORT    = YES
+SORT_MEMBER_DOCS       = NO
+WARN_IF_UNDOCUMENTED   = NO
+WARN_AS_ERROR          = FAIL_ON_WARNINGS
+QUIET                  = YES
+
+GENERATE_LATEX         = NO
+GENERATE_TREEVIEW      = YES
+HAVE_DOT               = NO

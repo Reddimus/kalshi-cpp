@@ -1,113 +1,104 @@
-# Contributing to kalshi-cpp
+# Contributing
 
-Thanks for your interest in contributing. This guide covers the local
-build flow, code style expectations, and PR conventions used in this
-repo. For security-vulnerability reports, see [SECURITY.md](SECURITY.md)
-and do not open a public issue for those.
+Report security problems privately as described in [SECURITY.md](SECURITY.md),
+not in a public issue.
 
-## Getting started
+## Set up
 
 ```bash
 git clone https://github.com/Reddimus/kalshi-cpp.git
 cd kalshi-cpp
-
-# One-time: install build deps (Ubuntu 24.04 example)
-sudo apt install -y build-essential cmake clang-format \
-    libssl-dev libcurl4-openssl-dev libwebsockets-dev
-
-make build      # CMake configure + Release build
-make test       # Run unit tests (ctest)
 ```
 
-macOS uses Homebrew (`brew install openssl curl libwebsockets`),
-Windows uses vcpkg (the CI workflow has the exact invocations).
-
-## Development workflow
+On Ubuntu 24.04, whose apt CMake is older than the 3.31 this build needs:
 
 ```bash
-make debug          # Debug build in build-debug/
-make test           # Build and run the tests
-make sanitize       # ASan + UBSan
-make tsan           # ThreadSanitizer
-make tidy           # clang-tidy build
-make lint           # clang-format 18, cpp_auto_audit, generated-code check
-make codegen        # Regenerate the REST client from spec/openapi.yaml
-make format         # Apply clang-format in place
-make bench          # Google Benchmark suite
-make coverage       # lcov report (needs lcov)
-make clean          # Remove build directories
+sudo apt install build-essential ninja-build pkg-config clang-format-18 python3-yaml \
+    pipx libssl-dev libcurl4-openssl-dev libwebsockets-dev
+pipx install cmake && pipx ensurepath   # then open a new shell
+make test
 ```
 
-Run `make lint` before pushing; CI runs the same checks. It needs
-clang-format 18 and PyYAML (`python3 -m pip install pyyaml`).
+On macOS, Homebrew's `llvm@18` provides clang-format 18 without putting it on
+`PATH`, and PyYAML goes in a virtual environment:
+
+```bash
+brew install cmake ninja pkg-config openssl libwebsockets llvm@18
+python3 -m venv .venv && .venv/bin/pip install pyyaml
+export CLANG_FORMAT="$(brew --prefix llvm@18)/bin/clang-format" PYTHON=.venv/bin/python
+make test lint
+```
+
+Windows builds use vcpkg; the `build-windows` job in `.github/workflows/ci.yml`
+has the steps.
+
+## Everyday commands
+
+```bash
+make test            # Release build and tests
+make debug           # Debug build in build-debug/
+make sanitize tsan   # ASan + UBSan, ThreadSanitizer
+make tidy            # clang-tidy build
+make lint            # clang-format 18, explicit-type audit, generated-code check
+make format          # Apply clang-format
+make codegen         # Regenerate from spec/
+make docs            # Doxygen API reference in build-docs/html (needs Doxygen)
+make bench           # Google Benchmark suite
+make consumers       # Build installed and FetchContent consumers
+make coverage        # lcov report (needs lcov)
+```
+
+Run `make format lint test` before pushing. `make install-hooks` runs format
+and lint on every commit. CI adds the sanitizers, clang-tidy, and the consumer
+check, on Linux, macOS, and Windows.
 
 ## Generated code
 
-`tools/codegen/generate.py` writes the REST client from `spec/openapi.yaml`
-and the WebSocket messages from `spec/asyncapi.yaml`: `include/kalshi/api.hpp`,
-`models.hpp`, and `ws_models.hpp`, `src/api/operations/`, `src/api/validate.hpp`,
-`src/models/json_meta.hpp`, `src/ws/wire.hpp`, `tests/test_operation_routes.cpp`,
-`tests/test_ws_messages.cpp`, `docs/operations.md`, and `docs/channels.md`.
-Change the generator or a spec, run `make codegen`, and commit both. CI rejects stale
-output. `docs/research.md` explains how to refresh the spec.
+`tools/codegen/generate.py` writes the REST client from `spec/openapi.yaml` and
+the WebSocket types from `spec/asyncapi.yaml`: `include/kalshi/api.hpp`,
+`models.hpp`, and `ws_models.hpp`, `src/api/operations/`,
+`src/api/validate.hpp`, `src/models/json_meta.hpp`, `src/ws/wire.hpp`,
+`tests/test_operation_routes.cpp`, `tests/test_ws_messages.cpp`,
+`docs/operations.md`, and `docs/channels.md`. Change the generator, a template
+in `tools/codegen/`, or a spec, run `make codegen`, and commit the result.
+`make lint` fails on stale output. [docs/research.md](docs/research.md)
+explains how to refresh the specs.
 
 ## Code style
 
-- **C++23** features encouraged: `std::expected<T, Error>` for all
-  error-returning operations, no exceptions in the public API.
-- **No `auto`** for local variable declarations. Spell out the type so
-  reviewers can verify intent without IDE help. Carve-outs:
-  - Structured bindings: `auto& [k, v] = ...`
-  - Lambda closures: `auto callback = ...`
-  - Iterator-like results: `auto it = container.find(...)`
-- **Formatting**: `.clang-format` (LLVM base, tabs, 100-col limit).
-  `make format` applies it.
-- **Includes**: project headers first, then system headers
-  (enforced by clang-format `SortIncludes`).
-- **JSON**: use Glaze for structured payloads. Keep hand-rolled scanners limited
-  to measured hot paths with focused parser and benchmark tests.
+- Public functions return `kalshi::Result<T>` (`std::expected<T, Error>`) and
+  don't throw.
+- Spell out local variable types. `auto` is fine for structured bindings,
+  lambdas, and iterators. Anything else needs an `// auto-ok: reason` comment
+  or an entry in `tools/cpp_auto_allowlist.txt`; `make lint` checks this.
+- `.clang-format` sets the layout: tabs, 100 columns, project includes before
+  system includes.
+- Glaze reads and writes JSON. `strip_null_members` is the only hand-written
+  scanner, and it runs only after a parse fails.
+- Keep tests offline. Inject an `HttpTransport`, or use the local HTTP and
+  WebSocket servers in `tests/`.
 
-## PR conventions
+## Pull requests
 
-- Branch names: `feat/...`, `fix/...`, `docs/...`, `chore/...`,
-  `test/...`, `build/...`, `ci/...`, `refactor/...`.
-- Commit messages follow [Conventional Commits](https://www.conventionalcommits.org/):
-  `<type>(<scope>): <summary>`, for example:
-  `fix(ws): null-guard moved-from accessors`.
-- Squash + delete branch on merge. PR titles become the squash commit
-  subject, so write them clearly.
-- Update `CHANGELOG.md` under `## [Unreleased]` for any user-visible
-  change (new API, fix that consumers will notice, dep bump). Use the
-  Keep-a-Changelog sub-headers: Added / Changed / Fixed / Removed.
-- CI must pass on all platforms (Ubuntu 24.04 + macOS + Windows) before
-  merge.
+- Name branches `feat/`, `fix/`, `docs/`, `ci/`, `refactor/`, `test/`, or
+  `chore/`.
+- Title PRs as [Conventional Commits](https://www.conventionalcommits.org/),
+  such as `fix(ws): keep subscriptions across reconnects`. PRs are
+  squash-merged, so the title becomes the commit subject.
+- Note user-visible changes in `CHANGELOG.md` under `[Unreleased]`.
 
-## Release process
+## Releases
 
-Releases are cut from `main` via tag push:
+1. Set `VERSION` in `CMakeLists.txt`, move the `[Unreleased]` notes into a new
+   `[X.Y.Z]` section, and update the `GIT_TAG` in `README.md`.
+2. Merge that change to `main`.
+3. Run `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` publishes the
+   GitHub release after CI passes on the tagged commit, and `docs.yml`
+   publishes the API reference.
 
-```bash
-# 1. Update CMakeLists.txt VERSION and move CHANGELOG.md entries into [X.Y.Z].
-#    release.yml refuses tags without a matching CHANGELOG section or passing CI.
-# 2. Commit the version bump
-git commit -am "chore(release): cut vX.Y.Z"
-git push origin main
-
-# 3. Tag and push the tag; release.yml creates the GitHub Release
-git tag vX.Y.Z
-git push origin vX.Y.Z
-```
-
-Semver: bump MINOR for new public API, PATCH for fixes/docs/CI.
-
-## Reporting issues
-
-- **Bugs / feature requests**: open a GitHub issue with reproduction
-  steps + the kalshi-cpp version (`kalshi::VERSION`).
-- **Security vulnerabilities**: see [SECURITY.md](SECURITY.md) for the
-  private reporting channel.
+While the version is 0.x, a minor release may break the API; patch releases
+only fix things.
 
 ## License
 
-By contributing, you agree your changes are licensed under the MIT
-license that covers this repository.
+Contributions are licensed under the repository's MIT license.

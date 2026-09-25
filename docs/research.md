@@ -26,8 +26,7 @@ RSA-PSS and SHA-256; Ed25519 keys sign the message directly. See Kalshi's
 curl -fsS https://docs.kalshi.com/openapi.yaml -o spec/openapi.yaml
 curl -fsS https://docs.kalshi.com/asyncapi.yaml -o spec/asyncapi.yaml
 shasum -a 256 spec/*.yaml
-python3 tools/codegen/generate.py
-make test
+make codegen test
 ```
 
 Review the diff of the generated files, update the table above, and note

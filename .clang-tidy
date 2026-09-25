@@ -3,6 +3,11 @@
 # - performance-enum-size: narrowing public enums would change the ABI for little gain.
 # - optin.performance.Padding: public parameter structs are ordered for readability and
 #   aggregate initialization, not layout.
+# - modernize: the clang-tidy 18 checks are listed by name, so a newer clang-tidy cannot add
+#   errors CI never sees. Left out: use-trailing-return-type and avoid-c-arrays (style this
+#   code base does not follow; C arrays appear only at C API boundaries), use-nodiscard
+#   ([[nodiscard]] is placed deliberately), and use-auto (local types are spelled out; see
+#   tools/cpp_auto_audit.py).
 Checks: >
   -*,
   bugprone-*,
@@ -12,19 +17,58 @@ Checks: >
   performance-*,
   -performance-enum-size,
   portability-*,
-  modernize-use-nullptr,
-  modernize-use-override,
+  modernize-avoid-bind,
+  modernize-concat-nested-namespaces,
+  modernize-deprecated-headers,
+  modernize-deprecated-ios-base-aliases,
+  modernize-loop-convert,
+  modernize-macro-to-enum,
+  modernize-make-shared,
+  modernize-make-unique,
+  modernize-pass-by-value,
+  modernize-raw-string-literal,
+  modernize-redundant-void-arg,
+  modernize-replace-auto-ptr,
+  modernize-replace-disallow-copy-and-assign-macro,
+  modernize-replace-random-shuffle,
+  modernize-return-braced-init-list,
+  modernize-shrink-to-fit,
+  modernize-type-traits,
+  modernize-unary-static-assert,
+  modernize-use-bool-literals,
+  modernize-use-constraints,
+  modernize-use-default-member-init,
+  modernize-use-emplace,
   modernize-use-equals-default,
   modernize-use-equals-delete,
-  modernize-redundant-void-arg,
+  modernize-use-noexcept,
+  modernize-use-nullptr,
+  modernize-use-override,
+  modernize-use-starts-ends-with,
+  modernize-use-std-numbers,
+  modernize-use-std-print,
+  modernize-use-transparent-functors,
+  modernize-use-uncaught-exceptions,
   modernize-use-using,
+  readability-braces-around-statements,
+  readability-const-return-type,
   readability-container-size-empty,
-  readability-redundant-string-init,
+  readability-else-after-return,
+  readability-inconsistent-declaration-parameter-name,
   readability-make-member-function-const,
-  misc-unused-using-decls,
+  readability-misleading-indentation,
+  readability-redundant-control-flow,
+  readability-redundant-member-init,
+  readability-redundant-smartptr-get,
+  readability-redundant-string-init,
+  readability-simplify-boolean-expr,
   misc-definitions-in-headers,
-  cppcoreguidelines-virtual-class-destructor,
-  cppcoreguidelines-slicing
+  misc-unused-using-decls,
+  cppcoreguidelines-init-variables,
+  cppcoreguidelines-missing-std-forward,
+  cppcoreguidelines-prefer-member-initializer,
+  cppcoreguidelines-slicing,
+  cppcoreguidelines-virtual-class-destructor
 WarningsAsErrors: '*'
 HeaderFilterRegex: '.*/(include/kalshi(/detail)?|src(/api|/auth|/http|/models|/ws)?)/[^/]+$'
 FormatStyle: file

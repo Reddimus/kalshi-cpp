@@ -56,10 +56,19 @@ def first_sentence(text: str | None) -> str:
         return ""
     text = re.sub(r"\[([^\]]+)\]\([^)]+\)", r"\1", text)  # markdown links -> text
     text = re.sub(r"<[^>]+>", "", text)
+    # A summary that introduces a list ends where the list starts.
+    text = re.split(r":\s*\n\s*[-*] ", text, maxsplit=1)[0]
     text = " ".join(text.split())
     match = re.match(r"(.+?[.!?])(\s|$)", text)
     sentence = match.group(1) if match else text
-    return sentence if len(sentence) <= 300 else sentence[:297].rstrip() + "..."
+    if len(sentence) <= 300:
+        return sentence
+    cut = sentence[:297]
+    if sentence[297] != " ":  # mid-word: back up to the last whole word
+        cut = cut.rsplit(" ", 1)[0]
+    if cut.count("`") % 2:  # never end inside a code span
+        cut = cut[:cut.rindex("`")].rstrip() or cut.replace("`", "")
+    return cut.rstrip() + "..."
 
 
 def doc_lines(text: str, indent: str, width: int = 96) -> list[str]:
