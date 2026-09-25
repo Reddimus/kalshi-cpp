@@ -1,33 +1,17 @@
-/// @file test_ws_lifecycle.cpp
-/// @brief Lifecycle/move-from regression tests for kalshi::WebSocketClient.
-///
-/// kalshi-cpp has shipped two SIGSEGV fixes in WebSocketClient already
-/// (v0.0.9 reaped a leftover service thread/lws context before
-/// reconnect — see commit ``49b2634``). This file pins the **third**
-/// crash mode: a moved-from instance whose impl_ is nullptr. The
-/// defaulted move ctor leaves the source object's unique_ptr null;
-/// when the source then runs ~WebSocketClient (which calls
-/// disconnect()), the previous code dereferenced impl_->data and
-/// segfaulted in the implicit destructor. The fix is a single
-/// ``if (!impl_) return;`` guard at the top of every method that
-/// touches impl_, mirroring the polymarket-cpp clob::WebSocketClient
-/// and polymarket::us::ws::Subscriber impls.
-///
-/// Live WS smoke tests against the Kalshi Trade API are out of
-/// scope here (no creds, no exchange round-trip on CI). These tests
-/// don't connect, so they don't need network access.
+// WebSocketClient behavior that needs no server: URL validation, moved-from
+// objects, and concurrent calls.
+
+#include "kalshi/detail/http_path.hpp"
+#include "kalshi/signer.hpp"
+#include "kalshi/websocket.hpp"
 
 #include <atomic>
-#include <future>
 #include <gtest/gtest.h>
-#include <kalshi/detail/callback_slot.hpp>
-#include <kalshi/detail/http_path.hpp>
-#include <kalshi/signer.hpp>
-#include <kalshi/websocket.hpp>
 #include <thread>
 #include <utility>
 #include <vector>
 
+#include "callback_slot.hpp"
 #include "test_signer_fixture.hpp"
 #include "ws_endpoint.hpp"
 
@@ -93,9 +77,6 @@ TEST(WsLifecycle, UrlParserSupportsBracketedIpv6AndQueryOnlyPath) {
 }
 
 TEST(WsLifecycle, DefaultConfigUrlParsesToTheProductionEndpoint) {
-	// The shipped default is what almost every consumer connects with, so
-	// pin the whole tuple it decomposes into — including the implicit 443
-	// that no explicit-port case covers.
 	const kalshi::WsConfig defaults;
 	const kalshi::Result<kalshi::detail::WsEndpoint> result =
 		kalshi::detail::parse_ws_endpoint(defaults.url);
@@ -105,23 +86,13 @@ TEST(WsLifecycle, DefaultConfigUrlParsesToTheProductionEndpoint) {
 	EXPECT_EQ(result->port, 443);
 	EXPECT_TRUE(result->use_ssl);
 
-	// The upgrade request carries the parsed path; the signature covers the
-	// same path with any query string removed. For the default URL the two
-	// are identical, which is what keeps signatures byte-compatible with
-	// every release before the URL parser existed.
+	// The signature covers the path without its query string.
 	EXPECT_EQ(kalshi::detail::request_signing_path("", result->path), "/trade-api/ws/v2");
 }
 
-TEST(WsLifecycle, ConcurrentConnectAttemptsSerializeHandleAccess) {
-	// Regression: the libwebsockets connection handle was a plain `lws*`
-	// written by connect()/disconnect() while queue_send() read it under
-	// send_mutex — an unsynchronized write to a pointer other threads
-	// dereference. ThreadSanitizer reports a write/write data race on that
-	// field for this test before the handle moved under send_mutex.
-	//
-	// An invalid URL keeps the body of connect() on its pre-parse reap
-	// path, where the handle is the only non-atomic shared field touched,
-	// so a report here names that field and nothing else.
+TEST(WsLifecycle, ConcurrentConnectAttemptsAreSafe) {
+	// Run under ThreadSanitizer, this checks connect() and disconnect()
+	// share their state safely.
 	kalshi::Signer signer = make_test_signer();
 	kalshi::WsConfig cfg;
 	cfg.url = "not-a-websocket-url";
@@ -136,6 +107,7 @@ TEST(WsLifecycle, ConcurrentConnectAttemptsSerializeHandleAccess) {
 				if (ws.connect().has_value()) {
 					unexpected_successes.fetch_add(1);
 				}
+				ws.disconnect();
 			}
 		});
 	}
@@ -148,19 +120,12 @@ TEST(WsLifecycle, ConcurrentConnectAttemptsSerializeHandleAccess) {
 }
 
 TEST(WsLifecycle, MoveConstructLeavesMovedFromSafe) {
-	// Regression: defaulted move ctor leaves moved-from impl_ as
-	// nullptr. Pre-fix, calling is_connected() on the moved-from
-	// object dereferenced through nullptr (impl_->data->connected)
-	// and segfaulted. The implicit destructor on the moved-from
-	// object then called disconnect(), which had the same deref.
 	kalshi::Signer signer = make_test_signer();
 	kalshi::WebSocketClient a(signer);
 
 	kalshi::WebSocketClient b(std::move(a));
 	EXPECT_FALSE(b.is_connected());
-	// a is moved-from — accessors must remain safe.
-	EXPECT_FALSE(a.is_connected());
-	// Implicit ~WebSocketClient on a, b follows — must not crash.
+	EXPECT_FALSE(a.is_connected()); // NOLINT(bugprone-use-after-move): moved-from must stay safe
 }
 
 TEST(WsLifecycle, MoveAssignLeavesMovedFromSafe) {
@@ -170,61 +135,52 @@ TEST(WsLifecycle, MoveAssignLeavesMovedFromSafe) {
 
 	b = std::move(a);
 	EXPECT_FALSE(b.is_connected());
-	EXPECT_FALSE(a.is_connected());
-	// Both go out of scope here; no segfault.
+	EXPECT_FALSE(a.is_connected()); // NOLINT(bugprone-use-after-move)
 }
 
-TEST(WsLifecycle, MovedFromSubscribeReturnsNetworkError) {
-	// Mutator path — subscribe_orderbook on the moved-from instance
-	// should surface a clean error rather than deref the nullptr.
-	// (subscribe_* checks ``data->connected`` before doing anything,
-	// so the null-guard in the impl prevents the deref.)
+TEST(WsLifecycle, MovedFromCommandsReturnErrors) {
 	kalshi::Signer signer = make_test_signer();
 	kalshi::WebSocketClient a(signer);
 	kalshi::WebSocketClient b(std::move(a));
 
-	kalshi::Result<kalshi::SubscriptionId> rc = a.subscribe_orderbook({"DUMMY-MARKET-TICKER"});
-	EXPECT_FALSE(rc.has_value());
+	// NOLINTBEGIN(bugprone-use-after-move)
+	EXPECT_FALSE(a.subscribe(kalshi::ws::Channel::Ticker).has_value());
+	EXPECT_FALSE(a.unsubscribe({1, kalshi::ws::Channel::Ticker}).has_value());
+	EXPECT_FALSE(a.list_subscriptions().has_value());
+	EXPECT_FALSE(a.connect().has_value());
+	EXPECT_TRUE(a.subscriptions().empty());
+	EXPECT_EQ(a.state(), kalshi::WsState::Disconnected);
+	// NOLINTEND(bugprone-use-after-move)
 }
 
-TEST(WsLifecycle, MovedFromConfigReturnsEmpty) {
-	kalshi::Signer signer = make_test_signer();
-	kalshi::WebSocketClient a(signer);
-	kalshi::WebSocketClient b(std::move(a));
-	// Accessor must not crash on moved-from. Returns the static
-	// empty WsConfig sentinel — the contents are unspecified beyond
-	// "default-constructed", but the call is safe.
-	const kalshi::WsConfig& cfg = a.config();
-	(void)cfg;
-	SUCCEED();
-}
-
-TEST(WsLifecycle, MovedFromCallbackSetterDoesNotCrash) {
-	// on_message / on_error / on_state_change setters were
-	// previously unguarded; passing through impl_->data->callback_mutex
-	// crashed on a moved-from instance.
+TEST(WsLifecycle, MovedFromAccessorsAndSettersAreSafe) {
 	kalshi::Signer signer = make_test_signer();
 	kalshi::WebSocketClient a(signer);
 	kalshi::WebSocketClient b(std::move(a));
 
+	// NOLINTBEGIN(bugprone-use-after-move)
+	EXPECT_EQ(a.config().url, kalshi::WsConfig{}.url);
 	a.on_message([](const kalshi::WsMessage&) {});
 	a.on_error([](const kalshi::WsError&) {});
-	a.on_state_change([](bool) {});
-	SUCCEED();
+	a.on_state_change([](kalshi::WsState) {});
+	a.disconnect();
+	// NOLINTEND(bugprone-use-after-move)
 }
 
-TEST(WsLifecycle, DefaultIsConnectedFalseAfterMove) {
-	// Belt-and-braces: chained move (a -> b -> c) followed by all
-	// three going out of scope. Pin that ~WebSocketClient is safe
-	// for both moved-from AND moved-into instances regardless of
-	// whether disconnect() was ever called explicitly.
+TEST(WsLifecycle, SubscriptionsWaitForAConnection) {
 	kalshi::Signer signer = make_test_signer();
-	kalshi::WebSocketClient a(signer);
-	kalshi::WebSocketClient b(std::move(a));
-	kalshi::WebSocketClient c(std::move(b));
-	EXPECT_FALSE(c.is_connected());
-	EXPECT_FALSE(b.is_connected());
-	EXPECT_FALSE(a.is_connected());
+	kalshi::WebSocketClient ws(signer);
+	const kalshi::Result<kalshi::ws::Subscription> ticker = ws.subscribe(
+		kalshi::ws::Channel::Ticker, kalshi::ws::SubscribeParams{.market_tickers = {"A"}});
+	ASSERT_TRUE(ticker.has_value());
+	EXPECT_EQ(ws.subscriptions(), (std::vector<kalshi::ws::Subscription>{*ticker}));
+	EXPECT_TRUE(ws.add_markets(*ticker, {"B"}).has_value());
+	EXPECT_FALSE(ws.list_subscriptions().has_value()); // needs a connection
+	EXPECT_FALSE(ws.subscribe(kalshi::ws::Channel::Unknown).has_value());
+
+	EXPECT_TRUE(ws.unsubscribe(*ticker).has_value());
+	EXPECT_TRUE(ws.subscriptions().empty());
+	EXPECT_FALSE(ws.unsubscribe(*ticker).has_value());
 }
 
 TEST(WsLifecycle, CallbackMayReplaceItselfWithoutDeadlocking) {
@@ -236,19 +192,4 @@ TEST(WsLifecycle, CallbackMayReplaceItselfWithoutDeadlocking) {
 	});
 	callback.invoke(42);
 	EXPECT_EQ(observed, 42);
-}
-
-TEST(WsLifecycle, ServiceThreadNeverJoinsItself) {
-	std::promise<void> assigned;
-	std::shared_future<void> may_check = assigned.get_future().share();
-	std::promise<bool> result;
-	std::thread service_thread;
-	service_thread = std::thread([&] {
-		may_check.wait();
-		result.set_value(kalshi::detail::join_thread_unless_current(service_thread));
-	});
-	assigned.set_value();
-	EXPECT_FALSE(result.get_future().get());
-	ASSERT_TRUE(service_thread.joinable());
-	service_thread.join();
 }

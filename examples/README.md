@@ -5,7 +5,7 @@
 | `market_data.cpp` | Markets, an order book, and candlesticks, without a key |
 | `portfolio.cpp` | Balance, positions, and resting orders |
 | `place_and_cancel_order.cpp` | Places and cancels an order on the demo exchange; refuses production |
-| `stream_orderbook.cpp` | Prints order book deltas and trades until Ctrl+C |
+| `stream_orderbook.cpp` | Keeps a local order book from snapshots and deltas, printing the best bids |
 
 They build with the project (`build/examples/example_<name>`). Run one with
 `make run-<name> ARGS="..."`, which loads settings from `.env`:

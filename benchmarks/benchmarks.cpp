@@ -6,7 +6,6 @@
 //   cmake --build build-bench --target kalshi_benchmarks
 //   ./build-bench/benchmarks/kalshi_benchmarks
 
-#include "kalshi/detail/ws_message.hpp"
 #include "kalshi/kalshi.hpp"
 
 #include <benchmark/benchmark.h>
@@ -18,6 +17,7 @@
 #include <string_view>
 #include <utility>
 
+#include "frames.hpp"
 #include "support.hpp"
 
 namespace {
@@ -113,13 +113,14 @@ constexpr std::string_view kDeltaFrame =
 constexpr std::string_view kFillFrame =
 	R"({"type":"fill","sid":13,"msg":{"trade_id":"trade-1","order_id":"order-1","market_ticker":"KXTEST-YES","is_taker":true,"side":"yes","action":"buy","outcome_side":"yes","book_side":"bid","yes_price_dollars":"0.4200","count_fp":"3.00","fee_cost":"0.0200","post_position_fp":"10.00","purchased_side":"yes","exchange_index":1,"client_order_id":"client-1","ts":1788000000,"ts_ms":1788000000123}})";
 
-void BM_WsParse(benchmark::State& state, std::string_view frame) {
-	if (!kalshi::detail::parse_ws_data_message(frame)) {
+void BM_WsParse(benchmark::State& state, std::string_view text) {
+	const std::string frame{text}; // received frames arrive in a std::string
+	if (!kalshi::detail::parse_message(frame)) {
 		state.SkipWithError("frame did not parse");
 		return;
 	}
 	for (auto _ : state) { // auto-ok: Google Benchmark loop idiom
-		std::optional<kalshi::WsMessage> message = kalshi::detail::parse_ws_data_message(frame);
+		std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(frame);
 		benchmark::DoNotOptimize(message);
 	}
 	state.SetBytesProcessed(state.iterations() * static_cast<std::int64_t>(frame.size()));

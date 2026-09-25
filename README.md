@@ -132,13 +132,23 @@ budgets, pass the results of `get_account_api_limits()` and
 
 ```cpp
 kalshi::WebSocketClient ws(*signer);
-ws.on_message([](const kalshi::WsMessage& message) { /* std::visit */ });
-if (ws.connect()) {
-    kalshi::Result<kalshi::SubscriptionId> sub = ws.subscribe_orderbook({"KXHIGHNY-26SEP25-T70"});
-}
+ws.on_message([](const kalshi::WsMessage& message) {
+    using Delta = kalshi::ws::Update<kalshi::ws::OrderbookDelta>;
+    if (const Delta* delta = std::get_if<Delta>(&message)) {
+        std::cout << delta->msg.market_ticker << ' ' << delta->msg.delta_fp << '\n';
+    }
+});
+kalshi::Result<kalshi::ws::Subscription> book = ws.subscribe(
+    kalshi::ws::Channel::OrderbookDelta, {.market_tickers = {"KXHIGHNY-26SEP25-T70"}});
+kalshi::Result<void> connected = ws.connect();
 ```
 
-See [docs/api-coverage.md](docs/api-coverage.md) for the channels supported.
+The client reconnects after a dropped connection and resubscribes with each
+subscription's current markets. A `ws::Subscription` handle stays the same
+throughout, and every `ws::Update` names the subscription it belongs to. When
+an order book sequence number is skipped, the client reports the gap to
+`on_error` and requests fresh snapshots. [docs/channels.md](docs/channels.md)
+lists each channel's message types.
 
 ## Examples
 
@@ -147,7 +157,7 @@ See [docs/api-coverage.md](docs/api-coverage.md) for the channels supported.
 | [`market_data`](examples/market_data.cpp) | Markets, an order book, and candlesticks, without a key |
 | [`portfolio`](examples/portfolio.cpp) | Balance, positions, and resting orders |
 | [`place_and_cancel_order`](examples/place_and_cancel_order.cpp) | A resting order and its cancel, on the demo exchange only |
-| [`stream_orderbook`](examples/stream_orderbook.cpp) | Live order book deltas and trades |
+| [`stream_orderbook`](examples/stream_orderbook.cpp) | A live local order book that recovers from gaps and reconnects |
 
 Put `KALSHI_API_KEY_ID`, `KALSHI_API_KEY_FILE`, and optionally `KALSHI_ENV=demo`
 in `.env`, then run `make run-portfolio`.

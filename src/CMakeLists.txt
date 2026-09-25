@@ -24,22 +24,20 @@ target_link_libraries(kalshi_http
     PRIVATE CURL::libcurl $<BUILD_INTERFACE:glaze::glaze>)
 
 # Generated REST models and the helpers that convert their values.
-add_library(kalshi_models STATIC models/helpers.cpp)
+add_library(kalshi_models STATIC json_nulls.cpp models/helpers.cpp)
 target_link_libraries(kalshi_models PUBLIC kalshi_core)
 
-if(WIN32)
-    set(KALSHI_WEBSOCKETS_TARGET websockets_shared)
-else()
-    set(KALSHI_WEBSOCKETS_TARGET PkgConfig::WEBSOCKETS)
-endif()
-
-add_library(kalshi_ws STATIC ws/websocket.cpp)
+add_library(kalshi_ws STATIC
+    ws/frames.cpp
+    ws/subscriptions.cpp
+    ws/websocket.cpp
+    ws/ws_endpoint.cpp)
 target_link_libraries(kalshi_ws
     PUBLIC kalshi_auth kalshi_models
     PRIVATE ${KALSHI_WEBSOCKETS_TARGET} OpenSSL::SSL $<BUILD_INTERFACE:glaze::glaze>)
 if(WIN32)
-    # <libwebsockets.h> pulls in <windows.h>, whose min/max macros break
-    # std::numeric_limits<T>::max() in Glaze.
+    # <libwebsockets.h> pulls in <windows.h>, whose min and max macros break
+    # std::min, std::clamp, and Glaze.
     target_compile_definitions(kalshi_ws PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 

@@ -14,11 +14,16 @@ using an injected `HttpTransport`.
 ## Architecture
 
 - Targets are layered as core, auth, HTTP, models, WebSocket, API, then the
-  `kalshi` interface target.
+  `kalshi` interface target. WebSocket and API both build on models.
+- WebSocketClient callbacks run on its network thread and may call any
+  method, including the destructor. Keep that working when changing
+  `src/ws/websocket.cpp`; `tests/test_ws_client.cpp` covers it.
 - Public failures use `std::expected<T, Error>`. Preserve typed, non-throwing
   boundaries when validating input or transport state.
-- Glaze serializes structured payloads. Focused scanners are reserved for
-  measured hot paths and require parser and benchmark coverage.
+- Glaze reads and writes every JSON payload. Glaze reflection needs types
+  with linkage, so wire structs go in a named namespace, not an anonymous one.
+  `strip_null_members` is the only hand-written scanner, and parsers call it
+  only after a first parse fails.
 - `PROJECT_VERSION` generates `kalshi::VERSION` and the CMake package version.
 - Public headers live in `include/kalshi/`; implementation-only types stay in
   `src/`.
@@ -27,12 +32,11 @@ using an injected `HttpTransport`.
 
 - Use explicit local types. The permitted `auto` cases are recorded in
   `tools/cpp_auto_allowlist.txt` and enforced by `tools/cpp_auto_audit.py`.
-- Scope focused JSON scanners to the relevant object before reading repeated
-  keys.
-- `tools/codegen/generate.py` writes the REST models, `KalshiClient`, and
-  route tests from `spec/openapi.yaml`. Edit the spec, the generator, or
-  `tools/codegen/api.hpp.in`, then run `make codegen`; never edit its output.
-- Keep WebSocket command keys in `src/ws/ws_cmd_bodies.hpp`;
-  `tests/test_ws_commands.cpp` pins their order.
+- `tools/codegen/generate.py` writes the REST client from `spec/openapi.yaml`
+  and the WebSocket types from `spec/asyncapi.yaml`. Edit a spec, the
+  generator, or a `tools/codegen/*.in` template, then run `make codegen`;
+  never edit its output.
+- WebSocket commands must keep the key order `id`, `cmd`, `params`;
+  `tests/test_ws_subscriptions.cpp` pins it.
 - Format with the repository `.clang-format`: tabs, 100 columns, project
   includes before system includes.

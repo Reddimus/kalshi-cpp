@@ -16,8 +16,6 @@ write_consumer() {
   cat > "$1/main.cpp" <<'CPP'
 #include <kalshi/kalshi.hpp>
 #include <iostream>
-
-#include <kalshi/detail/ws_message.hpp>
 #include <memory>
 #include <string_view>
 
@@ -36,9 +34,12 @@ int main() {
 	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem("id", "not a key");
 	kalshi::KalshiClient client{std::make_shared<OfflineTransport>()};
 	const kalshi::Result<kalshi::ExchangeStatus> status = client.get_exchange_status();
-	const bool ws_linked = !kalshi::detail::parse_ws_data_message("{}").has_value();
+	// Storing through a volatile keeps the reference, so the linker must find it.
+	kalshi::Result<void> (kalshi::WebSocketClient::*volatile connect)() =
+		&kalshi::WebSocketClient::connect;
+	const kalshi::Result<kalshi::Timestamp> time = kalshi::parse_timestamp("2026-01-01T00:00:00Z");
 	const kalshi::HttpClient http{kalshi::ClientConfig::for_environment(kalshi::Environment::Demo)};
-	if (signer || status || !ws_linked || http.config().base_url.empty())
+	if (signer || status || connect == nullptr || !time || http.config().base_url.empty())
 		return 1;
 	std::cout << kalshi::VERSION;
 }

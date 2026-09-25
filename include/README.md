@@ -12,7 +12,8 @@
 | `kalshi/rate_limit.hpp` | `TokenBucket` and `RateLimitedTransport` |
 | `kalshi/pagination.hpp` | `collect_pages` |
 | `kalshi/signer.hpp` | API key loading and request signing |
-| `kalshi/websocket.hpp` | Streaming client and message types |
+| `kalshi/websocket.hpp` | `WebSocketClient`, `WsConfig`, and `WsError` |
+| `kalshi/ws_models.hpp` | WebSocket channels and message types from the AsyncAPI spec (generated) |
 | `kalshi/error.hpp` | `Error`, `ErrorCode`, and `Result<T>` |
 | `kalshi/environment.hpp` | Production and demo URLs |
 | `kalshi/fixed_point.hpp` | Exact decimal parsing |

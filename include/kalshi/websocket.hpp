@@ -2,337 +2,72 @@
 
 #include "kalshi/environment.hpp"
 #include "kalshi/error.hpp"
-#include "kalshi/helpers.hpp"
-#include "kalshi/models.hpp"
 #include "kalshi/signer.hpp"
+#include "kalshi/ws_models.hpp"
 
-#include <atomic>
+#include <chrono>
 #include <cstdint>
 #include <functional>
-#include <map>
 #include <memory>
-#include <mutex>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <variant>
 #include <vector>
 
 namespace kalshi {
 
-/// WebSocket channels available for subscription
-enum class Channel : std::uint8_t { OrderbookDelta, Trade, Fill, MarketLifecycle };
+/// Everything `on_message` delivers: channel data as `ws::Update<T>`, and
+/// subscription events. docs/channels.md lists the types per channel.
+using WsMessage = ws::Message;
 
-/// Convert channel to string for API
-[[nodiscard]] constexpr std::string_view to_string(Channel ch) noexcept {
-	switch (ch) {
-		case Channel::OrderbookDelta:
-			return "orderbook_delta";
-		case Channel::Trade:
-			return "trade";
-		case Channel::Fill:
-			return "fill";
-		case Channel::MarketLifecycle:
-			return "market_lifecycle_v2";
-	}
-	return "orderbook_delta";
-}
-
-/// One price level. `price_cents` and `quantity` are 0 when the exact
-/// `price_dollars` or `quantity_fp` value is not a whole number of cents or
-/// contracts.
-struct OrderBookEntry {
-	std::int32_t price_cents{0};
-	std::int32_t quantity{0};
-	std::string price_dollars;
-	std::string quantity_fp;
-};
-
-/// Orderbook snapshot message
-struct OrderbookSnapshot {
-	std::int32_t sid{0};
-	std::int32_t seq{0};
-	std::string market_ticker;
-	std::vector<OrderBookEntry> yes;
-	std::vector<OrderBookEntry> no;
-	std::string market_id;
-};
-
-/// Orderbook delta message
-struct OrderbookDelta {
-	std::int32_t sid{0};
-	std::int32_t seq{0};
-	std::string market_ticker;
-	std::int32_t price{0};
-	std::int32_t delta{0};
-	Side side{Side::Yes};
-	std::string price_dollars;
-	std::string delta_fp;
-	std::string market_id;
-	std::string client_order_id;
-	std::optional<std::int64_t> subaccount;
-	std::string timestamp_iso;
-	std::int64_t timestamp_ms{0};
-};
-
-/// Trade message from WebSocket
-struct WsTrade {
-	std::int32_t sid{0};
-	std::string trade_id;
-	std::string market_ticker;
-	std::int32_t yes_price{0};
-	std::int32_t no_price{0};
-	std::int32_t count{0};
-	Side taker_side{Side::Yes};
-	std::int64_t timestamp{0};
-	std::string yes_price_dollars;
-	std::string no_price_dollars;
-	std::string count_fp;
-	bool is_block_trade{false};
-	OutcomeSide taker_outcome_side{OutcomeSide::Yes};
-	BookSide taker_book_side{BookSide::Bid};
-	std::int64_t timestamp_ms{0};
-};
-
-/// Fill message (user's order was filled)
-struct WsFill {
-	std::int32_t sid{0};
-	std::string trade_id;
-	std::string order_id;
-	std::string market_ticker;
-	bool is_taker{false};
-	Side side{Side::Yes};
-	std::int32_t yes_price{0};
-	std::int32_t no_price{0};
-	std::int32_t count{0};
-	Action action{Action::Buy};
-	std::int64_t timestamp{0};
-	std::string yes_price_dollars;
-	std::string no_price_dollars;
-	std::string count_fp;
-	std::int32_t exchange_index{0};
-	std::string fee_cost;
-	OutcomeSide outcome_side{OutcomeSide::Yes};
-	BookSide book_side{BookSide::Bid};
-	std::int64_t timestamp_ms{0};
-	std::string client_order_id;
-	std::string post_position_fp;
-	Side purchased_side{Side::Yes};
-	std::optional<std::int64_t> subaccount;
-};
-
-/// One valid price band emitted by a lifecycle price-structure update.
-struct LifecyclePriceRange {
-	std::string start;
-	std::string end;
-	std::string step;
-};
-
-/// Creation metadata nested in a market lifecycle frame.
-struct LifecycleAdditionalMetadata {
-	std::string name;
-	std::string title;
-	std::string yes_sub_title;
-	std::string no_sub_title;
-	std::string rules_primary;
-	std::string rules_secondary;
-	bool can_close_early{false};
-	std::string event_ticker;
-	std::int64_t expected_expiration_ts{0};
-	std::string strike_type;
-	std::string floor_strike;
-	std::string cap_strike;
-	std::string custom_strike_json;
-};
-
-/// Market lifecycle message
-struct MarketLifecycle {
-	std::int32_t sid{0};
-	std::string market_ticker;
-	std::int64_t open_ts{0};
-	std::int64_t close_ts{0};
-	std::optional<std::int64_t> determination_ts;
-	std::optional<std::int64_t> settled_ts;
-	std::optional<std::string> result;
-	bool is_deactivated{false};
-	/// Set when the upstream `metadata_updated` lifecycle event reports a
-	/// yes-side subtitle change. Added to the v2 channel 2026-05-11.
-	/// Nullopt when the frame omits the field (most lifecycle frames).
-	std::optional<std::string> yes_sub_title;
-	std::int32_t exchange_index{0};
-	std::string event_type;
-	std::string settlement_value_dollars;
-	std::string price_level_structure;
-	std::vector<LifecyclePriceRange> price_ranges;
-	std::string strike_type;
-	std::string floor_strike;
-	std::string cap_strike;
-	std::string custom_strike_json;
-	std::optional<LifecycleAdditionalMetadata> additional_metadata;
-};
-
-/// Kalshi's `market_lifecycle_v2` channel multiplexes several sub-event
-/// types onto one frame shape. This enum mirrors the documented `event_type`
-/// values. Returned by `classify_lifecycle_event`.
-enum class LifecycleEventType : std::uint8_t {
-	/// Default / not yet classified — fields all carry their defaults.
-	Unknown,
-	/// `settled_ts` is set — positions have been finalized.
-	Settled,
-	/// `determination_ts` is set (but not yet settled).
-	Determined,
-	/// `is_deactivated` is true — market stopped accepting orders.
-	Deactivated,
-	/// `yes_sub_title` is set — yes-side subtitle changed (e.g. floor
-	/// strike rolled forward on a temperature contract). Added 2026-05-11.
-	MetadataUpdated,
-	/// Compatibility fallback for old frames without `event_type`.
-	OpenOrCreated,
-	Created,
-	Activated,
-	CloseDateUpdated,
-	PriceLevelStructureUpdated,
-};
-
-/// Classify a flat MarketLifecycle frame by inspecting which fields are
-/// populated. Resolves the upstream sub-event ambiguity by precedence:
-/// Settled > Determined > Deactivated > MetadataUpdated > OpenOrCreated
-/// > Unknown. The precedence reflects the lifecycle progression — once a
-/// market settles, prior fields are kept for reference but the frame is
-/// principally a settle event.
-[[nodiscard]] constexpr LifecycleEventType
-classify_lifecycle_event(const MarketLifecycle& lc) noexcept {
-	if (lc.event_type == "created") {
-		return LifecycleEventType::Created;
-	}
-	if (lc.event_type == "activated") {
-		return LifecycleEventType::Activated;
-	}
-	if (lc.event_type == "close_date_updated") {
-		return LifecycleEventType::CloseDateUpdated;
-	}
-	if (lc.event_type == "price_level_structure_updated") {
-		return LifecycleEventType::PriceLevelStructureUpdated;
-	}
-	if (lc.event_type == "metadata_updated") {
-		return LifecycleEventType::MetadataUpdated;
-	}
-	if (lc.event_type == "deactivated") {
-		return LifecycleEventType::Deactivated;
-	}
-	if (lc.event_type == "determined") {
-		return LifecycleEventType::Determined;
-	}
-	if (lc.event_type == "settled") {
-		return LifecycleEventType::Settled;
-	}
-	if (lc.settled_ts.has_value()) {
-		return LifecycleEventType::Settled;
-	}
-	if (lc.determination_ts.has_value()) {
-		return LifecycleEventType::Determined;
-	}
-	if (lc.is_deactivated) {
-		return LifecycleEventType::Deactivated;
-	}
-	if (lc.yes_sub_title.has_value()) {
-		return LifecycleEventType::MetadataUpdated;
-	}
-	if (lc.open_ts != 0 || lc.close_ts != 0) {
-		return LifecycleEventType::OpenOrCreated;
-	}
-	return LifecycleEventType::Unknown;
-}
-
-/// Union of all possible WebSocket data messages
-using WsMessage = std::variant<OrderbookSnapshot, OrderbookDelta, WsTrade, WsFill, MarketLifecycle>;
-
-/// Subscription ID returned when subscribing
-struct SubscriptionId {
-	std::int32_t sid{0};
-	Channel channel{Channel::OrderbookDelta};
-};
-
-/// WebSocket error
+/// An error frame from the server, or a problem the client found itself.
 struct WsError {
-	std::int32_t code{0};
+	/// Kalshi's error code (see `ws::error_code_name`), or 0 for a client error.
+	std::int64_t code{0};
 	std::string message;
+	/// The command that failed, when the server names one.
+	std::optional<std::int64_t> id;
+	std::optional<std::int64_t> sid;
+	std::optional<std::int64_t> seq;
+	/// The subscription the error concerns, when known.
+	std::optional<ws::Subscription> subscription;
 };
 
-/// Map a Kalshi WebSocket error code to the canonical name documented at
-/// https://docs.kalshi.com/websockets/websocket-connection#error-messages.
-/// Returns "Unknown error code" for codes outside the documented range.
-/// Names mirror Kalshi's AsyncAPI spec snapshot 2026-05-12 (codes 1-22
-/// from the original v2 spec + code 25 added 2026-05-12 for subscription
-/// buffer overflow). Codes 23, 24, 26+ are currently undefined upstream.
-[[nodiscard]] constexpr std::string_view ws_error_code_name(std::int32_t code) noexcept {
-	switch (code) {
-		case 1:
-			return "Unable to process message";
-		case 2:
-			return "Params required";
-		case 3:
-			return "Channels required";
-		case 4:
-			return "Subscription IDs required";
-		case 5:
-			return "Unknown command";
-		case 6:
-			return "Already subscribed";
-		case 7:
-			return "Unknown subscription ID";
-		case 8:
-			return "Unknown channel name";
-		case 9:
-			return "Authentication required";
-		case 10:
-			return "Channel error";
-		case 11:
-			return "Invalid parameter";
-		case 12:
-			return "Exactly one subscription ID required";
-		case 13:
-			return "Unsupported action";
-		case 14:
-			return "Market Ticker required";
-		case 15:
-			return "Action required";
-		case 16:
-			return "Market not found";
-		case 17:
-			return "Internal error";
-		case 18:
-			return "Command timeout";
-		case 19:
-			return "shard_factor validation";
-		case 20:
-			return "shard_factor dependency";
-		case 21:
-			return "shard_key validation";
-		case 22:
-			return "shard_factor limit";
-		case 25:
-			return "Subscription buffer overflow";
-		default:
-			return "Unknown error code";
+enum class WsState : std::uint8_t { Disconnected, Connecting, Connected, Reconnecting };
+
+[[nodiscard]] constexpr std::string_view to_string(WsState state) noexcept {
+	switch (state) {
+		case WsState::Disconnected:
+			return "disconnected";
+		case WsState::Connecting:
+			return "connecting";
+		case WsState::Connected:
+			return "connected";
+		case WsState::Reconnecting:
+			return "reconnecting";
 	}
+	return "";
 }
 
-/// Callback for WebSocket messages
-using WsMessageCallback = std::function<void(const WsMessage&)>;
-
-/// Callback for WebSocket errors
-using WsErrorCallback = std::function<void(const WsError&)>;
-
-/// Callback for connection state changes
-using WsStateCallback = std::function<void(bool connected)>;
-
-/// WebSocket client configuration
 struct WsConfig {
 	std::string url{websocket_url(Environment::Production)};
-	std::chrono::seconds reconnect_delay{5};
-	std::uint16_t max_reconnect_attempts{10}; ///< Max reconnect attempts (0-65535, default 10)
+	/// How long `connect()` waits for the handshake.
+	std::chrono::milliseconds connect_timeout{std::chrono::seconds{10}};
+	/// Reconnect and resubscribe after the connection drops.
 	bool auto_reconnect{true};
+	/// The first reconnect waits about this long; each failure doubles the
+	/// wait, with jitter, up to `max_reconnect_delay`.
+	std::chrono::milliseconds reconnect_delay{std::chrono::milliseconds{500}};
+	std::chrono::milliseconds max_reconnect_delay{std::chrono::seconds{30}};
+	/// Stop after this many failed attempts in a row; 0 keeps trying.
+	std::uint32_t max_reconnect_attempts{0};
+	/// Ping after this much silence, and drop the connection after
+	/// `idle_timeout` without a reply. Kalshi pings every 10 seconds.
+	std::chrono::seconds ping_interval{std::chrono::seconds{15}};
+	std::chrono::seconds idle_timeout{std::chrono::seconds{30}};
+	/// Request fresh order book snapshots when an orderbook_delta sequence
+	/// number is skipped. The gap is reported to `on_error` either way.
+	bool resync_on_gap{true};
 
 	[[nodiscard]] static WsConfig for_environment(Environment environment) {
 		WsConfig config;
@@ -341,10 +76,14 @@ struct WsConfig {
 	}
 };
 
-/// WebSocket streaming client for Kalshi
+/// Streams Kalshi's WebSocket channels.
 ///
-/// Provides real-time market data via WebSocket connection.
-/// Based on the TypeScript SDK's KalshiStream implementation.
+/// Subscriptions survive reconnects: the client resubscribes with the same
+/// parameters and keeps each `ws::Subscription` handle, while the server's
+/// `sid` changes. Callbacks run on the client's network thread, except the
+/// Disconnected state change from `disconnect()`, which runs on the caller's.
+/// They may call any method, including destroying the client, but should
+/// return quickly. Every method is thread-safe.
 class WebSocketClient {
 public:
 	/// Creates a client that authenticates with a copy of `signer`.
@@ -353,61 +92,50 @@ public:
 
 	WebSocketClient(WebSocketClient&&) noexcept;
 	WebSocketClient& operator=(WebSocketClient&&) noexcept;
-
-	// Non-copyable
 	WebSocketClient(const WebSocketClient&) = delete;
 	WebSocketClient& operator=(const WebSocketClient&) = delete;
 
-	/// Connect to the WebSocket server
+	/// Opens the connection and waits up to `connect_timeout` for the
+	/// handshake. Subscriptions made before the call are sent once connected.
 	[[nodiscard]] Result<void> connect();
 
-	/// Disconnect from the server
+	/// Closes the connection and forgets every subscription. `connect()` can
+	/// open a new session afterwards.
 	void disconnect();
 
-	/// Check if connected
+	[[nodiscard]] WsState state() const noexcept;
 	[[nodiscard]] bool is_connected() const noexcept;
 
-	/// Subscribe to orderbook updates for specific markets
-	[[nodiscard]] Result<SubscriptionId>
-	subscribe_orderbook(const std::vector<std::string>& market_tickers);
+	/// Subscribes to one channel. The handle is usable at once: updates and
+	/// unsubscribes made before the server confirms are sent after it does.
+	[[nodiscard]] Result<ws::Subscription> subscribe(ws::Channel channel,
+													 ws::SubscribeParams params = {});
+	[[nodiscard]] Result<void> unsubscribe(ws::Subscription subscription);
+	[[nodiscard]] Result<void> update_subscription(ws::Subscription subscription,
+												   const ws::UpdateSubscriptionParams& params);
+	[[nodiscard]] Result<void> add_markets(ws::Subscription subscription,
+										   std::vector<std::string> market_tickers);
+	[[nodiscard]] Result<void> remove_markets(ws::Subscription subscription,
+											  std::vector<std::string> market_tickers);
+	/// Asks for order book snapshots of markets in an orderbook_delta
+	/// subscription, without changing it.
+	[[nodiscard]] Result<void> request_snapshot(ws::Subscription subscription,
+												std::vector<std::string> market_tickers);
+	/// Asks the server for its view of this connection's subscriptions. The
+	/// reply arrives as `ws::SubscriptionList` carrying the returned ID.
+	[[nodiscard]] Result<std::int64_t> list_subscriptions();
+	/// The subscriptions this client holds.
+	[[nodiscard]] std::vector<ws::Subscription> subscriptions() const;
 
-	/// Subscribe to trades (optionally filtered by markets)
-	[[nodiscard]] Result<SubscriptionId>
-	subscribe_trades(const std::vector<std::string>& market_tickers = {});
+	void on_message(std::function<void(const WsMessage&)> callback);
+	void on_error(std::function<void(const WsError&)> callback);
+	void on_state_change(std::function<void(WsState)> callback);
 
-	/// Subscribe to fills for the authenticated user
-	[[nodiscard]] Result<SubscriptionId>
-	subscribe_fills(const std::vector<std::string>& market_tickers = {});
-
-	/// Subscribe to market lifecycle events
-	[[nodiscard]] Result<SubscriptionId> subscribe_lifecycle();
-
-	/// Unsubscribe from a subscription
-	[[nodiscard]] Result<void> unsubscribe(SubscriptionId sub_id);
-
-	/// Add markets to an existing subscription
-	[[nodiscard]] Result<void> add_markets(SubscriptionId sub_id,
-										   const std::vector<std::string>& market_tickers);
-
-	/// Remove markets from an existing subscription
-	[[nodiscard]] Result<void> remove_markets(SubscriptionId sub_id,
-											  const std::vector<std::string>& market_tickers);
-
-	/// Set callback for incoming messages
-	void on_message(WsMessageCallback callback);
-
-	/// Set callback for errors
-	void on_error(WsErrorCallback callback);
-
-	/// Set callback for connection state changes
-	void on_state_change(WsStateCallback callback);
-
-	/// Get the configuration
 	[[nodiscard]] const WsConfig& config() const noexcept;
 
 private:
 	struct Impl;
-	std::unique_ptr<Impl> impl_;
+	std::shared_ptr<Impl> impl_;
 };
 
 } // namespace kalshi
