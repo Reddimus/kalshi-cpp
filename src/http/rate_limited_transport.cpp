@@ -10,7 +10,7 @@ namespace http_detail {
 
 // Glaze reflection needs a type with linkage, so this is not in an unnamed namespace.
 struct BatchBody {
-	std::vector<glz::raw_json> orders;
+	std::vector<glz::skip> orders; // Only the count matters, so nothing is copied.
 };
 
 } // namespace http_detail
@@ -23,7 +23,8 @@ std::size_t batch_items(std::string_view path, std::string_view body) {
 		return 1;
 	}
 	http_detail::BatchBody batch;
-	constexpr glz::opts options{.error_on_unknown_keys = false};
+	// `body` is a view, so no terminator is guaranteed after it.
+	constexpr glz::opts options{.null_terminated = false, .error_on_unknown_keys = false};
 	if (glz::read<options>(batch, body) || batch.orders.empty()) {
 		return 1;
 	}

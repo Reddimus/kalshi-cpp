@@ -6,6 +6,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `RateLimitedTransport` counted a batch's orders past the end of the body
+  it was given. A truncated body was read one byte beyond its end, and a
+  view over the start of a longer buffer was counted from the bytes after
+  it. Counting also no longer copies each order: 20 orders now take 6
+  allocations instead of 26.
+
 ## [0.6.1] - 2026-09-25
 
 ### Fixed

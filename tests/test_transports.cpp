@@ -256,6 +256,42 @@ TEST(RateLimitedTransport, FailsFastInsteadOfWaitingPastMaxWait) {
 	EXPECT_EQ(inner->calls, 1);
 }
 
+TEST(RateLimitedTransport, CountsBatchItemsWhateverTheyContain) {
+	const kalshi::RateLimitedTransport transport(std::make_shared<ScriptedTransport>(),
+												 kalshi::RateLimitConfig{});
+	const std::string body =
+		R"({"orders":[{"ticker":"A,]}","tags":[1,[2,3]],"note":"say \"hi\""},{},)"
+		R"({"ticker":"B","nested":{"orders":[{},{}]}}],"extra":{"orders":[]}})";
+
+	EXPECT_DOUBLE_EQ(
+		transport.cost(kalshi::HttpMethod::POST, "/portfolio/events/orders/batched", body), 30.0);
+}
+
+TEST(RateLimitedTransport, CountsOnlyTheBodyItIsGiven) {
+	// The view stops before the closing brace, so it is truncated JSON and
+	// costs one unit. Reading past the view would find the brace and count two.
+	const std::string buffer = R"({"orders":[{},{}]})";
+	const kalshi::RateLimitedTransport transport(std::make_shared<ScriptedTransport>(),
+												 kalshi::RateLimitConfig{});
+
+	EXPECT_DOUBLE_EQ(transport.cost(kalshi::HttpMethod::POST, "/portfolio/events/orders/batched",
+									std::string_view{buffer.data(), buffer.size() - 1}),
+					 10.0);
+}
+
+TEST(RateLimitedTransport, CountsBatchItemsWithoutReadingPastTheBody) {
+	// A truncated body that fills its buffer exactly, so a read past the view is
+	// a read past the allocation, which the sanitizer build reports.
+	const std::string_view text = R"({"orders":[{"ticker":"A"},{"ticker":"B"})";
+	const std::vector<char> buffer(text.begin(), text.end());
+	const kalshi::RateLimitedTransport transport(std::make_shared<ScriptedTransport>(),
+												 kalshi::RateLimitConfig{});
+
+	EXPECT_DOUBLE_EQ(transport.cost(kalshi::HttpMethod::POST, "/portfolio/events/orders/batched",
+									std::string_view{buffer.data(), buffer.size()}),
+					 10.0);
+}
+
 TEST(RateLimitedTransport, BatchesLargerThanTheBucketFailClearly) {
 	const std::shared_ptr<ScriptedTransport> inner = std::make_shared<ScriptedTransport>();
 	const kalshi::RateLimitedTransport transport(inner, kalshi::RateLimitConfig{});
