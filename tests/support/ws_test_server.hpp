@@ -148,8 +148,17 @@ private:
 	int on_event(lws* wsi, lws_callback_reasons reason, void* in, std::size_t len) {
 		switch (reason) {
 			case LWS_CALLBACK_FILTER_PROTOCOL_CONNECTION: {
-				const std::lock_guard lock(mutex_);
-				return reject_ ? 1 : 0;
+				bool reject = false;
+				{
+					const std::lock_guard lock(mutex_);
+					reject = reject_;
+				}
+				if (!reject) {
+					return 0;
+				}
+				// Answer 401 as Kalshi does, rather than just closing the socket.
+				lws_return_http_status(wsi, HTTP_STATUS_UNAUTHORIZED, nullptr);
+				return 1;
 			}
 			case LWS_CALLBACK_ESTABLISHED: {
 				std::map<std::string, std::string> seen;

@@ -226,6 +226,9 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 		// Needed for client TLS; keep_openssl_initialized() stops its cleanup.
 		keep_openssl_initialized();
 		info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+		// Bounds each reconnect's handshake the way connect_timeout bounds the first.
+		info.timeout_secs = static_cast<unsigned int>(std::max<std::int64_t>(
+			1, std::chrono::ceil<std::chrono::seconds>(config.connect_timeout).count()));
 		lws_context* created = lws_create_context(&info);
 		if (created == nullptr) {
 			return std::unexpected(Error::network("Failed to create the WebSocket context"));
