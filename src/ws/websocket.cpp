@@ -8,6 +8,7 @@
 #include <chrono>
 #include <cmath>
 #include <condition_variable>
+#include <cstdint>
 #include <cstring>
 #include <deque>
 #include <libwebsockets.h>
@@ -26,6 +27,7 @@
 
 #ifndef _WIN32
 #include <csignal>
+#include <sys/socket.h>
 #endif
 
 namespace kalshi {
@@ -386,7 +388,9 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 #ifndef _WIN32
 		// OpenSSL sends with write(), which raises SIGPIPE once the peer has reset the
 		// connection. libwebsockets ignores SIGPIPE process-wide, but the app may restore
-		// the default, which ends the process, so block it on this thread.
+		// the default, which ends the process. Linux sends that signal to the writing
+		// thread, so block it here. macOS and the BSDs send it to the whole process, so
+		// there each socket also sets SO_NOSIGPIPE (see LWS_CALLBACK_CONNECTING).
 		sigset_t pipe{};
 		sigemptyset(&pipe);
 		sigaddset(&pipe, SIGPIPE);
@@ -513,6 +517,15 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 
 	int on_event(lws* connection, lws_callback_reasons reason, void* in, std::size_t len) {
 		switch (reason) {
+#if defined(SO_NOSIGPIPE)
+			case LWS_CALLBACK_CONNECTING: { // just before connect(); see run()
+				const int enabled = 1;
+				const lws_sockfd_type fd =
+					static_cast<lws_sockfd_type>(reinterpret_cast<std::intptr_t>(in));
+				setsockopt(fd, SOL_SOCKET, SO_NOSIGPIPE, &enabled, sizeof(enabled));
+				return 0;
+			}
+#endif
 			case LWS_CALLBACK_CLIENT_APPEND_HANDSHAKE_HEADER:
 				return append_headers(connection, in, len);
 			case LWS_CALLBACK_CLIENT_ESTABLISHED:

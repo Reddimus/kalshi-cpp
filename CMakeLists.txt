@@ -36,6 +36,8 @@ endif()
 # targeting another architecture, as cross and universal macOS builds do.
 if(KALSHI_NATIVE_ARCH AND NOT MSVC)
     include(CheckCXXCompilerFlag)
+    # Probe on every configure: the answer changes with CMAKE_OSX_ARCHITECTURES.
+    unset(KALSHI_MARCH_NATIVE_WORKS CACHE)
     check_cxx_compiler_flag(-march=native KALSHI_MARCH_NATIVE_WORKS)
     if(NOT KALSHI_MARCH_NATIVE_WORKS)
         message(FATAL_ERROR "KALSHI_NATIVE_ARCH needs a build for this machine's CPU, "

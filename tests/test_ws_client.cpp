@@ -248,6 +248,31 @@ TEST_F(WsClient, NetworkThreadBlocksSigpipe) {
 }
 #endif
 
+#if defined(SO_NOSIGPIPE)
+// Where a write's SIGPIPE goes to the whole process, blocking it on one thread isn't
+// enough, so the socket itself must opt out.
+TEST_F(WsClient, SocketsSetNoSigpipe) {
+	kalshi::WebSocketClient ws(kalshi::test::make_signer(), local(server));
+	ASSERT_TRUE(ws.connect().has_value());
+	// The client's socket is the only one whose peer is the server's port. Descriptors
+	// are handed out lowest first, so it is far below 1024.
+	int client = -1;
+	for (int fd = 0; fd < 1024 && client < 0; ++fd) {
+		sockaddr_in peer{};
+		socklen_t length = sizeof(peer);
+		if (::getpeername(fd, reinterpret_cast<sockaddr*>(&peer), &length) == 0 &&
+			peer.sin_family == AF_INET && ntohs(peer.sin_port) == server.port()) {
+			client = fd;
+		}
+	}
+	ASSERT_GE(client, 0);
+	int enabled = 0;
+	socklen_t size = sizeof(enabled);
+	ASSERT_EQ(::getsockopt(client, SOL_SOCKET, SO_NOSIGPIPE, &enabled, &size), 0);
+	EXPECT_NE(enabled, 0);
+}
+#endif
+
 TEST_F(WsClient, OpenSslStillWorksAfterASessionEnds) {
 	{
 		kalshi::WebSocketClient ws(kalshi::test::make_signer(), local(server));

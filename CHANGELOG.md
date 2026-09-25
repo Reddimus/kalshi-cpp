@@ -13,10 +13,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   view over the start of a longer buffer was counted from the bytes after
   it. Counting also no longer copies each order: 20 orders now take 6
   allocations instead of 26.
-- `WebSocketClient`'s network thread blocks SIGPIPE, so a connection the peer
-  reset can't end the process. It relied on libwebsockets ignoring SIGPIPE
-  process-wide, which an application that restores the default handler undoes.
-  Callbacks that run on that thread see SIGPIPE blocked.
+- A connection the peer reset can no longer end the process with SIGPIPE.
+  `WebSocketClient` relied on libwebsockets ignoring SIGPIPE process-wide,
+  which an application that restores the default handler undoes. Its sockets
+  now set `SO_NOSIGPIPE` where the OS has it (macOS and the BSDs, which signal
+  the whole process), and its network thread blocks SIGPIPE (Linux, which
+  signals the writing thread). Callbacks on that thread see SIGPIPE blocked.
+- On macOS, the benchmarks' `allocs` and `alloc_bytes` no longer count the
+  allocation that recording the `instructions` counter makes.
 
 ### Changed
 
