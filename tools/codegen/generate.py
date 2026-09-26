@@ -516,7 +516,7 @@ class Generator:
     def operations_doc(self) -> str:
         version = self.spec.get("info", {}).get("version", "?")
         out = ["# REST operations\n\n",
-               f"Generated from Kalshi Predictions OpenAPI {version} (`spec/openapi.yaml`).\n",
+               f"Covers Kalshi's Predictions OpenAPI {version} document (`spec/openapi.yaml`).\n",
                "Each row is a `KalshiClient` method.\n"]
         for tag, ops in sorted(self.tags().items()):
             out.append(f"\n## {tag}\n\n| Method | Route | C++ |\n| --- | --- | --- |\n")

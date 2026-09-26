@@ -3,12 +3,12 @@
 [![CI](https://github.com/Reddimus/kalshi-cpp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Reddimus/kalshi-cpp/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Reddimus/kalshi-cpp)](https://github.com/Reddimus/kalshi-cpp/releases)
 
-An unofficial C++23 client for Kalshi's Predictions API. It covers every
+A C++23 client for Kalshi's Predictions API. It covers every
 [REST operation](docs/operations.md) and [WebSocket channel](docs/channels.md).
-A generator builds it from Kalshi's OpenAPI and AsyncAPI documents in
-[`spec/`](https://github.com/Reddimus/kalshi-cpp/tree/main/spec), so type and
-field names match [Kalshi's API docs](https://docs.kalshi.com). Kalshi's
-separate Margin and Perpetuals API is out of scope. The
+Its types and methods come from Kalshi's OpenAPI and AsyncAPI documents in
+[`spec/`](https://github.com/Reddimus/kalshi-cpp/tree/main/spec), so their names
+match [Kalshi's API docs](https://docs.kalshi.com). Kalshi's separate Margin
+and Perpetuals API is out of scope. The
 [API reference](https://reddimus.github.io/kalshi-cpp/) lists every type and method.
 
 ## Install
@@ -172,6 +172,6 @@ shows.
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md) covers building from source, tests, code
-generation, and releases. Report security issues as
+[CONTRIBUTING.md](CONTRIBUTING.md) covers building from source, tests, updating
+the specs, and releases. Report security issues as
 [SECURITY.md](SECURITY.md) describes.

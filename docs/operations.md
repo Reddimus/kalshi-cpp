@@ -1,6 +1,6 @@
 # REST operations
 
-Generated from Kalshi Predictions OpenAPI 3.31.0 (`spec/openapi.yaml`).
+Covers Kalshi's Predictions OpenAPI 3.31.0 document (`spec/openapi.yaml`).
 Each row is a `KalshiClient` method.
 
 ## account

@@ -1,7 +1,7 @@
 #pragma once
 
 /// @file version.hpp
-/// @brief The SDK version, generated from `project(... VERSION)` in CMakeLists.txt.
+/// @brief The SDK version, from `project(... VERSION)` in CMakeLists.txt.
 
 namespace kalshi {
 

@@ -361,7 +361,7 @@ class WsGenerator:
     def channels_doc(self) -> str:
         version = self.spec.get("info", {}).get("version", "?")
         out = ["# WebSocket channels\n\n",
-               f"Generated from Kalshi's AsyncAPI {version} document (`spec/asyncapi.yaml`).\n",
+               f"Covers Kalshi's AsyncAPI {version} document (`spec/asyncapi.yaml`).\n",
                "Subscribe with `WebSocketClient::subscribe(ws::Channel::..., params)`; each message\n"
                "arrives in `on_message` as `ws::Update<T>`.\n\n",
                "| Channel | `ws::Channel` | Messages |\n| --- | --- | --- |\n"]
