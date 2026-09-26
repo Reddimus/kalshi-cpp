@@ -38,9 +38,11 @@ FetchContent_MakeAvailable(kalshi)
 target_link_libraries(myapp PRIVATE kalshi::kalshi)
 ```
 
-After `cmake --install`, `find_package(kalshi CONFIG REQUIRED)` provides the
-same target. Until 1.0, a minor release may break the API.
-[CHANGELOG.md](CHANGELOG.md) has migration notes.
+Or add `kalshi-cpp` to your `vcpkg.json`, and [vcpkg](https://vcpkg.io) builds
+it along with OpenSSL, libcurl, and libwebsockets, so you can skip the package
+installs above. vcpkg and `cmake --install` both provide the same target through
+`find_package(kalshi CONFIG REQUIRED)`. Until 1.0, a minor release may break
+the API. [CHANGELOG.md](CHANGELOG.md) has migration notes.
 
 ## Read market data
 

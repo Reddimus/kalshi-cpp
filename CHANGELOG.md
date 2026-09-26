@@ -6,6 +6,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- vcpkg has a `kalshi-cpp` port. Add it to `vcpkg.json` and use
+  `find_package(kalshi CONFIG REQUIRED)`; the README shows how.
+
 ## [0.6.2] - 2026-09-25
 
 ### Fixed
