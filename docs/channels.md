@@ -1,6 +1,6 @@
 # WebSocket channels
 
-Generated from Kalshi's AsyncAPI 2.0.0 document (`spec/asyncapi.yaml`).
+Covers Kalshi's AsyncAPI 2.0.0 document (`spec/asyncapi.yaml`).
 Subscribe with `WebSocketClient::subscribe(ws::Channel::..., params)`; each message
 arrives in `on_message` as `ws::Update<T>`.
 
