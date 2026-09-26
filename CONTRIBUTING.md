@@ -106,6 +106,18 @@ explains how to refresh the specs.
 3. Run `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` publishes the
    GitHub release after CI passes on the tagged commit, and `docs.yml`
    publishes the API reference.
+4. Update the vcpkg and ConanCenter ports, working from your forks of those
+   repositories. Both need a hash of the tag's archive:
+   `curl -sL https://github.com/Reddimus/kalshi-cpp/archive/refs/tags/vX.Y.Z.tar.gz | shasum -a 512`,
+   or `-a 256` for Conan.
+   - vcpkg: in `ports/kalshi-cpp`, set `version` in `vcpkg.json` and `SHA512`
+     in `portfile.cmake`. Run `./vcpkg x-add-version kalshi-cpp`, commit
+     everything, and open a PR against microsoft/vcpkg.
+   - ConanCenter, once
+     [the first recipe](https://github.com/conan-io/conan-center-index/pull/31050)
+     merges: add the version to `recipes/kalshi-cpp/config.yml` and its URL
+     and sha256 to `recipes/kalshi-cpp/all/conandata.yml`, then open a PR
+     against conan-io/conan-center-index.
 
 While the version is 0.x, a minor release may break the API; patch releases
 only fix things.
