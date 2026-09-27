@@ -19,8 +19,8 @@ import json
 import re
 from dataclasses import dataclass, field
 
-from common import (CPP_RESERVED, ROOT, UNKNOWN_VALUE, EnumType, Member, StructType, check_enums,
-                    emit_enum, emit_enum_adapter, emit_enum_parser, emit_struct, first_sentence,
+from common import (ROOT, UNKNOWN_VALUE, EnumType, Member, StructType, check_enums, check_identifier,
+                    check_schema, emit_enum, emit_enum_adapter, emit_enum_parser, emit_struct, first_sentence,
                     ordered_structs, pascal, ref_name, snake)
 
 WS_SPEC = ROOT / "spec" / "asyncapi.yaml"
@@ -40,6 +40,12 @@ ENUM_NAMES_BY_VALUES = {
 # The update_subscription payload variants, merged into one parameter struct.
 UPDATE_PAYLOADS = ("updateSubscriptionCommandPayload", "cfbenchmarksUpdateSubscriptionCommandPayload",
                    "pythUpdateSubscriptionCommandPayload")
+
+# The envelope fields Update<T> carries. Any other field on a data message would be dropped.
+ENVELOPE_FIELDS = {"type", "sid", "seq", "id", "msg"}
+
+# Keywords that describe a parameter without changing how it is sent.
+PARAM_NOTES = {"description", "example", "examples"}
 
 
 @dataclass
@@ -71,6 +77,14 @@ class WsGenerator:
     # ----- types -----------------------------------------------------------
 
     def run(self) -> None:
+        # Only these payloads feed SubscribeParams and UpdateSubscriptionParams, so a
+        # new command variant would otherwise be ignored.
+        for cmd, expected in (("subscribe", {"subscribeCommandPayload"}), ("update_subscription", set(UPDATE_PAYLOADS))):
+            found = {name for name, schema in self.schemas.items()
+                     if schema.get("properties", {}).get("cmd", {}).get("const") == cmd}
+            if found != expected:
+                raise SystemExit(f"{cmd} command payloads are {sorted(found)}; expected {sorted(expected)}. "
+                                 "Update UPDATE_PAYLOADS in tools/codegen/ws.py")
         subscribe = self.schemas["subscribeCommandPayload"]["properties"]["params"]
         self.channels = list(subscribe["properties"]["channels"]["items"]["enum"])
         self.enums["Channel"] = EnumType("Channel", self.channels, "A WebSocket channel.")
@@ -99,9 +113,11 @@ class WsGenerator:
             return
         spec = self.message_specs[key]
         payload = self.schemas[ref_name(spec["payload"]["$ref"])]
+        if extra := sorted(set(payload["properties"]) - ENVELOPE_FIELDS):
+            raise SystemExit(f"{key}: envelope fields {extra} are not supported; Update<T> would drop them")
         type_value = payload["properties"]["type"]["const"]
         name = pascal(key)
-        self.struct_for(name, payload["properties"]["msg"], doc=spec.get("summary") or spec.get("title"))
+        self.struct_for(name, self.message_body(key, payload), doc=spec.get("summary") or spec.get("title"))
         self.messages.append(DataMessage(key, type_value, name, first_sentence(spec.get("summary")), [channel],
                                          examples=[e["payload"] for e in spec.get("examples", [])]))
 
@@ -115,7 +131,7 @@ class WsGenerator:
             defaults = []
             for message in group:
                 payload = self.schemas[ref_name(self.message_specs[message.key]["payload"]["$ref"])]
-                props = payload["properties"]["msg"].get("properties", {})
+                props = self.message_body(message.key, payload)["properties"]
                 const = next(((k, v["const"]) for k, v in props.items() if "const" in v), None)
                 message.discriminator = const
                 if const is None:
@@ -129,7 +145,17 @@ class WsGenerator:
             group.sort(key=lambda m: m.discriminator is None)
             self.messages = [m for m in self.messages if m not in group] + group
 
-    def resolve(self, schema: dict) -> tuple[str | None, dict]:
+    def message_body(self, key: str, payload: dict) -> dict:
+        """The `msg` schema of a data message, which must be an object with properties."""
+        _, msg = self.resolve(payload["properties"]["msg"], f"{key}.msg")
+        check_schema(msg, f"{key}.msg", max_all_of=0)
+        if msg.get("type") != "object" or not msg.get("properties"):
+            raise SystemExit(f"{key}.msg must be an object with properties; it would become an empty struct")
+        return msg
+
+    def resolve(self, schema: dict, where: str = "schema") -> tuple[str | None, dict]:
+        # resolve() does not unwrap allOf, so any allOf would be dropped.
+        check_schema(schema, where, max_all_of=0)
         if "$ref" not in schema:
             return None, schema
         name = ref_name(schema["$ref"])
@@ -139,7 +165,8 @@ class WsGenerator:
 
     def type_of(self, schema: dict, context: str, prop: str) -> tuple[str, str, str, bool]:
         """Returns (cpp type, kind, element name, nullable)."""
-        name, schema = self.resolve(schema)
+        name, schema = self.resolve(schema, context)
+        check_schema(schema, context, max_all_of=0)
         kind = schema.get("type")
         nullable = False
         if isinstance(kind, list):
@@ -151,7 +178,9 @@ class WsGenerator:
             enum = self.enum_for(values, name, context, prop, schema.get("description", ""))
             return enum, "enum", enum.rsplit("::", 1)[-1], nullable
         if kind == "array":
-            inner, inner_kind, element, _ = self.type_of(schema.get("items", {}), context + "Item", prop)
+            if "items" not in schema:
+                raise SystemExit(f"{context}: an array without `items` is not supported")
+            inner, inner_kind, element, _ = self.type_of(schema["items"], context + "Item", prop)
             size = schema.get("minItems")
             if size is not None and size > 1 and size == schema.get("maxItems"):
                 return f"std::array<{inner}, {size}>", "container", "", nullable
@@ -168,9 +197,15 @@ class WsGenerator:
             return "double", "scalar", "", nullable
         if kind == "boolean":
             return "bool", "scalar", "", nullable
+        if kind is None:
+            raise SystemExit(f"{context}: a schema with no type is not supported; it would become std::string")
+        if kind != "string":
+            raise SystemExit(f"{context}: type {kind!r} is not supported")
         return "std::string", "string", "", nullable
 
     def enum_for(self, values: list[str], schema_name: str | None, context: str, prop: str, doc: str) -> str:
+        if not all(isinstance(v, str) for v in values):
+            raise SystemExit(f"{context}: only string enums are supported; found {values}")
         known = frozenset(v for v in values if v != UNKNOWN_VALUE)
         # `context` is the owner plus the property (TradeTakerSide), so a generic
         # property such as `status` still gets a specific name.
@@ -201,8 +236,7 @@ class WsGenerator:
 
     def member(self, owner: str, json_name: str, schema: dict, required: bool) -> Member:
         cpp, kind, element, nullable = self.type_of(schema, owner + pascal(json_name), json_name)
-        if json_name in CPP_RESERVED:
-            raise SystemExit(f"{owner}.{json_name} needs a rename")
+        check_identifier(owner, json_name)
         plain = required and not nullable
         _, resolved = self.resolve(schema)
         return Member(json_name=json_name, cpp_type=cpp if plain else f"std::optional<{cpp}>",
@@ -212,6 +246,11 @@ class WsGenerator:
     def struct_for(self, name: str, schema: dict, doc: str | None = None) -> StructType:
         if name in self.structs:
             return self.structs[name]
+        _, schema = self.resolve(schema, name)
+        check_schema(schema, name, max_all_of=0)
+        if schema.get("additionalProperties", False) is not False and schema.get("properties"):
+            raise SystemExit(f"{name}: properties with additionalProperties are not supported; "
+                             "the extra keys would be dropped")
         struct = StructType(name, doc=first_sentence(doc or schema.get("description")))
         self.structs[name] = struct
         required = set(schema.get("required", []))
@@ -224,20 +263,30 @@ class WsGenerator:
     def params_struct(self, name: str, schemas: list[dict], skip: set[str], doc: str) -> StructType:
         """Merges command parameter schemas into one struct of options."""
         props: dict[str, dict] = {}
-        required: set[str] = set()
-        for schema in schemas:
-            required |= set(schema.get("required", []))
-            for key, prop in schema.get("properties", {}).items():
+        resolved = [self.resolve(schema, name)[1] for schema in schemas]
+        # The merged struct is a bag of options, so a key is required only when
+        # every command variant requires it.
+        required: set[str] = set.intersection(*(set(schema.get("required", [])) for schema in resolved))
+        for schema in resolved:
+            check_schema(schema, name, max_all_of=0)
+            if not schema.get("properties"):
+                raise SystemExit(f"{name}: a command params schema needs `properties`")
+            for key, prop in schema["properties"].items():
                 if key in skip:
                     continue
                 if key in props and "enum" in prop:  # e.g. every update_subscription action
                     merged = props[key].get("enum", []) + [v for v in prop["enum"] if v not in props[key].get("enum", [])]
                     props[key] = dict(props[key], enum=merged)
+                elif key in props:
+                    shape = {k: v for k, v in prop.items() if k not in PARAM_NOTES}
+                    if shape != {k: v for k, v in props[key].items() if k not in PARAM_NOTES}:
+                        raise SystemExit(f"{name}.{key} has different schemas across commands")
                 else:
-                    props.setdefault(key, prop)
+                    props[key] = prop
         struct = StructType(name, doc=doc)
         self.structs[name] = struct
         for key, prop in props.items():
+            check_identifier(name, key)
             context = "UpdateAction" if name == "UpdateSubscriptionParams" and key == "action" else name + pascal(key)
             cpp, kind, element, _ = self.type_of(prop, context, "" if key == "action" else key)
             plain = key in required

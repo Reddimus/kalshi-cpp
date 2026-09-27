@@ -73,6 +73,11 @@ in `tools/codegen/`, or a spec, run `make codegen`, and commit the result.
 `make lint` fails on stale output. [docs/research.md](docs/research.md)
 explains how to refresh the specs.
 
+The script stops with an error on spec features it can't map yet, such as
+`oneOf`, PATCH, header parameters, and inline response schemas, rather than
+dropping them. `tools/codegen/test_codegen.py` covers each of these checks, and
+`make lint` runs it.
+
 ## Code style
 
 - Public functions return `kalshi::Result<T>` (`std::expected<T, Error>`) and

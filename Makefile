@@ -67,6 +67,7 @@ lint:
 	$(CPP_SOURCES) | xargs -0 $(CLANG_FORMAT) --dry-run --Werror
 	$(PYTHON) tools/cpp_auto_audit.py
 	CLANG_FORMAT="$(CLANG_FORMAT)" $(PYTHON) tools/codegen/generate.py --check
+	$(PYTHON) -m unittest discover -q -s tools/codegen
 
 lint-docs:
 	markdownlint-cli2
