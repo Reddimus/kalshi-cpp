@@ -16,14 +16,22 @@ ROOT = Path(__file__).resolve().parents[2]
 ACRONYMS = {"RFQs": "Rfqs", "RFQ": "Rfq", "FCM": "Fcm", "ID": "Id", "API": "Api", "MVE": "Mve"}
 
 CPP_RESERVED = {
-    "and", "auto", "bool", "break", "case", "catch", "char", "class", "const", "continue",
-    "default", "delete", "do", "double", "else", "enum", "explicit", "export", "extern",
-    "false", "float", "for", "friend", "goto", "if", "inline", "int", "long", "mutable",
-    "namespace", "new", "not", "operator", "or", "private", "protected", "public", "return",
-    "short", "signed", "sizeof", "static", "struct", "switch", "template", "this", "throw",
-    "true", "try", "typedef", "typename", "union", "unsigned", "using", "virtual", "void",
-    "volatile", "while", "xor",
+    "alignas", "alignof", "and", "and_eq", "asm", "auto", "bitand", "bitor", "bool", "break",
+    "case", "catch", "char", "char8_t", "char16_t", "char32_t", "class", "compl", "concept",
+    "const", "const_cast", "consteval", "constexpr", "constinit", "continue", "co_await",
+    "co_return", "co_yield", "decltype", "default", "delete", "do", "double", "dynamic_cast",
+    "else", "enum", "explicit", "export", "extern", "false", "float", "for", "friend", "goto",
+    "if", "inline", "int", "long", "mutable", "namespace", "new", "noexcept", "not", "not_eq",
+    "nullptr", "operator", "or", "or_eq", "private", "protected", "public", "register",
+    "reinterpret_cast", "requires", "return", "short", "signed", "sizeof", "static",
+    "static_assert", "static_cast", "struct", "switch", "template", "this", "thread_local",
+    "throw", "true", "try", "typedef", "typeid", "typename", "union", "unsigned", "using",
+    "virtual", "void", "volatile", "wchar_t", "while", "xor", "xor_eq",
 }
+
+# Schema keywords with no C++ mapping yet. Without this check they would
+# become empty structs or RawJson, and no test would notice.
+UNSUPPORTED_KEYWORDS = ("oneOf", "anyOf", "not", "discriminator")
 
 # A server value spelled "unknown" shares the Unknown enumerator every enum has.
 UNKNOWN_VALUE = "unknown"
@@ -99,6 +107,7 @@ class Member:
     required: bool = False
     base_kind: str = ""  # "string", "enum", "struct", "vector", ...
     element: str = ""  # struct or enum name for validation
+    read_only: bool = False
 
 
 @dataclass
@@ -106,6 +115,24 @@ class StructType:
     name: str
     members: list[Member] = field(default_factory=list)
     doc: str = ""
+
+
+def check_schema(schema: dict, where: str, max_all_of: int) -> None:
+    """Stops on schema features that would otherwise map to a wrong or empty type."""
+    for keyword in UNSUPPORTED_KEYWORDS:
+        if keyword in schema:
+            raise SystemExit(f"{where}: `{keyword}` is not supported; extend tools/codegen first")
+    if len(schema.get("allOf", [])) > max_all_of:
+        raise SystemExit(f"{where}: `allOf` with {len(schema['allOf'])} members is not supported")
+    ref = schema.get("$ref")
+    if ref is not None and not re.fullmatch(r"#/components/schemas/[^/]+", ref):
+        raise SystemExit(f"{where}: {ref} is not a component schema")
+
+
+def check_identifier(owner: str, json_name: str) -> None:
+    """Members keep their JSON names so Glaze can reflect them; each must be a C++ name."""
+    if not re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", json_name) or json_name in CPP_RESERVED:
+        raise SystemExit(f"{owner}.{json_name} needs a rename; add glz::meta support first")
 
 
 def check_enums(enums: dict[str, EnumType]) -> None:

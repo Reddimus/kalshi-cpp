@@ -29,6 +29,8 @@ shasum -a 256 spec/*.yaml
 make codegen test
 ```
 
-Review the diff of the generated files, update the table above, and note
-user-visible changes in `CHANGELOG.md`. Kalshi's changelog at
+If `make codegen` stops on a spec feature it can't map, extend
+`tools/codegen/` to support it before committing the new spec. Review the diff
+of the generated files, update the table above, and note user-visible changes
+in `CHANGELOG.md`. Kalshi's changelog at
 <https://docs.kalshi.com/changelog> explains most changes.
