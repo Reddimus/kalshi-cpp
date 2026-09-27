@@ -810,6 +810,23 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 - Parse ISO-8601 datetime strings for market timestamps.
   ([`2bd34d6`](https://github.com/Reddimus/kalshi-cpp/commit/2bd34d6))
 
+## [0.0.3] — 2026-01-20
+
+### Added
+
+- A daily temperature example covering high and low markets, and a live
+  market view built on the WebSocket client.
+  ([`92945ab`](https://github.com/Reddimus/kalshi-cpp/commit/92945ab), [`371e7ed`](https://github.com/Reddimus/kalshi-cpp/commit/371e7ed), [`a3bd387`](https://github.com/Reddimus/kalshi-cpp/commit/a3bd387))
+
+### Changed
+
+- Candlestick requests take the event ticker as well as the market ticker,
+  and `period` became `period_interval` in minutes.
+  ([`dc45c81`](https://github.com/Reddimus/kalshi-cpp/commit/dc45c81))
+- `WsConfig::max_reconnect_attempts` and the rate limiter's token counts are
+  `std::uint16_t`, and refilling tokens no longer overflows.
+  ([`9419480`](https://github.com/Reddimus/kalshi-cpp/commit/9419480))
+
 ## [0.0.2] — initial public release
 
 [Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.2...HEAD
@@ -839,5 +856,6 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 [0.0.7]: https://github.com/Reddimus/kalshi-cpp/compare/v0.0.6...v0.0.7
 [0.0.6]: https://github.com/Reddimus/kalshi-cpp/compare/v0.0.5...v0.0.6
 [0.0.5]: https://github.com/Reddimus/kalshi-cpp/compare/v0.0.4...v0.0.5
-[0.0.4]: https://github.com/Reddimus/kalshi-cpp/compare/v0.0.2...v0.0.4
+[0.0.4]: https://github.com/Reddimus/kalshi-cpp/compare/v0.0.3...v0.0.4
+[0.0.3]: https://github.com/Reddimus/kalshi-cpp/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/Reddimus/kalshi-cpp/releases/tag/v0.0.2
