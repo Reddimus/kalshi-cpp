@@ -26,5 +26,5 @@ memory.
 | `test_ws_client.cpp` | The WebSocket client against a local server |
 | `test_ws_lifecycle.cpp` | URL validation, moved-from clients, concurrent calls |
 
-Response fixtures are synthetic and follow Kalshi Predictions OpenAPI 3.31.0;
+Response fixtures are synthetic and follow Kalshi Predictions OpenAPI 3.34.0;
 none come from a real account. Add new files to `tests/CMakeLists.txt`.

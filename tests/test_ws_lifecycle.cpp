@@ -12,6 +12,7 @@
 #include <vector>
 
 #include "callback_slot.hpp"
+#include "reconnect.hpp"
 #include "test_signer_fixture.hpp"
 #include "ws_endpoint.hpp"
 
@@ -202,4 +203,20 @@ TEST(WsEndpoint, RejectsControlBytesAndWhitespaceAnywhereInTheUrl) {
 		ASSERT_FALSE(result);
 		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
 	}
+}
+
+TEST(WsReconnect, BoundsNegativeAndExtremeTimerDurations) {
+	kalshi::WsConfig config;
+	config.reconnect_delay = std::chrono::milliseconds{-1};
+	config.max_reconnect_delay = std::chrono::milliseconds{-1};
+	EXPECT_EQ(kalshi::detail::reconnect_delay(config, 100, 1.0), std::chrono::milliseconds::zero());
+	config.reconnect_delay = std::chrono::milliseconds::max();
+	config.max_reconnect_delay = std::chrono::milliseconds::max();
+	const std::chrono::milliseconds delay = kalshi::detail::reconnect_delay(config, 100, 1.0);
+	EXPECT_GT(delay, std::chrono::milliseconds::zero());
+	EXPECT_LE(std::chrono::duration_cast<std::chrono::microseconds>(delay),
+			  std::chrono::microseconds::max() / 2);
+	config.reconnect_delay = std::chrono::milliseconds{100};
+	config.max_reconnect_delay = std::chrono::milliseconds{400};
+	EXPECT_EQ(kalshi::detail::reconnect_delay(config, 10, 0.5), std::chrono::milliseconds{200});
 }

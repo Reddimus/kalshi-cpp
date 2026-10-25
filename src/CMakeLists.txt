@@ -36,8 +36,8 @@ target_link_libraries(kalshi_ws
     PUBLIC kalshi_auth kalshi_models
     PRIVATE ${KALSHI_WEBSOCKETS_TARGET} OpenSSL::SSL $<BUILD_INTERFACE:glaze::glaze>)
 if(WIN32)
-    # <libwebsockets.h> pulls in <windows.h>, whose min and max macros break
-    # std::min, std::clamp, and Glaze.
+    # Curl and libwebsockets pull in Windows min/max macros.
+    target_compile_definitions(kalshi_http PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
     target_compile_definitions(kalshi_ws PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
 endif()
 

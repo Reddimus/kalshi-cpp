@@ -154,7 +154,17 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 	}
 
 	const std::string url = detail::request_url(impl_->config.base_url, path);
-	if ((!url.starts_with("https://") && !url.starts_with("http://")) ||
+	const auto has_scheme = [&url](std::string_view prefix) {
+		return url.size() >= prefix.size() &&
+			   std::equal(prefix.begin(), prefix.end(), url.begin(),
+						  [](char expected, char actual) {
+							  const char lower = actual >= 'A' && actual <= 'Z'
+													 ? static_cast<char>(actual - 'A' + 'a')
+													 : actual;
+							  return expected == lower;
+						  });
+	};
+	if ((!has_scheme("https://") && !has_scheme("http://")) ||
 		url.find('\0') != std::string::npos) {
 		return std::unexpected(
 			Error{ErrorCode::InvalidRequest, "Expected an HTTP or HTTPS URL without NUL bytes"});

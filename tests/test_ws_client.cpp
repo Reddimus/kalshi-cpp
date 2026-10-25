@@ -548,3 +548,37 @@ TEST_F(WsClient, DisconnectInsideACallbackThenReconnect) {
 	EXPECT_TRUE(ws.connect().has_value());
 	EXPECT_TRUE(server.wait_for_connections(2));
 }
+
+TEST_F(WsClient, OversizedMessagesCloseTheConnection) {
+	Recorder events;
+	kalshi::WsConfig config = local(server);
+	config.auto_reconnect = false;
+	config.max_message_bytes = 32;
+	kalshi::WebSocketClient ws(kalshi::test::make_signer(), config);
+	events.attach(ws);
+	ASSERT_TRUE(ws.connect());
+	ASSERT_TRUE(server.wait_for_connections(1));
+	server.send(std::string(128, 'x'));
+	const std::optional<kalshi::WsError> error = events.next_error();
+	ASSERT_TRUE(error);
+	EXPECT_NE(error->message.find("max_message_bytes"), std::string::npos);
+	EXPECT_TRUE(events.reached(kalshi::WsState::Disconnected));
+}
+
+TEST_F(WsClient, ExactMessageLimitAndUnlimitedMessagesParse) {
+	const std::string message = R"({"type":"error","msg":{"code":1,"msg":"test"}})";
+	int connections = 0;
+	for (const std::size_t limit : {message.size(), std::size_t{0}}) {
+		Recorder events;
+		kalshi::WsConfig config = local(server);
+		config.max_message_bytes = limit;
+		kalshi::WebSocketClient ws(kalshi::test::make_signer(), config);
+		events.attach(ws);
+		ASSERT_TRUE(ws.connect());
+		ASSERT_TRUE(server.wait_for_connections(++connections));
+		server.send(message);
+		const std::optional<kalshi::WsError> error = events.next_error();
+		ASSERT_TRUE(error);
+		EXPECT_EQ(error->message, "test");
+	}
+}

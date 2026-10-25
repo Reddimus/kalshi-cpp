@@ -6,6 +6,7 @@
 #include "kalshi/ws_models.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -70,6 +71,8 @@ struct WsConfig {
 	/// Request fresh order book snapshots when an orderbook_delta sequence
 	/// number is skipped. The gap is reported to `on_error` either way.
 	bool resync_on_gap{true};
+	/// Maximum received message size; zero disables the limit.
+	std::size_t max_message_bytes{std::size_t{64} * 1024 * 1024};
 
 	[[nodiscard]] static WsConfig for_environment(Environment environment) {
 		WsConfig config;

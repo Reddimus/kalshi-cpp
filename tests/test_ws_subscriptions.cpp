@@ -4,6 +4,7 @@
 #include "kalshi/websocket.hpp"
 
 #include <gtest/gtest.h>
+#include <limits>
 #include <string>
 #include <vector>
 
@@ -333,4 +334,17 @@ TEST(WsSubscriptions, SequencedRepliesAdvanceTheSequence) {
 	registry.on_ok({3, 3, 6, R"({"market_tickers":["A","B"]})"});
 	kalshi::WsMessage next = delta(3, 7);
 	EXPECT_FALSE(registry.on_data(next, true).error.has_value());
+}
+
+TEST(WsSubscriptions, MaximumSequenceCannotOverflowGapDetection) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	registry.subscribe(Channel::OrderbookDelta, {}, true, frames);
+	registry.on_subscribed({2, "orderbook_delta", 9});
+	kalshi::WsMessage first = delta(9, std::numeric_limits<std::int64_t>::max());
+	registry.on_data(first, false);
+	kalshi::WsMessage next = delta(9, 1);
+	const Reaction reaction = registry.on_data(next, false);
+	ASSERT_TRUE(reaction.error);
+	EXPECT_NE(reaction.error->message.find("beyond INT64_MAX"), std::string::npos);
 }

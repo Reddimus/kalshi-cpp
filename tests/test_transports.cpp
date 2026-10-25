@@ -410,3 +410,18 @@ TEST(RateLimitedTransport, MaximumWaitDoesNotOverflow) {
 	const kalshi::RateLimitedTransport transport(std::make_shared<ScriptedTransport>(), config);
 	EXPECT_TRUE(transport.get("/markets"));
 }
+
+TEST(Retry, CappedBackoffStillHasJitter) {
+	kalshi::RetryPolicy policy;
+	policy.initial_delay = std::chrono::milliseconds{200};
+	policy.max_delay = std::chrono::milliseconds{1000};
+	policy.jitter_factor = 0.25;
+	bool saw_shorter = false;
+	for (int sample = 0; sample < 100; ++sample) {
+		const std::chrono::milliseconds delay = kalshi::retry_delay(10, policy);
+		EXPECT_GE(delay.count(), 750);
+		EXPECT_LE(delay, policy.max_delay);
+		saw_shorter = saw_shorter || delay < policy.max_delay;
+	}
+	EXPECT_TRUE(saw_shorter);
+}

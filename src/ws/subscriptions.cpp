@@ -1,6 +1,7 @@
 #include "subscriptions.hpp"
 
 #include <algorithm>
+#include <limits>
 #include <string_view>
 #include <type_traits>
 #include <utility>
@@ -323,16 +324,21 @@ Reaction SubscriptionRegistry::on_data(WsMessage& message, bool resync) {
 					return;
 				}
 				constexpr bool snapshot = std::is_same_v<T, ws::Update<ws::OrderbookSnapshot>>;
-				if (!snapshot && entry->last_seq && *update.seq != *entry->last_seq + 1) {
-					reaction.error = WsError{
-						0,
-						"Missed messages on subscription " + std::to_string(entry->handle.id) +
-							": expected seq " + std::to_string(*entry->last_seq + 1) + ", got " +
-							std::to_string(*update.seq),
-						std::nullopt,
-						update.sid,
-						update.seq,
-						entry->handle};
+				if (!snapshot && entry->last_seq &&
+					(*entry->last_seq == std::numeric_limits<std::int64_t>::max() ||
+					 *update.seq != *entry->last_seq + 1)) {
+					reaction.error =
+						WsError{0,
+								"Missed messages on subscription " +
+									std::to_string(entry->handle.id) + ": expected seq " +
+									(*entry->last_seq == std::numeric_limits<std::int64_t>::max()
+										 ? std::string{"beyond INT64_MAX"}
+										 : std::to_string(*entry->last_seq + 1)) +
+									", got " + std::to_string(*update.seq),
+								std::nullopt,
+								update.sid,
+								update.seq,
+								entry->handle};
 					if (resync && entry->handle.channel == ws::Channel::OrderbookDelta &&
 						entry->state == State::Active) {
 						ws::UpdateSubscriptionParams snapshots;

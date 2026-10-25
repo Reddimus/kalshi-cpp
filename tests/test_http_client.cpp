@@ -298,6 +298,18 @@ TEST(HttpClientLoopback, RejectsNonHttpProtocols) {
 	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
 }
 
+TEST(HttpClientLoopback, HttpSchemesAreCaseInsensitive) {
+	const LoopbackServer server(http_response(200, "{}"));
+	for (const std::string_view scheme : {"HTTP", "hTtP"}) {
+		kalshi::ClientConfig config = config_for(server);
+		config.base_url.replace(0, 4, scheme);
+		const kalshi::HttpClient client(config);
+		const kalshi::Result<kalshi::HttpResponse> result = client.get("/markets");
+		ASSERT_TRUE(result);
+		EXPECT_EQ(result->status_code, 200);
+	}
+}
+
 #else
 
 TEST(HttpClientLoopback, SkippedOnWindows) {

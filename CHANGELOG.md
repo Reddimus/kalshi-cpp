@@ -20,7 +20,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Pace balance requests independently and classify RFQ-batch writes correctly.
 - Bound HTTP response bodies, contain callback exceptions, preserve headers on
   allocation failure, and reject non-HTTP protocols.
-- Keep retry delays and rate-limit waits bounded for extreme policies.
+- Keep retry jitter effective at its cap and bound extreme retry, rate-limit,
+  and WebSocket reconnect durations.
+- Bound WebSocket messages, contain callback exceptions, and prevent sequence
+  counter overflow.
 - Reject control bytes in WebSocket URLs and invalid API-key identifiers.
 - Use the default HTTP client when a null transport is supplied.
 - Deploy API documentation only from its matching release tag.

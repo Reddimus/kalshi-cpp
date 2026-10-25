@@ -160,10 +160,12 @@ tier. To match your account's limits, pass the results of
 `get_account_api_limits()` and `get_account_endpoint_costs()` to
 `kalshi::rate_limit_config()`. Balance requests have a separate bucket: one
 call/s for Basic and Advanced, five for higher known tiers. Write pacing is
-conservative across exchange shards.
+conservative across exchange shards. Share one paced transport per account;
+separate instances cannot coordinate their budgets.
 
 `ClientConfig::max_response_bytes` limits decompressed HTTP bodies to 64 MiB;
-set it to zero to disable the limit.
+set it to zero to disable the limit. WebSocket messages have the same default
+limit through `WsConfig::max_message_bytes`.
 
 ## Examples
 
