@@ -14,6 +14,10 @@
 
 namespace kalshi::test {
 
+/// Injects failures on the calling thread until disabled. Test support only.
+void set_allocation_failure(bool enabled) noexcept;
+[[nodiscard]] std::uint64_t allocation_failures() noexcept;
+
 /// Allocations made through global operator new.
 struct AllocationCount {
 	std::uint64_t count{0};

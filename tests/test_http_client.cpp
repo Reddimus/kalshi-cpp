@@ -1,26 +1,31 @@
-// Runs the real libcurl transport against a loopback HTTP server. POSIX only.
+// Runs the real libcurl transport against a loopback HTTP server.
 
 #include "kalshi/http_client.hpp"
 
-#include <gtest/gtest.h>
-
-#ifndef _WIN32
+#ifdef _WIN32
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#else
+#include <arpa/inet.h>
+#include <netinet/in.h>
+#include <sys/socket.h>
+#include <unistd.h>
+#endif
 
 #include <algorithm>
-#include <arpa/inet.h>
 #include <array>
 #include <atomic>
 #include <cctype>
 #include <chrono>
 #include <cstdint>
+#include <cstdlib>
+#include <gtest/gtest.h>
 #include <map>
 #include <mutex>
-#include <netinet/in.h>
+#include <stdexcept>
 #include <string>
 #include <string_view>
-#include <sys/socket.h>
 #include <thread>
-#include <unistd.h>
 #include <vector>
 
 #include "test_signer_fixture.hpp"
@@ -28,6 +33,52 @@
 namespace {
 
 using namespace std::chrono_literals;
+
+#ifdef _WIN32
+using Socket = SOCKET;
+using AddressLength = int;
+constexpr Socket kInvalidSocket = INVALID_SOCKET;
+constexpr int kShutdownBoth = SD_BOTH;
+void close_socket(Socket socket) {
+	(void)::closesocket(socket);
+}
+void initialize_sockets() {
+	struct Winsock {
+		Winsock() {
+			WSADATA data{};
+			if (::WSAStartup(MAKEWORD(2, 2), &data) != 0) {
+				throw std::runtime_error("WSAStartup() failed");
+			}
+		}
+		~Winsock() { (void)::WSACleanup(); }
+	};
+	static const Winsock initialized;
+}
+#else
+using Socket = int;
+using AddressLength = socklen_t;
+constexpr Socket kInvalidSocket = -1;
+constexpr int kShutdownBoth = SHUT_RDWR;
+void close_socket(Socket socket) {
+	(void)::close(socket);
+}
+void initialize_sockets() {}
+#endif
+using SocketIoResult = decltype(::recv(Socket{}, nullptr, 0, 0));
+
+class NoProxyEnvironment : public testing::Environment {
+	void SetUp() override {
+#ifdef _WIN32
+		(void)::_putenv_s("NO_PROXY", "127.0.0.1");
+		(void)::_putenv_s("no_proxy", "127.0.0.1");
+#else
+		(void)::setenv("NO_PROXY", "127.0.0.1", 1);
+		(void)::setenv("no_proxy", "127.0.0.1", 1);
+#endif
+	}
+};
+[[maybe_unused]] testing::Environment* const kNoProxy =
+	testing::AddGlobalTestEnvironment(new NoProxyEnvironment);
 
 struct RecordedRequest {
 	std::string method;
@@ -41,17 +92,18 @@ struct RecordedRequest {
 class LoopbackServer {
 public:
 	explicit LoopbackServer(std::string response) : response_(std::move(response)) {
+		initialize_sockets();
 		listener_ = ::socket(AF_INET, SOCK_STREAM, 0);
 		sockaddr_in address{};
 		address.sin_family = AF_INET;
 		address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
 		address.sin_port = 0;
-		if (listener_ < 0 ||
+		if (listener_ == kInvalidSocket ||
 			::bind(listener_, reinterpret_cast<sockaddr*>(&address), sizeof(address)) != 0 ||
 			::listen(listener_, 8) != 0) {
 			return;
 		}
-		socklen_t length = sizeof(address);
+		AddressLength length = sizeof(address);
 		::getsockname(listener_, reinterpret_cast<sockaddr*>(&address), &length);
 		port_ = ntohs(address.sin_port);
 		thread_ = std::thread([this] { serve(); });
@@ -59,8 +111,10 @@ public:
 
 	~LoopbackServer() {
 		stopping_ = true;
-		::shutdown(listener_, SHUT_RDWR);
-		::close(listener_);
+		if (listener_ != kInvalidSocket) {
+			::shutdown(listener_, kShutdownBoth);
+			close_socket(listener_);
+		}
 		if (thread_.joinable()) {
 			thread_.join();
 		}
@@ -81,21 +135,22 @@ public:
 private:
 	void serve() {
 		while (!stopping_) {
-			const int connection = ::accept(listener_, nullptr, nullptr);
-			if (connection < 0) {
+			const Socket connection = ::accept(listener_, nullptr, nullptr);
+			if (connection == kInvalidSocket) {
 				return;
 			}
 			handle(connection);
-			::close(connection);
+			close_socket(connection);
 		}
 	}
 
-	void handle(int connection) {
+	void handle(Socket connection) {
 		std::string data;
 		std::array<char, 4096> buffer{};
 		std::size_t header_end = std::string::npos;
 		while ((header_end = data.find("\r\n\r\n")) == std::string::npos) {
-			const ssize_t received = ::recv(connection, buffer.data(), buffer.size(), 0);
+			const SocketIoResult received =
+				::recv(connection, buffer.data(), static_cast<int>(buffer.size()), 0);
 			if (received <= 0) {
 				return;
 			}
@@ -128,7 +183,8 @@ private:
 									   : 0;
 		request.body = data.substr(header_end + 4);
 		while (request.body.size() < length) {
-			const ssize_t received = ::recv(connection, buffer.data(), buffer.size(), 0);
+			const SocketIoResult received =
+				::recv(connection, buffer.data(), static_cast<int>(buffer.size()), 0);
 			if (received <= 0) {
 				break;
 			}
@@ -145,11 +201,30 @@ private:
 			}
 			return;
 		}
-		::send(connection, response_.data(), response_.size(), 0);
+#ifdef SO_NOSIGPIPE
+		const int no_sigpipe = 1;
+		(void)::setsockopt(connection, SOL_SOCKET, SO_NOSIGPIPE, &no_sigpipe, sizeof(no_sigpipe));
+#endif
+#ifdef MSG_NOSIGNAL
+		constexpr int kSendFlags = MSG_NOSIGNAL;
+#else
+		constexpr int kSendFlags = 0;
+#endif
+		std::size_t sent = 0;
+		while (sent < response_.size()) {
+			const int chunk =
+				static_cast<int>(std::min(response_.size() - sent, std::size_t{65536}));
+			const SocketIoResult written =
+				::send(connection, response_.data() + sent, chunk, kSendFlags);
+			if (written <= 0) {
+				return;
+			}
+			sent += static_cast<std::size_t>(written);
+		}
 	}
 
 	std::string response_;
-	int listener_{-1};
+	Socket listener_{kInvalidSocket};
 	std::uint16_t port_{0};
 	std::atomic<bool> stopping_{false};
 	std::thread thread_;
@@ -309,11 +384,3 @@ TEST(HttpClientLoopback, HttpSchemesAreCaseInsensitive) {
 		EXPECT_EQ(result->status_code, 200);
 	}
 }
-
-#else
-
-TEST(HttpClientLoopback, SkippedOnWindows) {
-	GTEST_SKIP() << "The loopback server uses POSIX sockets";
-}
-
-#endif

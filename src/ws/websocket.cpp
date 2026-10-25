@@ -326,6 +326,16 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 		return was_up;
 	}
 
+	// Internal failures may be allocation failures. Discard subscriptions rather
+	// than replaying pending updates, which can allocate during normal stop().
+	void fail_session() noexcept {
+		try {
+			stop(true);
+			report(WsState::Disconnected);
+		} catch (...) { // NOLINT(bugprone-empty-catch): never unwind through a C callback
+		}
+	}
+
 	/// Joins a stopped service thread. Never called on that thread.
 	void reap() {
 		std::thread worker;
@@ -402,10 +412,14 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 			const std::lock_guard lock(mutex);
 			active = context;
 		}
-		while (!stopping) {
-			if (lws_service(active, 0) < 0 && stop()) {
-				report(WsState::Disconnected);
+		try {
+			while (!stopping) {
+				if (lws_service(active, 0) < 0 && stop()) {
+					report(WsState::Disconnected);
+				}
 			}
+		} catch (...) {
+			fail_session();
 		}
 		{
 			const std::lock_guard lock(mutex);
@@ -499,8 +513,7 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 				self->schedule_reconnect();
 			}
 		} catch (...) {
-			self->stop();
-			self->report(WsState::Disconnected);
+			self->fail_session();
 		}
 	}
 
@@ -516,8 +529,7 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 			return self == nullptr ? 0 : self->on_event(connection, reason, in, len);
 		} catch (...) {
 			if (self != nullptr) {
-				self->stop();
-				self->report(WsState::Disconnected);
+				self->fail_session();
 			}
 			return -1;
 		}

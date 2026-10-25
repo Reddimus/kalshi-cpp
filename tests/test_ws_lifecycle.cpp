@@ -220,3 +220,10 @@ TEST(WsReconnect, BoundsNegativeAndExtremeTimerDurations) {
 	config.max_reconnect_delay = std::chrono::milliseconds{400};
 	EXPECT_EQ(kalshi::detail::reconnect_delay(config, 10, 0.5), std::chrono::milliseconds{200});
 }
+
+TEST(WsReconnect, PositiveMillisecondDelayNeverRoundsDownToZero) {
+	kalshi::WsConfig config;
+	config.reconnect_delay = std::chrono::milliseconds{1};
+	config.max_reconnect_delay = std::chrono::milliseconds{1};
+	EXPECT_EQ(kalshi::detail::reconnect_delay(config, 0, 0.5), std::chrono::milliseconds{1});
+}

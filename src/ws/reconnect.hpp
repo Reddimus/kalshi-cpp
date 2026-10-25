@@ -23,7 +23,7 @@ inline std::chrono::milliseconds reconnect_delay(const WsConfig& config, std::ui
 		std::ldexp(static_cast<double>(initial.count()), static_cast<int>(std::min(failures, 20U))),
 		cap);
 	const double scaled = delay * std::clamp(jitter, 0.5, 1.0);
-	return scaled >= cap ? maximum : Milliseconds{static_cast<Milliseconds::rep>(scaled)};
+	return scaled >= cap ? maximum : Milliseconds{std::llround(scaled)};
 }
 
 } // namespace kalshi::detail

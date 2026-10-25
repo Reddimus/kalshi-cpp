@@ -10,7 +10,7 @@ memory.
 | `test_operation_routes.cpp` | Every REST operation's method and path (generated) |
 | `test_operations.cpp` | Request bodies and response parsing for common operations |
 | `test_api_support.cpp` | Encoding, error mapping, null handling, validation |
-| `test_http_client.cpp` | The libcurl transport, POSIX only |
+| `test_http_client.cpp` | The libcurl transport on POSIX and Windows |
 | `test_transports.cpp` | Retries, token buckets, rate limiting |
 | `test_signer.cpp` | Ed25519 and RSA-PSS signing |
 | `test_helpers.cpp` | Cents, contracts, timestamps, order directions, pagination |

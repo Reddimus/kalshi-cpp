@@ -83,6 +83,7 @@ struct WsConfig {
 
 /// Streams Kalshi's WebSocket channels.
 ///
+/// Internal failures stop the session and clear subscriptions.
 /// Subscriptions survive reconnects: the client resubscribes with the same
 /// parameters and keeps each `ws::Subscription` handle, while the server's
 /// `sid` changes. Callbacks run on the client's network thread, which blocks
