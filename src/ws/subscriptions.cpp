@@ -226,7 +226,7 @@ Reaction SubscriptionRegistry::on_subscribed(const SubscribedFrame& frame) {
 		reaction.frames.push_back(update_frame(*entry, params));
 	}
 	entry->held.clear();
-	reaction.message = ws::Subscribed{entry->handle, frame.sid};
+	reaction.message = ws::Subscribed{entry->handle, frame.sid, frame.sending_ts_ms};
 	return reaction;
 }
 
@@ -240,7 +240,7 @@ Reaction SubscriptionRegistry::on_unsubscribed(const UnsubscribedFrame& frame) {
 		subscription = found == by_sid_.end() ? 0 : found->second;
 	}
 	if (const Entry* entry = find(subscription)) {
-		reaction.message = ws::Unsubscribed{entry->handle};
+		reaction.message = ws::Unsubscribed{entry->handle, frame.sending_ts_ms};
 		erase(subscription);
 	}
 	return reaction;
@@ -254,8 +254,8 @@ Reaction SubscriptionRegistry::on_ok(const OkFrame& frame) {
 	}
 	if (command->kind == Kind::List) {
 		// take() found the command, so the reply carried its id.
-		reaction.message =
-			ws::SubscriptionList{frame.id.value_or(0), parse_subscription_list(frame.msg)};
+		reaction.message = ws::SubscriptionList{
+			frame.id.value_or(0), parse_subscription_list(frame.msg), frame.sending_ts_ms};
 		return reaction;
 	}
 	Entry* entry = command->kind == Kind::Update ? find(command->subscription) : nullptr;
@@ -268,6 +268,7 @@ Reaction SubscriptionRegistry::on_ok(const OkFrame& frame) {
 	}
 	ws::Updated updated = parse_updated(frame.msg);
 	updated.subscription = entry->handle;
+	updated.sending_ts_ms = frame.sending_ts_ms;
 	// The reply lists every market afterwards; trust it over local bookkeeping.
 	if (!updated.market_tickers.empty()) {
 		entry->params.market_ticker.reset();
@@ -284,7 +285,8 @@ Reaction SubscriptionRegistry::on_ok(const OkFrame& frame) {
 Reaction SubscriptionRegistry::on_error(const ErrorFrame& frame) {
 	Reaction reaction;
 	note_seq(frame.sid, frame.seq);
-	WsError error{frame.code, frame.message, frame.id, frame.sid, frame.seq, std::nullopt};
+	WsError error{frame.code, frame.message, frame.id,			 frame.sid,
+				  frame.seq,  std::nullopt,	 frame.sending_ts_ms};
 	if (error.message.empty()) {
 		error.message = std::string{ws::error_code_name(frame.code)};
 	}

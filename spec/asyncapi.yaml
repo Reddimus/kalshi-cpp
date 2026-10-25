@@ -160,6 +160,13 @@ channels:
       - Supports `update_subscription` with `add_markets` / `delete_markets` / `get_snapshot` actions
       - `get_snapshot` returns an `orderbook_snapshot` for the requested `market_tickers` without modifying the subscription
 
+      **Matching updates across connections:**
+      - `clock` is the exchange clock. It is the same on every connection, so it can match a market's updates across redundant connections; `seq` counts messages on one subscription only
+      - One exchange action can make several deltas, so several deltas can share a `clock`. Every connection sends them in the same order, before any delta for that market with a higher `clock`
+      - A snapshot includes every change with a `clock` at or below its own; the deltas that follow it on that connection have higher clocks
+      - While you are subscribed to a market, its clocks never go down outside exchange maintenance, but they skip values. They are not comparable across markets. Keep checking `seq` on each connection for missed messages
+      - A market's clock may decrease during exchange maintenance, so don't compare clocks from before a maintenance period with clocks after it
+
       **Use case:** Building and maintaining a real-time orderbook
     messages:
       orderbookSnapshot:
@@ -304,6 +311,41 @@ channels:
         $ref: '#/components/messages/quoteAccepted'
       quoteExecuted:
         $ref: '#/components/messages/quoteExecuted'
+
+  batch_communications:
+    address: batch_communications
+    title: Batch Communications
+    description: |
+      Real-time RFQ batch and batch quote notifications. Requires authentication.
+
+      **Requirements:**
+      - Authentication required
+      - Market specification ignored
+      - Optional sharding for fanout control:
+        - `shard_factor` (1-100) and `shard_key` (`0 <= key < shard_factor`)
+        - Every event is partitioned by `rfq_batch_id`
+      - RFQ batch events (RFQBatchCreated, RFQBatchDeleted) are sent for all users by default. Set `user_filter: "self"` to receive only RFQ batches you created. Omitted or empty `user_filter` keeps the default.
+      - A batch's child RFQs are announced only inside RFQBatchCreated. Each child trade still sends QuoteExecuted, with `rfq_batch_id` set, on the `communications` channel. The two channels are separate subscriptions, so a child's QuoteExecuted is not ordered with this channel's messages.
+      - Each child of an RFQ batch fills at its best quote across makers, and the children execute together: every child trades, or none does. Every maker's batch quote prices every child, and each child goes to the maker bidding best on the accepted side, so one batch can have several winning makers. A batch quote counts only for 30 seconds after it was last submitted; resending an unchanged bid within that time keeps its time priority.
+      - RFQBatchBestQuotes and RFQBatchExecuted are only sent to the RFQ batch creator. RFQBatchBestQuotes carries the best bids across makers without identifying them; the batch creator never receives a maker's individual batch quote.
+      - Batch quote events (BatchQuoteCreated, BatchQuoteAccepted, BatchQuoteExecuted) are only sent to the maker that created the batch quote. Each winning maker confirms the children it won, and nothing executes until every winning maker has confirmed.
+
+      **Use case:** Tracking RFQ batches you create and the best quotes on them, or batch quotes you create on others' RFQ batches.
+    messages:
+      rfqBatchCreated:
+        $ref: '#/components/messages/rfqBatchCreated'
+      rfqBatchDeleted:
+        $ref: '#/components/messages/rfqBatchDeleted'
+      batchQuoteCreated:
+        $ref: '#/components/messages/batchQuoteCreated'
+      rfqBatchBestQuotes:
+        $ref: '#/components/messages/rfqBatchBestQuotes'
+      batchQuoteAccepted:
+        $ref: '#/components/messages/batchQuoteAccepted'
+      rfqBatchExecuted:
+        $ref: '#/components/messages/rfqBatchExecuted'
+      batchQuoteExecuted:
+        $ref: '#/components/messages/batchQuoteExecuted'
 
   order_group_updates:
     address: order_group_updates
@@ -490,7 +532,7 @@ channels:
     address: pyth_value
     title: Pyth Value Feed
     description: |
-      Real-time Pyth price updates for configured underlying tickers. Requires authentication.
+      Real-time Pyth price and Treasury yield updates for configured underlying tickers. Requires authentication.
 
       ## Access and pricing
 
@@ -498,34 +540,48 @@ channels:
 
       Connect using an authenticated Kalshi WebSocket session. See [Quick Start: WebSockets](/getting_started/quick_start_websockets#authentication) for API key authentication and request signing.
 
-      ## Commodities and underlying tickers
+      ## Underlying tickers
 
-      The reference table below includes spot metals, commodity futures, and indices. The gold and silver examples are only a subset of the feed coverage.
+      The reference table below lists supported underlyings: spot metals, metal and commodity indices, an equity index, FX pairs, and Treasury yields. Index descriptions note Pyth's publishing schedule (24/7, 24/5, or 23/5); spot metals, FX pairs, and Treasury yields follow their market sessions.
 
-      | Pyth feed ID | Pyth symbol | Description |
-      |--------------|-------------|-------------|
-      | 345 | `Metal.XAG/USD` | Silver price in USD |
-      | 346 | `Metal.XAU/USD` | Gold price in USD |
-      | 2937 | `Commodities.CCU6/USD` | Cocoa futures (Sept 2026) in USD |
-      | 3052 | `Commodities.COU6/USD` | Crude Oil futures (Sept 2026) in USD |
-      | 3053 | `Commodities.COZ6/USD` | Crude Oil futures (Dec 2026) in USD |
-      | 3080 | `Commodities.WHU6/USD` | Wheat futures (Sept 2026) in USD |
-      | 3081 | `Commodities.WHZ6/USD` | Wheat futures (Dec 2026) in USD |
-      | 3085 | `Commodities.SOU6/USD` | Soybeans futures (Sept 2026) in USD |
-      | 3086 | `Commodities.SOX6/USD` | Soybeans futures (Nov 2026) in USD |
-      | 3063 | `Commodities.Index.PYTHOIL/USD` | Blended Oil Index in USD |
-      | 3153 | `Metal.Index.GOLD/USD` | Blended Gold Index in USD |
-      | 3154 | `Metal.Index.SILVER/USD` | Blended Silver Index in USD |
-      | 3045 | `Commodities.BRENTX6/USD` | Brent Crude futures (Nov 2026) in USD |
-      | 3525 | `Commodities.Index.CU/USD` | Copper Index in USD |
-      | 3265 | `Commodities.Index.NATGAS/USD` | Natural Gas Index in USD |
-      | 3446 | `Commodities.Index.BRENT/USD` | Blended Brent Crude Index in USD |
-      | 1781 | `Metal.XPT/USD` | Platinum price in USD |
-      | 1780 | `Metal.XPD/USD` | Palladium price in USD |
+      | Pyth feed ID | Pyth symbol                     | Description                                             |
+      |--------------|---------------------------------|---------------------------------------------------------|
+      | 345          | `Metal.XAG/USD`                 | Silver price in USD                                     |
+      | 346          | `Metal.XAU/USD`                 | Gold price in USD                                       |
+      | 1780         | `Metal.XPD/USD`                 | Palladium price in USD                                  |
+      | 1781         | `Metal.XPT/USD`                 | Platinum price in USD                                   |
+      | 3153         | `Metal.Index.GOLD/USD`          | Blended Gold Index in USD (24/7)                        |
+      | 3712         | `Metal.Index.1OZGOLD/USD`       | 1-Ounce Gold Index in USD (24/7)                        |
+      | 3154         | `Metal.Index.SILVER/USD`        | Blended Silver Index in USD (24/7)                      |
+      | 3063         | `Commodities.Index.PYTHOIL/USD` | Blended Oil Index in USD (24/7)                         |
+      | 3707         | `Commodities.Index.WTI1M/USD`   | Constant 1-Month WTI Crude Index in USD (23/5)          |
+      | 3446         | `Commodities.Index.BRENT/USD`   | Blended Brent Crude Index in USD (24/7)                 |
+      | 3265         | `Commodities.Index.NATGAS/USD`  | Natural Gas Index in USD (24/7)                         |
+      | 3525         | `Commodities.Index.CU/USD`      | Copper Index in USD (24/7)                              |
+      | 3266         | `Commodities.Index.COPPER/USD`  | Copper Index in USD (23/5)                              |
+      | 3292         | `Equity.Index.US30/USD`         | US30 (Dow Jones Industrial Average) Index in USD (24/5) |
+      | 1530         | `InterestRate.US2Y`             | US 2-year Treasury yield in percent                     |
+      | 1534         | `InterestRate.US5Y`             | US 5-year Treasury yield in percent                     |
+      | 1527         | `InterestRate.US10Y`            | US 10-year Treasury yield in percent                    |
+      | 1531         | `InterestRate.US30Y`            | US 30-year Treasury yield in percent                    |
+      | 327          | `FX.EUR/USD`                    | Euro / US Dollar                                        |
+      | 333          | `FX.GBP/USD`                    | British Pound / US Dollar                               |
+      | 315          | `FX.AUD/USD`                    | Australian Dollar / US Dollar                           |
+      | 337          | `FX.NZD/USD`                    | New Zealand Dollar / US Dollar                          |
+      | 340          | `FX.USD/JPY`                    | US Dollar / Japanese Yen                                |
+      | 338          | `FX.USD/CAD`                    | US Dollar / Canadian Dollar                             |
+      | 339          | `FX.USD/CHF`                    | US Dollar / Swiss Franc                                 |
+      | 1514         | `FX.USD/NOK`                    | US Dollar / Norwegian Krone                             |
+      | 1517         | `FX.USD/SEK`                    | US Dollar / Swedish Krona                               |
+      | 341          | `FX.USD/MXN`                    | US Dollar / Mexican Peso                                |
+      | 1512         | `FX.USD/INR`                    | US Dollar / Indian Rupee (offshore spot)                |
+      | 1506         | `FX.USD/BRL`                    | US Dollar / Brazilian Real                              |
 
       Pass the exact **Pyth symbol** in `underlying_tickers`. The numeric Pyth feed IDs are reference information and are not subscription parameters for this channel. Kalshi market tickers are not Pyth underlying tickers.
 
       Use `underlying_list` to discover recently streamed tickers on your connection. Availability can change, including as futures contracts expire; the table does not guarantee that every feed is streaming in every environment.
+
+      Treasury yields use the exact symbols above, without a `/USD` suffix. They are included in `["all"]` subscriptions and can also be requested individually, for example with `underlying_tickers: ["InterestRate.US2Y"]`. These are the yield feeds behind the `KX{2,5,10,30}YRRATE15M` and `KX{2,5,10,30}YRRATEH` markets; `/USD` symbols identify separate bond-price feeds.
 
       ## Requirements
 
@@ -625,7 +681,7 @@ channels:
 
       - `sid` identifies the subscription stream; use it for `update_subscription` and `unsubscribe`.
       - Missing or empty `underlying_tickers` for `subscribe_underlyings` or `unsubscribe_underlyings` returns an `error` with `code: 28` ("Underlying tickers required").
-      - `value_usd` is a USD price string formatted to eight decimal places.
+      - `value_usd` is formatted to eight decimal places. The field name is retained for compatibility: for Treasury yield symbols it contains the yield in percent, so `"4.25000000"` means **4.25%**, not a dollar price or a decimal fraction. Other symbols retain their quoted price units.
       - `source_ts_ms` is the source timestamp in Unix milliseconds; `received_at` is when Kalshi received the update, also in Unix milliseconds.
     messages:
       pythValue:
@@ -1003,6 +1059,83 @@ operations:
       $ref: '#/channels/communications'
     messages:
       - $ref: '#/channels/communications/messages/quoteExecuted'
+    tags:
+      - name: private
+
+  receiveRFQBatchCreated:
+    action: send
+    title: RFQ Batch Created
+    summary: Receive RFQ batch created notifications
+    channel:
+      $ref: '#/channels/batch_communications'
+    messages:
+      - $ref: '#/channels/batch_communications/messages/rfqBatchCreated'
+    tags:
+      - name: private
+
+  receiveRFQBatchDeleted:
+    action: send
+    title: RFQ Batch Deleted
+    summary: Receive RFQ batch deleted notifications
+    channel:
+      $ref: '#/channels/batch_communications'
+    messages:
+      - $ref: '#/channels/batch_communications/messages/rfqBatchDeleted'
+    tags:
+      - name: private
+
+  receiveBatchQuoteCreated:
+    action: send
+    title: Batch Quote Created
+    summary: Receive batch quote created notifications
+    channel:
+      $ref: '#/channels/batch_communications'
+    messages:
+      - $ref: '#/channels/batch_communications/messages/batchQuoteCreated'
+    tags:
+      - name: private
+
+  receiveRFQBatchBestQuotes:
+    action: send
+    title: RFQ Batch Best Quotes
+    summary: Receive the best quotes across makers on your RFQ batch
+    channel:
+      $ref: '#/channels/batch_communications'
+    messages:
+      - $ref: '#/channels/batch_communications/messages/rfqBatchBestQuotes'
+    tags:
+      - name: private
+
+  receiveBatchQuoteAccepted:
+    action: send
+    title: Batch Quote Accepted
+    summary: Receive batch quote accepted notifications
+    channel:
+      $ref: '#/channels/batch_communications'
+    messages:
+      - $ref: '#/channels/batch_communications/messages/batchQuoteAccepted'
+    tags:
+      - name: private
+
+  receiveRFQBatchExecuted:
+    action: send
+    title: RFQ Batch Executed
+    summary: Receive RFQ batch executed notifications
+    channel:
+      $ref: '#/channels/batch_communications'
+    messages:
+      - $ref: '#/channels/batch_communications/messages/rfqBatchExecuted'
+    tags:
+      - name: private
+
+  receiveBatchQuoteExecuted:
+    action: send
+    title: Batch Quote Executed
+    summary: Receive batch quote executed notifications
+    channel:
+      $ref: '#/channels/batch_communications'
+    messages:
+      - $ref: '#/channels/batch_communications/messages/batchQuoteExecuted'
     tags:
       - name: private
 
@@ -1430,6 +1563,7 @@ components:
           payload:
             id: 1
             type: subscribed
+            sending_ts_ms: 1669149841234
             msg:
               channel: orderbook_delta
               sid: 1
@@ -1449,6 +1583,7 @@ components:
             sid: 2
             seq: 7
             type: unsubscribed
+            sending_ts_ms: 1669149841234
 
     subscribedIndicesResponse:
       name: ok
@@ -1481,6 +1616,7 @@ components:
             sid: 456
             seq: 222
             type: ok
+            sending_ts_ms: 1669149841234
             msg:
               market_tickers: ["MARKET-1", "MARKET-2", "MARKET-3"]
 
@@ -1497,6 +1633,7 @@ components:
           payload:
             id: 3
             type: ok
+            sending_ts_ms: 1669149841234
             msg:
               - channel: "orderbook_delta"
                 sid: 1
@@ -1553,6 +1690,7 @@ components:
           payload:
             id: 123
             type: error
+            sending_ts_ms: 1669149841234
             msg:
               code: 7
               msg: "Unknown subscription ID"
@@ -1561,6 +1699,7 @@ components:
           payload:
             id: 124
             type: error
+            sending_ts_ms: 1669149841234
             msg:
               code: 8
               msg: "Unknown channel name"
@@ -1569,6 +1708,7 @@ components:
           payload:
             id: 125
             type: error
+            sending_ts_ms: 1669149841234
             msg:
               code: 2
               msg: "Params required"
@@ -1577,6 +1717,7 @@ components:
           payload:
             id: 126
             type: error
+            sending_ts_ms: 1669149841234
             msg:
               code: 9
               msg: "Authentication required"
@@ -1585,6 +1726,7 @@ components:
           payload:
             id: 127
             type: error
+            sending_ts_ms: 1669149841234
             msg:
               code: 14
               msg: "Market Ticker required"
@@ -1629,11 +1771,13 @@ components:
           summary: Orderbook snapshot with yes and no sides
           payload:
             type: orderbook_snapshot
+            sending_ts_ms: 1669149841234
             sid: 2
             seq: 2
             msg:
               market_ticker: "FED-23DEC-T3.00"
               market_id: "9b0f6b43-5b68-4f9f-9f02-9a2d1b8ac1a1"
+              clock: 4182057
               yes_dollars_fp: [["0.0800", "300.00"], ["0.2200", "333.00"]]
               no_dollars_fp: [["0.5400", "20.00"], ["0.5600", "146.00"]]
 
@@ -1649,11 +1793,13 @@ components:
           summary: Orderbook price level update
           payload:
             type: orderbook_delta
+            sending_ts_ms: 1669149841123
             sid: 2
             seq: 3
             msg:
               market_ticker: "FED-23DEC-T3.00"
               market_id: "9b0f6b43-5b68-4f9f-9f02-9a2d1b8ac1a1"
+              clock: 4182061
               price_dollars: "0.9600"
               delta_fp: "-54.00"
               side: "yes"
@@ -1672,6 +1818,7 @@ components:
           summary: CF Benchmarks value update with 60s and final-minute quarter-hour averages
           payload:
             type: cfbenchmarks_value
+            sending_ts_ms: 1669149841234
             sid: 1
             seq: 42
             msg:
@@ -1701,6 +1848,7 @@ components:
           summary: Example available index IDs (illustrative subset)
           payload:
             type: cfbenchmarks_value_indexlist
+            sending_ts_ms: 1669149841234
             id: 2
             sid: 1
             seq: 1
@@ -1719,6 +1867,7 @@ components:
           summary: CF Benchmarks 5Hz value update (raw tick, no averages)
           payload:
             type: cfbenchmarks_value_5hz
+            sending_ts_ms: 1669149841234
             sid: 1
             seq: 42
             msg:
@@ -1740,6 +1889,7 @@ components:
           summary: Index IDs streaming on the 5Hz channel
           payload:
             type: cfbenchmarks_value_5hz_indexlist
+            sending_ts_ms: 1669149841234
             id: 2
             sid: 1
             seq: 1
@@ -1749,7 +1899,7 @@ components:
     pythValue:
       name: pyth_value
       title: Pyth Value Update
-      summary: Deduplicated real-time Pyth price for an underlying ticker
+      summary: Deduplicated real-time Pyth price or Treasury yield for an underlying ticker
       contentType: application/json
       payload:
         $ref: '#/components/schemas/pythValuePayload'
@@ -1757,11 +1907,23 @@ components:
         - name: pythValueUpdate
           payload:
             type: pyth_value
+            sending_ts_ms: 1669149841234
             sid: 1
             seq: 42
             msg:
               underlying_ticker: "Commodities.Index.PYTHOIL/USD"
               value_usd: "82.12345000"
+              source_ts_ms: 1710000000100
+              received_at: 1710000000123
+        - name: pythTreasuryYieldUpdate
+          payload:
+            type: pyth_value
+            sending_ts_ms: 1710000000124
+            sid: 1
+            seq: 43
+            msg:
+              underlying_ticker: "InterestRate.US2Y"
+              value_usd: "4.25000000"
               source_ts_ms: 1710000000100
               received_at: 1710000000123
 
@@ -1776,6 +1938,7 @@ components:
         - name: underlyingListResponse
           payload:
             type: pyth_value_underlying_list
+            sending_ts_ms: 1669149841234
             id: 2
             sid: 1
             seq: 1
@@ -1794,6 +1957,7 @@ components:
           summary: Ticker update
           payload:
             type: ticker
+            sending_ts_ms: 1669149841123
             sid: 11
             msg:
               market_id: "9b0f6b43-5b68-4f9f-9f02-9a2d1b8ac1a1"
@@ -1824,6 +1988,7 @@ components:
           summary: Trade notification
           payload:
             type: trade
+            sending_ts_ms: 1669149841123
             sid: 11
             seq: 2
             msg:
@@ -1851,6 +2016,7 @@ components:
           summary: User fill notification
           payload:
             type: fill
+            sending_ts_ms: 1671899397123
             sid: 13
             msg:
               trade_id: "d91bc706-ee49-470d-82d8-11418bda6fed"
@@ -1884,6 +2050,7 @@ components:
           summary: Market created event
           payload:
             type: market_lifecycle_v2
+            sending_ts_ms: 1669149841234
             sid: 13
             seq: 3
             msg:
@@ -1910,6 +2077,7 @@ components:
           summary: Price level structure updated event
           payload:
             type: market_lifecycle_v2
+            sending_ts_ms: 1669149841234
             sid: 13
             seq: 4
             msg:
@@ -1933,6 +2101,7 @@ components:
           summary: Market metadata updated event
           payload:
             type: market_lifecycle_v2
+            sending_ts_ms: 1669149841234
             sid: 13
             seq: 5
             msg:
@@ -1945,6 +2114,7 @@ components:
           summary: Market metadata updated event (subtitle)
           payload:
             type: market_lifecycle_v2
+            sending_ts_ms: 1669149841234
             sid: 13
             seq: 6
             msg:
@@ -1964,6 +2134,7 @@ components:
           summary: Multivariate market created event
           payload:
             type: multivariate_market_lifecycle
+            sending_ts_ms: 1669149841234
             sid: 14
             seq: 7
             msg:
@@ -1995,6 +2166,7 @@ components:
           summary: Event created
           payload:
             type: event_lifecycle
+            sending_ts_ms: 1669149841234
             sid: 5
             seq: 8
             msg:
@@ -2018,6 +2190,7 @@ components:
           summary: Event fee override set
           payload:
             type: event_fee_update
+            sending_ts_ms: 1669149841234
             sid: 5
             seq: 9
             msg:
@@ -2028,6 +2201,7 @@ components:
           summary: Event fee override cleared
           payload:
             type: event_fee_update
+            sending_ts_ms: 1669149841234
             sid: 5
             seq: 10
             msg:
@@ -2047,6 +2221,7 @@ components:
           summary: User position update
           payload:
             type: market_position
+            sending_ts_ms: 1669149841234
             sid: 14
             msg:
               user_id: "user123"
@@ -2070,6 +2245,7 @@ components:
           summary: Order group limit updated
           payload:
             type: order_group_updates
+            sending_ts_ms: 1733047200123
             sid: 21
             seq: 7
             msg:
@@ -2090,6 +2266,7 @@ components:
           summary: User order created notification
           payload:
             type: user_order
+            sending_ts_ms: 1669149841234
             sid: 22
             msg:
               order_id: "ee587a1c-8b87-4dcf-b721-9f6f790619fa"
@@ -2130,6 +2307,7 @@ components:
           summary: RFQ created notification
           payload:
             type: rfq_created
+            sending_ts_ms: 1669149841234
             sid: 15
             seq: 11
             msg:
@@ -2143,6 +2321,7 @@ components:
           summary: MVE RFQ created notification
           payload:
             type: rfq_created
+            sending_ts_ms: 1669149841234
             sid: 15
             seq: 11
             msg:
@@ -2174,6 +2353,7 @@ components:
           summary: RFQ deleted notification
           payload:
             type: rfq_deleted
+            sending_ts_ms: 1669149841234
             sid: 15
             seq: 12
             msg:
@@ -2197,6 +2377,7 @@ components:
           summary: Quote created notification
           payload:
             type: quote_created
+            sending_ts_ms: 1669149841234
             sid: 15
             seq: 13
             msg:
@@ -2226,6 +2407,7 @@ components:
           summary: Quote accepted notification
           payload:
             type: quote_accepted
+            sending_ts_ms: 1669149841234
             sid: 15
             seq: 14
             msg:
@@ -2260,6 +2442,7 @@ components:
           summary: Quote executed notification
           payload:
             type: quote_executed
+            sending_ts_ms: 1669149841234
             sid: 15
             seq: 15
             msg:
@@ -2273,7 +2456,259 @@ components:
               executed_ts: "2024-12-01T10:05:00Z"
               subaccount: 3
 
+    rfqBatchCreated:
+      name: rfq_batch_created
+      title: RFQ Batch Created
+      summary: Notification when an RFQ batch is created
+      description: |
+        An RFQ batch requests quotes on several combos together, for example every parlay of a round robin.
+        Distinct legs are listed once in `legs`; each child RFQ lists the indexes of its legs in `leg_indices`.
+        Quote it with `POST /communications/rfq_batches/{rfq_batch_id}/quotes`, pricing every child. Each child is filled at the best bid across makers. Its child RFQs are not announced separately.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/rfqBatchCreatedPayload'
+      examples:
+        - name: rfqBatchCreatedNotification
+          summary: RFQ batch created notification
+          payload:
+            type: rfq_batch_created
+            sending_ts_ms: 1669149841234
+            sid: 15
+            seq: 16
+            msg:
+              id: "rfq_batch_123"
+              creator_id: "43fc3733603f4830a8c3b2986011a5f78d67b03b473dbfd3a3847abd85b63a51"
+              created_ts: "2024-12-01T10:00:00Z"
+              legs:
+                - event_ticker: "KXEVENTA-24DEC"
+                  market_ticker: "KXEVENTA-24DEC-YES"
+                  side: "yes"
+                - event_ticker: "KXEVENTB-24DEC"
+                  market_ticker: "KXEVENTB-24DEC-YES"
+                  side: "yes"
+                - event_ticker: "KXEVENTC-24DEC"
+                  market_ticker: "KXEVENTC-24DEC-YES"
+                  side: "no"
+              rfqs:
+                - id: "rfq_456"
+                  market_ticker: "KXMVE-24DEC-COMBO-AB"
+                  event_ticker: "KXMVE-24DEC-EVENT-AB"
+                  target_cost_dollars: "5.0000"
+                  mve_collection_ticker: "KXMVE-24DEC"
+                  leg_indices: [0, 1]
+                - id: "rfq_457"
+                  market_ticker: "KXMVE-24DEC-COMBO-AC"
+                  event_ticker: "KXMVE-24DEC-EVENT-AC"
+                  target_cost_dollars: "5.0000"
+                  mve_collection_ticker: "KXMVE-24DEC"
+                  leg_indices: [0, 2]
+
+    rfqBatchDeleted:
+      name: rfq_batch_deleted
+      title: RFQ Batch Deleted
+      summary: Notification when an RFQ batch closes
+      description: |
+        Sent when an RFQ batch closes, together with all of its child RFQs. When an accepted batch finishes executing, its creator receives `rfq_batch_executed` and each winning maker `batch_quote_executed` instead.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/rfqBatchDeletedPayload'
+      examples:
+        - name: rfqBatchDeletedNotification
+          summary: RFQ batch deleted notification
+          payload:
+            type: rfq_batch_deleted
+            sending_ts_ms: 1669149841234
+            sid: 15
+            seq: 17
+            msg:
+              id: "rfq_batch_123"
+              creator_id: "43fc3733603f4830a8c3b2986011a5f78d67b03b473dbfd3a3847abd85b63a51"
+              rfq_ids: ["rfq_456", "rfq_457"]
+              deleted_ts: "2024-12-01T10:05:00Z"
+
+    batchQuoteCreated:
+      name: batch_quote_created
+      title: Batch Quote Created
+      summary: Notification when you create a batch quote on an RFQ batch
+      description: |
+        Sent only to the maker that created the batch quote. A batch quote prices every child RFQ of the batch and replaces your previous batch quote on it.
+        It counts toward the batch's best quotes for 30 seconds after you submit it; resend it to keep it eligible. A resend within that time keeps the time priority of every bid it leaves unchanged.
+        The RFQ batch creator never receives individual batch quotes, only the best bid on each child across makers (`rfq_batch_best_quotes`).
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/batchQuoteCreatedPayload'
+      examples:
+        - name: batchQuoteCreatedNotification
+          summary: Batch quote created notification
+          payload:
+            type: batch_quote_created
+            sending_ts_ms: 1669149841234
+            sid: 15
+            seq: 18
+            msg:
+              batch_quote_id: "batch_quote_789"
+              rfq_batch_id: "rfq_batch_123"
+              quote_creator_id: "comm_def456"
+              created_ts: "2024-12-01T10:02:00Z"
+              quotes:
+                - quote_id: "quote_1"
+                  rfq_id: "rfq_456"
+                  market_ticker: "KXMVE-24DEC-COMBO-AB"
+                  event_ticker: "KXMVE-24DEC-EVENT-AB"
+                  yes_bid_dollars: "0.0000"
+                  no_bid_dollars: "0.7500"
+                  no_contracts_offered_fp: "20.00"
+                  rfq_target_cost_dollars: "5.0000"
+                - quote_id: "quote_2"
+                  rfq_id: "rfq_457"
+                  market_ticker: "KXMVE-24DEC-COMBO-AC"
+                  event_ticker: "KXMVE-24DEC-EVENT-AC"
+                  yes_bid_dollars: "0.0000"
+                  no_bid_dollars: "0.8000"
+                  no_contracts_offered_fp: "25.00"
+                  rfq_target_cost_dollars: "5.0000"
+              subaccount: 2
+
+    rfqBatchBestQuotes:
+      name: rfq_batch_best_quotes
+      title: RFQ Batch Best Quotes
+      summary: The best quotes across makers on your RFQ batch
+      description: |
+        Sent only to the RFQ batch creator when the best bid on either side of any child changes, including when a batch quote stops counting: at most once every 250 ms per batch, carrying the latest snapshot.
+        Each message is a full snapshot of the batch: one entry per child RFQ, in request order, with the best yes and no bid across every maker's batch quote. Makers are not identified, and the batch creator never receives an individual maker's batch quote.
+        A batch quote counts for 30 seconds after its maker last submitted it. Among equal bids the earlier one wins, and a maker that resends an unchanged bid within those 30 seconds keeps its time priority.
+        `version` increases with every snapshot of a batch; ignore a snapshot whose version is not greater than the last one you applied.
+        Accepting the batch on a side (`PUT /communications/rfq_batches/{rfq_batch_id}/accept`) fills each child at its best bid on that side, possibly from several makers, and needs a bid on every child (`yes_complete` / `no_complete`). Pass the bids you were shown as `min_bids` to protect your price. Nothing executes until every winning maker has confirmed.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/rfqBatchBestQuotesPayload'
+      examples:
+        - name: rfqBatchBestQuotesNotification
+          summary: RFQ batch best quotes notification
+          payload:
+            type: rfq_batch_best_quotes
+            sending_ts_ms: 1669149841234
+            sid: 15
+            seq: 20
+            msg:
+              rfq_batch_id: "rfq_batch_123"
+              client_batch_id: "my_round_robin_1"
+              version: 7
+              updated_ts: "2024-12-01T10:02:30Z"
+              yes_complete: false
+              no_complete: true
+              rfqs:
+                - rfq_id: "rfq_456"
+                  market_ticker: "KXMVE-24DEC-COMBO-AB"
+                  event_ticker: "KXMVE-24DEC-EVENT-AB"
+                  yes_bid_dollars: "0.2000"
+                  no_bid_dollars: "0.7500"
+                  yes_contracts_offered_fp: "6.25"
+                  no_contracts_offered_fp: "20.00"
+                  rfq_target_cost_dollars: "5.0000"
+                - rfq_id: "rfq_457"
+                  market_ticker: "KXMVE-24DEC-COMBO-AC"
+                  event_ticker: "KXMVE-24DEC-EVENT-AC"
+                  no_bid_dollars: "0.8000"
+                  no_contracts_offered_fp: "25.00"
+                  rfq_target_cost_dollars: "5.0000"
+
+    batchQuoteAccepted:
+      name: batch_quote_accepted
+      title: Batch Quote Accepted
+      summary: Notification when your batch quote wins children of an accepted RFQ batch
+      description: |
+        Sent to each winning maker when the RFQ batch creator accepts the batch on one side. Each child goes to the maker bidding best on that side, so one batch can have several winning makers; `quotes` lists only the children you won.
+        Confirm them with `PUT /communications/rfq_batches/{rfq_batch_id}/quotes/{batch_quote_id}/confirm` within the confirmation window. Nothing executes until every winning maker has confirmed; if any winner does not confirm in time, the whole batch closes without trading.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/batchQuoteAcceptedPayload'
+      examples:
+        - name: batchQuoteAcceptedNotification
+          summary: Batch quote accepted notification
+          payload:
+            type: batch_quote_accepted
+            sending_ts_ms: 1669149841234
+            sid: 15
+            seq: 19
+            msg:
+              batch_quote_id: "batch_quote_789"
+              rfq_batch_id: "rfq_batch_123"
+              quote_creator_id: "comm_def456"
+              rfq_creator_id: "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+              accepted_side: "no"
+              accepted_ts: "2024-12-01T10:03:00Z"
+              quotes:
+                - quote_id: "quote_2"
+                  rfq_id: "rfq_457"
+                  market_ticker: "KXMVE-24DEC-COMBO-AC"
+                  yes_bid_dollars: "0.0000"
+                  no_bid_dollars: "0.8000"
+                  no_contracts_offered_fp: "25.00"
+                  rfq_target_cost_dollars: "5.0000"
+              subaccount: 2
+
+    rfqBatchExecuted:
+      name: rfq_batch_executed
+      title: RFQ Batch Executed
+      summary: Notification when your accepted RFQ batch has executed or failed
+      description: |
+        Sent only to the RFQ batch creator, once per batch, when the batch has executed or failed. Each child trade also sends `quote_executed` on the `communications` channel, a separate subscription, so it is not ordered with this message.
+        The children execute together, so either every child is in `executed_rfq_ids` or every child is in `failed_rfq_ids`, except in the rare case that filling one child cancelled a maker order another child needed. Each winning maker receives `batch_quote_executed` for its own children instead.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/rfqBatchExecutedPayload'
+      examples:
+        - name: rfqBatchExecutedNotification
+          summary: RFQ batch executed notification
+          payload:
+            type: rfq_batch_executed
+            sending_ts_ms: 1669149841234
+            sid: 15
+            seq: 22
+            msg:
+              rfq_batch_id: "rfq_batch_123"
+              client_batch_id: "my_round_robin_1"
+              rfq_creator_id: "43fc3733603f4830a8c3b2986011a5f78d67b03b473dbfd3a3847abd85b63a51"
+              executed_rfq_ids: ["rfq_456", "rfq_457"]
+              failed_rfq_ids: []
+              executed_ts: "2024-12-01T10:03:05Z"
+              close_reason: "executed"
+
+    batchQuoteExecuted:
+      name: batch_quote_executed
+      title: Batch Quote Executed
+      summary: Notification when the RFQ batch your batch quote won children of has executed or failed
+      description: |
+        Sent to each winning maker once the batch has executed or failed. It covers only your children. Each child trade also sends `quote_executed` on the `communications` channel, a separate subscription, so it is not ordered with this message.
+        When the RFQ batch creator obscured their ID, `rfq_creator_id` is revealed only if at least one of your children executed.
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/batchQuoteExecutedPayload'
+      examples:
+        - name: batchQuoteExecutedNotification
+          summary: Batch quote executed notification
+          payload:
+            type: batch_quote_executed
+            sending_ts_ms: 1669149841234
+            sid: 15
+            seq: 23
+            msg:
+              batch_quote_id: "batch_quote_789"
+              rfq_batch_id: "rfq_batch_123"
+              rfq_creator_id: "43fc3733603f4830a8c3b2986011a5f78d67b03b473dbfd3a3847abd85b63a51"
+              executed_rfq_ids: ["rfq_457"]
+              failed_rfq_ids: []
+              executed_ts: "2024-12-01T10:03:05Z"
+              close_reason: "executed"
+              subaccount: 2
+
   schemas:
+    sendingTimestampMs:
+      type: integer
+      format: int64
+      description: Unix timestamp in milliseconds when Kalshi queued this message at the network layer.
+
     # Base schemas
     commandId:
       type: integer
@@ -2296,7 +2731,6 @@ components:
     marketTicker:
       type: string
       description: Unique market identifier
-      pattern: '^[A-Z0-9-]+$'
       examples:
         - "FED-23DEC-T3.00"
         - "HIGHNY-22DEC23-B53.5"
@@ -2315,6 +2749,11 @@ components:
       type: string
       description: 'Side of the book for an order or trade. ''bid'' is equivalent to outcome_side ''yes''; ''ask'' is equivalent to outcome_side ''no''.'
       enum: ["bid", "ask"]
+
+    lastUpdateReason:
+      type: string
+      description: Order update reason. The value ReduceOnlyCancel means reduce_only capped the order at placement.
+      enum: ["Decrease", "Amend", "MarginCancel", "SelfTradeCancel", "ExpiryCancel", "CloseCancel", "HaltCancel", "Trade", "PostOnlyCrossCancel", "ReduceOnlyCancel", "SettlementBoundsCancel"]
 
     orderAction:
       type: string
@@ -2569,6 +3008,8 @@ components:
               type: string
             sid:
               $ref: '#/components/schemas/subscriptionId'
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     unsubscribedResponsePayload:
       type: object
@@ -2583,6 +3024,8 @@ components:
           $ref: '#/components/schemas/subscriptionId'
         seq:
           $ref: '#/components/schemas/sequenceNumber'
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     subscribedIndicesResponsePayload:
       type: object
@@ -2606,6 +3049,8 @@ components:
               description: Current CF Benchmarks index filter after an update; all-mode is ["all"]
               items:
                 type: string
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     subscribedUnderlyingsResponsePayload:
       type: object
@@ -2629,6 +3074,8 @@ components:
               description: Current Pyth underlying ticker filter after an update; all-mode is ["all"]
               items:
                 type: string
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     okResponsePayload:
       type: object
@@ -2656,6 +3103,8 @@ components:
               description: Full list of market IDs after update
               items:
                 $ref: '#/components/schemas/marketId'
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     errorResponsePayload:
       type: object
@@ -2720,6 +3169,8 @@ components:
               description: Optional market tickers associated with the error
               items:
                 type: string
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     listSubscriptionsCommandPayload:
       type: object
@@ -2754,6 +3205,8 @@ components:
                 $ref: '#/components/schemas/subscriptionId'
 
     # Channel message payloads
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
     cfbenchmarksAvgData:
       type: object
       description: Windowed-average metadata for a CF Benchmarks index value.
@@ -2766,6 +3219,7 @@ components:
           type: integer
           description: Number of ticks counted in the window
           minimum: 0
+          x-rust-type: usize
         window_start_ts_ms:
           type: integer
           description: Window start boundary (unix ms)
@@ -2810,6 +3264,8 @@ components:
                 The accumulation window is `(quarter_close_ts_ms - 60000, quarter_close_ts_ms]` (start boundary
                 tick excluded, close tick included), producing second-indexed counts up to 60 at close. Omitted
                 outside that final-minute window.
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     cfbenchmarksIndexListPayload:
       type: object
@@ -2833,6 +3289,8 @@ components:
               description: Available CF Benchmarks index IDs
               items:
                 type: string
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     cfbenchmarksValue5HzPayload:
       type: object
@@ -2864,6 +3322,8 @@ components:
             data:
               type: string
               description: The raw CF Benchmarks JSON frame, as a string
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     cfbenchmarks5HzIndexListPayload:
       type: object
@@ -2887,6 +3347,8 @@ components:
               description: Index IDs recently observed on the 5Hz stream
               items:
                 type: string
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     pythValuePayload:
       type: object
@@ -2908,13 +3370,15 @@ components:
               description: Qualified Pyth underlying ticker
             value_usd:
               type: string
-              description: USD value formatted to 8 decimal places
+              description: 'Value formatted to 8 decimal places in the underlying''s quoted units. For Treasury yields (InterestRate.US2Y, InterestRate.US5Y, InterestRate.US10Y, InterestRate.US30Y), this is percent: "4.25000000" means 4.25%. The field name is retained for compatibility.'
             source_ts_ms:
               type: integer
               description: Pyth source timestamp (unix ms)
             received_at:
               type: integer
               description: When Kalshi received the Pyth update (unix ms)
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     pythUnderlyingListPayload:
       type: object
@@ -2938,6 +3402,8 @@ components:
               description: Underlying tickers observed on the Pyth stream in the last two hours
               items:
                 type: string
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     orderbookSnapshotPayload:
       type: object
@@ -2955,12 +3421,19 @@ components:
           $ref: '#/components/schemas/sequenceNumber'
         msg:
           type: object
-          required: ["market_ticker", "market_id"]
+          required: ["market_ticker", "market_id", "clock"]
           properties:
             market_ticker:
               $ref: '#/components/schemas/marketTicker'
             market_id:
               $ref: '#/components/schemas/marketId'
+            clock:
+              type: integer
+              format: int64
+              minimum: 0
+              description: |
+                Exchange clock of the newest change this snapshot includes, or 0 if the market has no recorded change.
+                The snapshot includes every change to this market with a clock at or below this one, and none above it.
             yes_dollars_fp:
               type: array
               description: |
@@ -2985,6 +3458,8 @@ components:
                   type: string
                 minItems: 2
                 maxItems: 2
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     orderbookDeltaPayload:
       type: object
@@ -2999,18 +3474,29 @@ components:
           $ref: '#/components/schemas/sequenceNumber'
         msg:
           type: object
-          required: ["market_ticker", "market_id", "price_dollars", "delta_fp", "side"]
+          required: ["market_ticker", "market_id", "clock", "price_dollars", "delta_fp", "side"]
           properties:
             market_ticker:
               $ref: '#/components/schemas/marketTicker'
             market_id:
               $ref: '#/components/schemas/marketId'
+            clock:
+              type: integer
+              format: int64
+              minimum: 1
+              description: |
+                Exchange clock of the exchange action that made this change. Every connection sends the same clock for the same change.
+                Several deltas can share a clock when one action makes several changes.
             price_dollars:
               type: string
               description: Price level in dollars
+              x-rust-type: common::types::Price
+              x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
             delta_fp:
               type: string
               description: Fixed-point contract delta (2 decimals)
+              x-rust-type: i64
+              x-rust-serialize-with: ws::dto::serde_money::serialize_centicount_fixed_point_count
             side:
               $ref: '#/components/schemas/marketSide'
             client_order_id:
@@ -3021,7 +3507,7 @@ components:
             ts:
               type: string
               deprecated: true
-              description: Deprecated - Optional timestamp for when the orderbook change was recorded (RFC3339). Use ts_ms instead.
+              description: Deprecated - Optional timestamp for when the orderbook change was recorded (RFC3339, truncated to milliseconds). Use ts_ms instead.
               format: date-time
             ts_ms:
               type: integer
@@ -3032,6 +3518,8 @@ components:
               description: |
                 Optional - Present only when you caused this orderbook change and are using subaccounts.
                 Contains the subaccount number of your order that triggered this delta.
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     tickerPayload:
       type: object
@@ -3053,18 +3541,28 @@ components:
             price_dollars:
               type: string
               description: Last traded price in dollars
+              x-rust-type: common::types::Price
+              x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
             yes_bid_dollars:
               type: string
               description: Best bid price for yes side in dollars
+              x-rust-type: common::types::Price
+              x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
             yes_ask_dollars:
               type: string
               description: Best ask price for yes side in dollars
+              x-rust-type: common::types::Price
+              x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
             volume_fp:
               type: string
               description: Fixed-point total contracts traded (2 decimals)
+              x-rust-type: i64
+              x-rust-serialize-with: ws::dto::serde_money::serialize_centicount_fixed_point_count
             open_interest_fp:
               type: string
               description: Fixed-point open interest (2 decimals)
+              x-rust-type: i64
+              x-rust-serialize-with: ws::dto::serde_money::serialize_centicount_fixed_point_count
             dollar_volume:
               type: integer
               description: Signed whole-dollar cumulative traded notional
@@ -3074,12 +3572,18 @@ components:
             yes_bid_size_fp:
               type: string
               description: Fixed-point contracts at best bid (2 decimals)
+              x-rust-type: i64
+              x-rust-serialize-with: ws::dto::serde_money::serialize_centicount_fixed_point_count
             yes_ask_size_fp:
               type: string
               description: Fixed-point contracts at best ask (2 decimals)
+              x-rust-type: i64
+              x-rust-serialize-with: ws::dto::serde_money::serialize_centicount_fixed_point_count
             last_trade_size_fp:
               type: string
               description: Fixed-point contracts in last trade (2 decimals)
+              x-rust-type: common::types::Amount
+              x-rust-serialize-with: ws::dto::serde_money::serialize_amount_fixed_point_count
             ts:
               type: integer
               deprecated: true
@@ -3092,8 +3596,10 @@ components:
             time:
               type: string
               deprecated: true
-              description: Deprecated - Timestamp for when the update happened (RFC3339). Use ts_ms instead.
+              description: Deprecated - Timestamp for when the update happened (RFC3339, truncated to milliseconds). Use ts_ms instead.
               format: date-time
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     tradePayload:
       type: object
@@ -3119,12 +3625,18 @@ components:
             yes_price_dollars:
               type: string
               description: Yes side price in dollars
+              x-rust-type: common::types::Price
+              x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
             no_price_dollars:
               type: string
               description: No side price in dollars
+              x-rust-type: common::types::Price
+              x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
             count_fp:
               type: string
               description: Fixed-point contracts traded (2 decimals)
+              x-rust-type: common::types::Amount
+              x-rust-serialize-with: ws::dto::serde_money::serialize_amount_fixed_point_count
             taker_side:
               $ref: '#/components/schemas/marketSide'
               deprecated: true
@@ -3156,6 +3668,8 @@ components:
               type: integer
               description: Unix timestamp in milliseconds
               format: int64
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     fillPayload:
       type: object
@@ -3187,6 +3701,7 @@ components:
             exchange_index:
               type: integer
               description: Identifier for the exchange shard where the fill occurred
+              x-rust-type: i32
             is_taker:
               type: boolean
               description: If you were a taker on this fill
@@ -3207,12 +3722,18 @@ components:
             yes_price_dollars:
               type: string
               description: Price for the yes side of the fill in dollars
+              x-rust-type: common::types::Price
+              x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
             count_fp:
               type: string
               description: Fixed-point contracts filled (2 decimals)
+              x-rust-type: common::types::Amount
+              x-rust-serialize-with: ws::dto::serde_money::serialize_amount_fixed_point_count
             fee_cost:
               type: string
               description: Exchange fee paid for this fill in fixed-point dollars
+              x-rust-type: common::types::Value
+              x-rust-serialize-with: ws::dto::serde_money::serialize_value_microcent_dollars
             action:
               $ref: '#/components/schemas/orderAction'
               deprecated: true
@@ -3221,6 +3742,8 @@ components:
             post_position_fp:
               type: string
               description: Fixed-point position after the fill (2 decimals)
+              x-rust-type: common::types::Position
+              x-rust-serialize-with: ws::dto::serde_money::serialize_position_fixed_point_count
             purchased_side:
               $ref: '#/components/schemas/marketSide'
               deprecated: true
@@ -3243,6 +3766,8 @@ components:
             subaccount:
               type: integer
               description: Optional subaccount number for the fill
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     marketLifecycleV2Payload:
       type: object
@@ -3265,6 +3790,7 @@ components:
             exchange_index:
               type: integer
               description: Optional - This key will ONLY exist when the market is created. Identifier for the exchange shard the market lives on
+              x-rust-type: i32
             open_ts:
               type: integer
               description: Optional - This key will ONLY exist when the market is created. Unix timestamp for when the market opened (in seconds)
@@ -3287,6 +3813,8 @@ components:
             settlement_value:
               type: string
               description: Optional - This key will ONLY exist when the market is determined. Settlement value of the market in fixed-point dollars (e.g. "0.5000")
+              x-rust-type: common::types::Price
+              x-rust-serialize-with: ws::dto::serde_money::serialize_option_price_dollars
             is_deactivated:
               type: boolean
               description: Optional - This key will ONLY exist when the market is paused/unpaused. Boolean flag to indicate if trading is paused on an open market. This should only be interpreted for an open market
@@ -3321,12 +3849,20 @@ components:
                   start:
                     type: string
                     description: Starting price for this band, in dollars
+                    x-rust-type: common::types::Price
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
                   end:
                     type: string
                     description: Ending price for this band, in dollars
+                    x-rust-type: common::types::Price
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
                   step:
                     type: string
                     description: Tick size (minimum price increment) within this band, in dollars
+                    x-rust-type: common::types::Price
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     multivariateMarketLifecyclePayload:
       type: object
@@ -3349,6 +3885,7 @@ components:
             exchange_index:
               type: integer
               description: Optional - This key will ONLY exist when the market is created. Identifier for the exchange shard the market lives on
+              x-rust-type: i32
             open_ts:
               type: integer
               description: Optional - This key will ONLY exist when the market is created. Unix timestamp for when the market opened (in seconds)
@@ -3371,6 +3908,8 @@ components:
             settlement_value:
               type: string
               description: Optional - This key will ONLY exist when the market is determined. Settlement value of the market in fixed-point dollars (e.g. "0.5000")
+              x-rust-type: common::types::Price
+              x-rust-serialize-with: ws::dto::serde_money::serialize_option_price_dollars
             is_deactivated:
               type: boolean
               description: Optional - This key will ONLY exist when the market is paused/unpaused. Boolean flag to indicate if trading is paused on an open market. This should only be interpreted for an open market
@@ -3391,6 +3930,8 @@ components:
             price_level_structure:
               $ref: '#/components/schemas/lifecyclePriceLevelStructure'
               description: Optional - The market price level structure on creation
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     lifecycleAdditionalMetadata:
       type: object
@@ -3419,8 +3960,10 @@ components:
           type: string
         floor_strike:
           type: number
+          x-rust-type: crate::wire::JsonNumber
         cap_strike:
           type: number
+          x-rust-type: crate::wire::JsonNumber
         custom_strike:
           type: object
 
@@ -3456,15 +3999,19 @@ components:
             floor_strike:
               type: number
               description: Optional - This key will ONLY exist for metadata_updated events. The floor (lower bound) strike value for the market
+              x-rust-type: crate::wire::JsonNumber
             cap_strike:
               type: number
               description: Optional - This key will ONLY exist for metadata_updated events. The cap (upper bound) strike value for the market
+              x-rust-type: crate::wire::JsonNumber
             custom_strike:
               type: object
               description: Optional - This key will ONLY exist for metadata_updated events with a custom or structured strike type
             yes_sub_title:
               type: string
               description: Optional - This key will ONLY exist for metadata_updated events. The updated yes subtitle for the market
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     eventLifecyclePayload:
       type: object
@@ -3487,6 +4034,7 @@ components:
             exchange_index:
               type: integer
               description: Identifier for the exchange shard the event's markets live on
+              x-rust-type: i32
             title:
               type: string
               description: Title of event
@@ -3507,6 +4055,8 @@ components:
             strike_period:
               type: string
               description: Optional - String to indicate the strike period of the event if there is one
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     eventFeeUpdatePayload:
       type: object
@@ -3533,6 +4083,9 @@ components:
             fee_multiplier_override:
               type: [number, "null"]
               description: Event fee multiplier override. `null` when the override has been cleared.
+              x-rust-type: crate::wire::JsonNumber
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     marketPositionPayload:
       type: object
@@ -3556,24 +4109,38 @@ components:
             position_fp:
               type: string
               description: Fixed-point net position (2 decimals)
+              x-rust-type: common::types::Position
+              x-rust-serialize-with: ws::dto::serde_money::serialize_position_fixed_point_count
             position_cost_dollars:
               type: string
               description: Current cost basis of the position as a fixed-point dollar string
+              x-rust-type: common::types::Value
+              x-rust-serialize-with: ws::dto::serde_money::serialize_value_microcent_dollars
             realized_pnl_dollars:
               type: string
               description: Realized profit/loss as a fixed-point dollar string
+              x-rust-type: common::types::Value
+              x-rust-serialize-with: ws::dto::serde_money::serialize_value_microcent_dollars
             fees_paid_dollars:
               type: string
               description: Total fees paid as a fixed-point dollar string
+              x-rust-type: common::types::Value
+              x-rust-serialize-with: ws::dto::serde_money::serialize_value_microcent_dollars
             position_fee_cost_dollars:
               type: string
               description: Total position fee cost as a fixed-point dollar string
+              x-rust-type: common::types::Value
+              x-rust-serialize-with: ws::dto::serde_money::serialize_value_microcent_dollars
             volume_fp:
               type: string
               description: Fixed-point total volume traded (2 decimals)
+              x-rust-type: i64
+              x-rust-serialize-with: ws::dto::serde_money::serialize_centicount_fixed_point_count
             subaccount:
               type: integer
               description: Optional subaccount number for the position
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     orderGroupUpdatesPayload:
       type: object
@@ -3600,10 +4167,14 @@ components:
             contracts_limit_fp:
               type: string
               description: Updated contracts limit in fixed-point (2 decimals). Present for "created" and "limit_updated" events only.
+              x-rust-type: common::types::Amount
+              x-rust-serialize-with: ws::dto::serde_money::serialize_option_amount_fixed_point_count
             ts_ms:
               type: integer
               format: int64
               description: Matching engine timestamp at which the event was processed, as Unix epoch milliseconds.
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     userOrderPayload:
       type: object
@@ -3632,6 +4203,7 @@ components:
             exchange_index:
               type: integer
               description: Identifier for the exchange shard where the order resides
+              x-rust-type: i32
             status:
               type: string
               description: Current order status
@@ -3663,27 +4235,43 @@ components:
             yes_price_dollars:
               type: string
               description: Yes price in fixed-point dollars (4 decimals)
+              x-rust-type: common::types::Price
+              x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
             fill_count_fp:
               type: string
               description: Number of contracts filled in fixed-point (2 decimals)
+              x-rust-type: common::types::Amount
+              x-rust-serialize-with: ws::dto::serde_money::serialize_amount_fixed_point_count
             remaining_count_fp:
               type: string
               description: Number of contracts remaining in fixed-point (2 decimals)
+              x-rust-type: common::types::Amount
+              x-rust-serialize-with: ws::dto::serde_money::serialize_amount_fixed_point_count
             initial_count_fp:
               type: string
               description: Initial number of contracts in fixed-point (2 decimals)
+              x-rust-type: common::types::Amount
+              x-rust-serialize-with: ws::dto::serde_money::serialize_amount_fixed_point_count
             taker_fill_cost_dollars:
               type: string
               description: Taker fill cost in fixed-point dollars (6 decimals)
+              x-rust-type: common::types::Value
+              x-rust-serialize-with: ws::dto::serde_money::serialize_value_microcent_dollars
             maker_fill_cost_dollars:
               type: string
               description: Maker fill cost in fixed-point dollars (6 decimals)
+              x-rust-type: common::types::Value
+              x-rust-serialize-with: ws::dto::serde_money::serialize_value_microcent_dollars
             taker_fees_dollars:
               type: string
               description: Taker fees in fixed-point dollars (6 decimals).
+              x-rust-type: common::types::Value
+              x-rust-serialize-with: ws::dto::serde_money::serialize_value_microcent_dollars
             maker_fees_dollars:
               type: string
               description: Maker fees in fixed-point dollars (6 decimals).
+              x-rust-type: common::types::Value
+              x-rust-serialize-with: ws::dto::serde_money::serialize_value_microcent_dollars
             client_order_id:
               type: string
               description: Client-provided order identifier
@@ -3697,17 +4285,17 @@ components:
             created_time:
               type: [string, "null"]
               deprecated: true
-              description: Deprecated - Order creation time in RFC3339 format. Use created_ts_ms instead.
+              description: Deprecated - Order creation time in RFC3339 format, truncated to milliseconds. Use created_ts_ms instead.
               format: date-time
             last_update_time:
               type: string
               deprecated: true
-              description: Deprecated - Last update time in RFC3339 format. Use last_updated_ts_ms instead.
+              description: Deprecated - Last update time in RFC3339 format, truncated to milliseconds. Use last_updated_ts_ms instead.
               format: date-time
             expiration_time:
               type: string
               deprecated: true
-              description: Deprecated - Order expiration time in RFC3339 format. Use expiration_ts_ms instead.
+              description: Deprecated - Order expiration time in RFC3339 format, truncated to milliseconds. Use expiration_ts_ms instead.
               format: date-time
             expiration_ts_ms:
               type: integer
@@ -3721,9 +4309,14 @@ components:
               type: integer
               description: Last update time as a Unix timestamp in milliseconds
               format: int64
+            last_update_reason:
+              $ref: '#/components/schemas/lastUpdateReason'
+              description: Reason for the most recent update, if applicable
             subaccount_number:
               type: integer
               description: Subaccount number (0 for primary, 1-63 for subaccounts)
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     rfqCreatedPayload:
       type: object
@@ -3745,7 +4338,7 @@ components:
               description: Unique identifier for the RFQ
             creator_id:
               type: string
-              description: Public communications ID of the RFQ creator (anonymized).
+              description: Public communications ID of the RFQ creator (pseudonymous). When obscure_creator_id is enabled, other users receive the shared placeholder "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" (SHA-256 of empty input). The creator sees their normal ID.
             market_ticker:
               type: string
               description: Market ticker for the RFQ
@@ -3755,9 +4348,13 @@ components:
             contracts_fp:
               type: string
               description: Fixed-point contracts requested (2 decimals) (optional)
+              x-rust-type: i64
+              x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
             target_cost_dollars:
               type: string
               description: Target cost in dollars (optional)
+              x-rust-type: common::types::Value
+              x-rust-serialize-with: ws::dto::serde_money::serialize_option_value_dollars
             created_ts:
               type: string
               description: Timestamp when the RFQ was created
@@ -3786,6 +4383,10 @@ components:
                   yes_settlement_value_dollars:
                     type: string
                     description: Yes settlement value in dollars for the selected leg. Omitted when unavailable.
+                    x-rust-type: common::types::Price
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_option_price_dollars
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     rfqDeletedPayload:
       type: object
@@ -3807,7 +4408,7 @@ components:
               description: Unique identifier for the RFQ
             creator_id:
               type: string
-              description: Public communications ID of the RFQ creator (anonymized)
+              description: Public communications ID of the RFQ creator (pseudonymous). When obscure_creator_id is enabled, other users receive the shared placeholder "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" (SHA-256 of empty input). The creator sees their normal ID.
             market_ticker:
               type: string
               description: Market ticker for the RFQ
@@ -3817,13 +4418,19 @@ components:
             contracts_fp:
               type: string
               description: Fixed-point contracts requested (2 decimals) (optional)
+              x-rust-type: i64
+              x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
             target_cost_dollars:
               type: string
               description: Target cost in dollars (optional)
+              x-rust-type: common::types::Value
+              x-rust-serialize-with: ws::dto::serde_money::serialize_option_value_dollars
             deleted_ts:
               type: string
               description: Timestamp when the RFQ was deleted
               format: date-time
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     quoteCreatedPayload:
       type: object
@@ -3851,7 +4458,7 @@ components:
               description: Public communications ID of the quote creator (anonymized)
             rfq_creator_id:
               type: string
-              description: Public communications ID of the RFQ creator (anonymized)
+              description: Public communications ID of the RFQ creator (pseudonymous). When obscure_creator_id is enabled, other users receive the shared placeholder "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" (SHA-256 of empty input). The creator sees their normal ID.
             market_ticker:
               type: string
               description: Market ticker for the quote
@@ -3861,18 +4468,28 @@ components:
             yes_bid_dollars:
               type: string
               description: Yes side bid price in dollars
+              x-rust-type: common::types::Price
+              x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
             no_bid_dollars:
               type: string
               description: No side bid price in dollars
+              x-rust-type: common::types::Price
+              x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
             yes_contracts_offered_fp:
               type: string
               description: Fixed-point yes contracts offered (2 decimals) (optional)
+              x-rust-type: i64
+              x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
             no_contracts_offered_fp:
               type: string
               description: Fixed-point no contracts offered (2 decimals) (optional)
+              x-rust-type: i64
+              x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
             rfq_target_cost_dollars:
               type: string
               description: Target cost from the RFQ in dollars (optional)
+              x-rust-type: common::types::Value
+              x-rust-serialize-with: ws::dto::serde_money::serialize_option_value_dollars
             created_ts:
               type: string
               description: Timestamp when the quote was created
@@ -3882,6 +4499,8 @@ components:
               description: |
                 Optional - Present only when your side of this quote used a subaccount.
                 Contains your own subaccount number; the counterparty's subaccount is never shared.
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     quoteAcceptedPayload:
       type: object
@@ -3909,7 +4528,7 @@ components:
               description: Public communications ID of the quote creator (anonymized)
             rfq_creator_id:
               type: string
-              description: Public communications ID of the RFQ creator (anonymized)
+              description: Public communications ID of the RFQ creator (pseudonymous). When obscure_creator_id is enabled, other users receive the shared placeholder "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" (SHA-256 of empty input). The creator sees their normal ID.
             market_ticker:
               type: string
               description: Market ticker for the quote
@@ -3919,9 +4538,13 @@ components:
             yes_bid_dollars:
               type: string
               description: Yes side bid price in dollars
+              x-rust-type: common::types::Price
+              x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
             no_bid_dollars:
               type: string
               description: No side bid price in dollars
+              x-rust-type: common::types::Price
+              x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
             accepted_side:
               type: string
               description: Which side was accepted (yes/no) (optional)
@@ -3929,20 +4552,30 @@ components:
             contracts_accepted_fp:
               type: string
               description: Fixed-point contracts accepted (2 decimals) (optional)
+              x-rust-type: i64
+              x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
             yes_contracts_offered_fp:
               type: string
               description: Fixed-point yes contracts offered (2 decimals) (optional)
+              x-rust-type: i64
+              x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
             no_contracts_offered_fp:
               type: string
               description: Fixed-point no contracts offered (2 decimals) (optional)
+              x-rust-type: i64
+              x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
             rfq_target_cost_dollars:
               type: string
               description: Target cost from the RFQ in dollars (optional)
+              x-rust-type: common::types::Value
+              x-rust-serialize-with: ws::dto::serde_money::serialize_option_value_dollars
             subaccount:
               type: integer
               description: |
                 Optional - Present only when your side of this quote used a subaccount.
                 Contains your own subaccount number; the counterparty's subaccount is never shared.
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
     quoteExecutedPayload:
       type: object
@@ -3989,6 +4622,489 @@ components:
               description: |
                 Optional - Present only when your side of this quote used a subaccount.
                 Contains your own subaccount number; the counterparty's subaccount is never shared.
+            rfq_batch_id:
+              type: string
+              description: Identifier of the RFQ batch, when the quote was accepted as part of a batch quote. Omitted otherwise.
+
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
+
+    rfqBatchCreatedPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "rfq_batch_created"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["id", "creator_id", "created_ts", "legs", "rfqs"]
+          properties:
+            id:
+              type: string
+              description: Unique identifier for the RFQ batch
+            creator_id:
+              type: string
+              description: Public communications ID of the batch creator (pseudonymous). When obscure_creator_id is enabled, other users receive the shared placeholder "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" (SHA-256 of empty input). The creator sees their normal ID.
+            created_ts:
+              type: string
+              description: Timestamp when the RFQ batch was created
+              format: date-time
+            legs:
+              type: array
+              description: Distinct legs across the batch's combos, each listed once
+              items:
+                type: object
+                required: ["event_ticker", "market_ticker", "side"]
+                properties:
+                  event_ticker:
+                    type: string
+                    description: Event ticker for the leg
+                  market_ticker:
+                    type: string
+                    description: Market ticker for the leg
+                  side:
+                    type: string
+                    enum: ["yes", "no"]
+                    description: Side selected for the leg
+                  yes_settlement_value_dollars:
+                    type: string
+                    description: Yes settlement value in dollars for the leg. Omitted when unavailable.
+                    x-rust-type: common::types::Price
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_option_price_dollars
+            rfqs:
+              type: array
+              description: The child RFQs, in the order they were requested
+              items:
+                type: object
+                required: ["id", "market_ticker", "leg_indices"]
+                properties:
+                  id:
+                    type: string
+                    description: Unique identifier for the child RFQ
+                  market_ticker:
+                    type: string
+                    description: Combo market ticker of the child RFQ
+                  event_ticker:
+                    type: string
+                    description: Event ticker (optional)
+                  contracts_fp:
+                    type: string
+                    description: Fixed-point contracts requested (2 decimals) (optional)
+                    x-rust-type: i64
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
+                  target_cost_dollars:
+                    type: string
+                    description: Target cost in dollars (optional)
+                    x-rust-type: common::types::Value
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_option_value_dollars
+                  mve_collection_ticker:
+                    type: string
+                    description: Multivariate event collection ticker (optional)
+                  leg_indices:
+                    type: array
+                    description: Indexes into legs of this combo's legs
+                    items:
+                      type: integer
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
+
+    rfqBatchDeletedPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "rfq_batch_deleted"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["id", "creator_id", "rfq_ids", "deleted_ts"]
+          properties:
+            id:
+              type: string
+              description: Unique identifier for the RFQ batch
+            creator_id:
+              type: string
+              description: Public communications ID of the batch creator, obscured as in rfq_batch_created
+            rfq_ids:
+              type: array
+              description: The child RFQs, which closed with the batch
+              items:
+                type: string
+            deleted_ts:
+              type: string
+              description: Timestamp when the RFQ batch closed
+              format: date-time
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
+
+    batchQuoteCreatedPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "batch_quote_created"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["batch_quote_id", "rfq_batch_id", "quote_creator_id", "created_ts", "quotes"]
+          properties:
+            batch_quote_id:
+              type: string
+              description: Unique identifier for the batch quote
+            rfq_batch_id:
+              type: string
+              description: Identifier of the RFQ batch this batch quote prices
+            quote_creator_id:
+              type: string
+              description: Your public communications ID as the batch quote creator
+            created_ts:
+              type: string
+              description: Timestamp when the batch quote was created
+              format: date-time
+            quotes:
+              type: array
+              description: One quote per child RFQ
+              items:
+                type: object
+                required: ["quote_id", "rfq_id", "market_ticker", "yes_bid_dollars", "no_bid_dollars"]
+                properties:
+                  quote_id:
+                    type: string
+                    description: Identifier the child quote keeps if it wins the child
+                  rfq_id:
+                    type: string
+                    description: Identifier of the child RFQ
+                  market_ticker:
+                    type: string
+                    description: Combo market ticker of the child RFQ
+                  event_ticker:
+                    type: string
+                    description: Event ticker (optional)
+                  yes_bid_dollars:
+                    type: string
+                    description: Yes side bid price in dollars
+                    x-rust-type: common::types::Price
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
+                  no_bid_dollars:
+                    type: string
+                    description: No side bid price in dollars
+                    x-rust-type: common::types::Price
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
+                  yes_contracts_offered_fp:
+                    type: string
+                    description: Fixed-point yes contracts offered (2 decimals) (optional)
+                    x-rust-type: i64
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
+                  no_contracts_offered_fp:
+                    type: string
+                    description: Fixed-point no contracts offered (2 decimals) (optional)
+                    x-rust-type: i64
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
+                  rfq_target_cost_dollars:
+                    type: string
+                    description: Target cost from the child RFQ in dollars (optional)
+                    x-rust-type: common::types::Value
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_option_value_dollars
+            subaccount:
+              type: integer
+              description: |
+                Optional - Present only when your batch quote used a subaccount.
+                Contains your own subaccount number.
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
+
+    rfqBatchBestQuotesPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "rfq_batch_best_quotes"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["rfq_batch_id", "version", "updated_ts", "yes_complete", "no_complete", "rfqs"]
+          properties:
+            rfq_batch_id:
+              type: string
+              description: Identifier of your RFQ batch
+            client_batch_id:
+              type: string
+              description: The client_batch_id you gave when creating the batch. Omitted when none was given.
+            version:
+              type: integer
+              format: int64
+              minimum: 1
+              description: Increases with every snapshot of this batch. Apply a snapshot only if its version is greater than the last one you applied.
+            updated_ts:
+              type: string
+              description: Timestamp when a best bid last changed
+              format: date-time
+            yes_complete:
+              type: boolean
+              description: Whether every child has a yes bid, so the batch can be accepted on the yes side
+            no_complete:
+              type: boolean
+              description: Whether every child has a no bid, so the batch can be accepted on the no side
+            rfqs:
+              type: array
+              description: One entry per child RFQ, in the order the children were requested
+              items:
+                type: object
+                required: ["rfq_id", "market_ticker"]
+                properties:
+                  rfq_id:
+                    type: string
+                    description: Identifier of the child RFQ
+                  market_ticker:
+                    type: string
+                    description: Combo market ticker of the child RFQ
+                  event_ticker:
+                    type: string
+                    description: Event ticker (optional)
+                  yes_bid_dollars:
+                    type: string
+                    description: Best yes bid across makers, in dollars. Omitted when no maker bids yes on this child.
+                    x-rust-type: common::types::Price
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_option_price_dollars
+                  no_bid_dollars:
+                    type: string
+                    description: Best no bid across makers, in dollars. Omitted when no maker bids no on this child.
+                    x-rust-type: common::types::Price
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_option_price_dollars
+                  contracts_fp:
+                    type: string
+                    description: Fixed-point contracts requested by the child RFQ (2 decimals). Omitted when the child is sized by target cost.
+                    x-rust-type: i64
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
+                  yes_contracts_offered_fp:
+                    type: string
+                    description: Fixed-point contracts the best yes bid offers (2 decimals). Omitted when no maker bids yes on this child.
+                    x-rust-type: i64
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
+                  no_contracts_offered_fp:
+                    type: string
+                    description: Fixed-point contracts the best no bid offers (2 decimals). Omitted when no maker bids no on this child.
+                    x-rust-type: i64
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
+                  rfq_target_cost_dollars:
+                    type: string
+                    description: Target cost from the child RFQ in dollars (optional)
+                    x-rust-type: common::types::Value
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_option_value_dollars
+            subaccount:
+              type: integer
+              description: |
+                Optional - Present only when your RFQ batch used a subaccount.
+                Contains your own subaccount number.
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
+
+    batchQuoteAcceptedPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "batch_quote_accepted"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["batch_quote_id", "rfq_batch_id", "quote_creator_id", "rfq_creator_id", "accepted_side", "accepted_ts", "quotes"]
+          properties:
+            batch_quote_id:
+              type: string
+              description: Identifier of your batch quote. Confirm the children you won with it.
+            rfq_batch_id:
+              type: string
+              description: Identifier of the RFQ batch
+            quote_creator_id:
+              type: string
+              description: Your public communications ID as the batch quote creator
+            rfq_creator_id:
+              type: string
+              description: Public communications ID of the RFQ batch creator, obscured as in quote_accepted
+            accepted_side:
+              type: string
+              description: Which side the RFQ batch creator accepted on every child (yes/no)
+              enum: ["yes", "no"]
+            accepted_ts:
+              type: string
+              description: Timestamp when the RFQ batch was accepted
+              format: date-time
+            quotes:
+              type: array
+              description: Only the children you won, each with your accepted quote. Other children went to other makers.
+              items:
+                type: object
+                required: ["quote_id", "rfq_id", "market_ticker", "yes_bid_dollars", "no_bid_dollars"]
+                properties:
+                  quote_id:
+                    type: string
+                    description: Identifier of the accepted child quote
+                  rfq_id:
+                    type: string
+                    description: Identifier of the child RFQ
+                  market_ticker:
+                    type: string
+                    description: Combo market ticker of the child RFQ
+                  event_ticker:
+                    type: string
+                    description: Event ticker (optional)
+                  yes_bid_dollars:
+                    type: string
+                    description: Yes side bid price in dollars
+                    x-rust-type: common::types::Price
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
+                  no_bid_dollars:
+                    type: string
+                    description: No side bid price in dollars
+                    x-rust-type: common::types::Price
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_price_dollars
+                  contracts_accepted_fp:
+                    type: string
+                    description: Fixed-point contracts requested by the child RFQ (2 decimals) (optional)
+                    x-rust-type: i64
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
+                  yes_contracts_offered_fp:
+                    type: string
+                    description: Fixed-point yes contracts offered (2 decimals) (optional)
+                    x-rust-type: i64
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
+                  no_contracts_offered_fp:
+                    type: string
+                    description: Fixed-point no contracts offered (2 decimals) (optional)
+                    x-rust-type: i64
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_optional_centicount_fixed_point_count
+                  rfq_target_cost_dollars:
+                    type: string
+                    description: Target cost from the child RFQ in dollars (optional)
+                    x-rust-type: common::types::Value
+                    x-rust-serialize-with: ws::dto::serde_money::serialize_option_value_dollars
+            subaccount:
+              type: integer
+              description: |
+                Optional - Present only when your batch quote used a subaccount.
+                Contains your own subaccount number; the counterparty's subaccount is never shared.
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
+
+    rfqBatchExecutedPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "rfq_batch_executed"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["rfq_batch_id", "rfq_creator_id", "executed_rfq_ids", "failed_rfq_ids", "executed_ts", "close_reason"]
+          properties:
+            rfq_batch_id:
+              type: string
+              description: Identifier of your RFQ batch
+            client_batch_id:
+              type: string
+              description: The client_batch_id you gave when creating the batch. Omitted when none was given.
+            rfq_creator_id:
+              type: string
+              description: Your public communications ID as the RFQ batch creator
+            executed_rfq_ids:
+              type: array
+              description: Child RFQs whose trades executed
+              items:
+                type: string
+            failed_rfq_ids:
+              type: array
+              description: Child RFQs whose trades failed to execute
+              items:
+                type: string
+            executed_ts:
+              type: string
+              description: Timestamp when the last child finished
+              format: date-time
+            close_reason:
+              type: string
+              description: How the batch ended. `executed` when every child executed, `execution failed` when none did, and `partially executed` in the rare case that filling one child cancelled a maker order another child needed.
+            subaccount:
+              type: integer
+              description: |
+                Optional - Present only when your RFQ batch used a subaccount.
+                Contains your own subaccount number.
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
+
+    batchQuoteExecutedPayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "batch_quote_executed"
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["batch_quote_id", "rfq_batch_id", "rfq_creator_id", "executed_rfq_ids", "failed_rfq_ids", "executed_ts", "close_reason"]
+          properties:
+            batch_quote_id:
+              type: string
+              description: Identifier of your batch quote
+            rfq_batch_id:
+              type: string
+              description: Identifier of the RFQ batch
+            rfq_creator_id:
+              type: string
+              description: Public communications ID of the RFQ batch creator. When the creator obscured their ID, it is revealed only if at least one of your children executed.
+            executed_rfq_ids:
+              type: array
+              description: Your children whose trades executed
+              items:
+                type: string
+            failed_rfq_ids:
+              type: array
+              description: Your children whose trades failed to execute
+              items:
+                type: string
+            executed_ts:
+              type: string
+              description: Timestamp when the last child of the batch finished
+              format: date-time
+            close_reason:
+              type: string
+              description: How your children ended. `executed` when every one executed, `execution failed` when none did, and `partially executed` in the rare case that filling one child of the batch cancelled a maker order another child needed.
+            subaccount:
+              type: integer
+              description: |
+                Optional - Present only when your batch quote used a subaccount.
+                Contains your own subaccount number; the counterparty's subaccount is never shared.
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
 
   securitySchemes:
     apiKey:

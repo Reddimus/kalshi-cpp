@@ -1,6 +1,8 @@
 #include "kalshi/rate_limit.hpp"
 
+#include <algorithm>
 #include <array>
+#include <cmath>
 
 #include "../json.hpp"
 
@@ -38,7 +40,12 @@ std::string_view until(std::string_view text, char delimiter) noexcept {
 }
 
 std::string_view strip_query(std::string_view path) noexcept {
-	return until(path, '?');
+	path = until(path, '?');
+	constexpr std::string_view prefix = "/trade-api/v2";
+	if (path.starts_with(prefix) && (path.size() == prefix.size() || path[prefix.size()] == '/')) {
+		path.remove_prefix(prefix.size());
+	}
+	return path;
 }
 
 /// Matches `/a/{id}/b` against `/a/123/b`; a leading `/trade-api/v2` on the
@@ -71,20 +78,25 @@ bool path_matches(std::string_view rule, std::string_view path) noexcept {
 RateLimitedTransport::RateLimitedTransport(std::shared_ptr<const HttpTransport> inner,
 										   RateLimitConfig config)
 	: inner_(std::move(inner)), config_(std::move(config)), read_(config_.read),
-	  write_(config_.write) {}
+	  write_(config_.write), balance_(config_.balance) {}
 
 bool RateLimitedTransport::is_write(HttpMethod method, std::string_view path) noexcept {
 	if (method == HttpMethod::GET) {
 		return false;
 	}
 	path = strip_query(path);
-	constexpr std::array<std::string_view, 6> write_prefixes{
-		"/portfolio/events/orders", "/portfolio/orders",
-		"/portfolio/order_groups",	"/communications/rfqs",
-		"/communications/quotes",	"/communications/block-trade-proposals",
+	constexpr std::array<std::string_view, 7> write_prefixes{
+		"/portfolio/events/orders",
+		"/portfolio/orders",
+		"/portfolio/order_groups",
+		"/communications/rfqs",
+		"/communications/rfq_batches",
+		"/communications/quotes",
+		"/communications/block-trade-proposals",
 	};
 	for (const std::string_view prefix : write_prefixes) {
-		if (path.starts_with(prefix)) {
+		if (path.starts_with(prefix) &&
+			(path.size() == prefix.size() || path[prefix.size()] == '/')) {
 			return true;
 		}
 	}
@@ -94,6 +106,9 @@ bool RateLimitedTransport::is_write(HttpMethod method, std::string_view path) no
 double RateLimitedTransport::cost(HttpMethod method, std::string_view path,
 								  std::string_view body) const {
 	const std::string_view route = strip_query(path);
+	if (method == HttpMethod::GET && route == "/portfolio/balance") {
+		return 1.0;
+	}
 	double unit_cost = config_.default_cost;
 	for (const EndpointCostRule& rule : config_.costs) {
 		if (rule.method == method && path_matches(rule.path, route)) {
@@ -109,15 +124,27 @@ Result<HttpResponse> RateLimitedTransport::request(HttpMethod method, std::strin
 	if (!inner_) {
 		return std::unexpected(Error::network("RateLimitedTransport has no inner transport"));
 	}
-	TokenBucket& bucket = is_write(method, path) ? write_ : read_;
+	TokenBucket& bucket = method == HttpMethod::GET && strip_query(path) == "/portfolio/balance"
+							  ? balance_
+							  : (is_write(method, path) ? write_ : read_);
 	const double tokens = cost(method, path, body);
+	if (!std::isfinite(tokens) || tokens < 0.0) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest, "Token costs must be finite and non-negative"});
+	}
 	if (tokens > bucket.config().capacity) {
 		return std::unexpected(Error{
 			ErrorCode::InvalidRequest,
 			"Request costs " + std::to_string(tokens) + " tokens but the rate-limit bucket holds " +
 				std::to_string(bucket.config().capacity) + "; split the batch"});
 	}
-	if (!bucket.acquire_for(tokens, config_.max_wait)) {
+	const std::chrono::nanoseconds max_wait =
+		config_.max_wait >= std::chrono::duration_cast<std::chrono::milliseconds>(
+								std::chrono::nanoseconds::max())
+			? std::chrono::nanoseconds::max()
+			: std::chrono::duration_cast<std::chrono::nanoseconds>(
+				  std::max(config_.max_wait, std::chrono::milliseconds::zero()));
+	if (!bucket.acquire_for(tokens, max_wait)) {
 		// No server answered, so http_status stays 0.
 		return std::unexpected(Error{
 			ErrorCode::RateLimited, "Rate-limit tokens would not refill within max_wait", 0, {}});

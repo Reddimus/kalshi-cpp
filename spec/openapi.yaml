@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: Kalshi Trade API Manual Endpoints
-  version: 3.31.0
+  version: 3.34.0
   description: Manually defined OpenAPI spec for endpoints being migrated to spec-first approach
 
 servers:
@@ -222,10 +222,6 @@ paths:
       description: ' Endpoint for getting the current order book for a specific market.  The order book shows all active bid orders for both yes and no sides of a binary market. It returns yes bids and no bids only (no asks are returned). This is because in binary markets, a bid for yes at price X is equivalent to an ask for no at price (100-X). For example, a yes bid at 7¢ is the same as a no ask at 93¢, with identical contract sizes.  Each side shows price levels with their corresponding quantities and order counts, organized from best to worst prices.'
       tags:
         - market
-      security:
-        - kalshiAccessKey: []
-          kalshiAccessSignature: []
-          kalshiAccessTimestamp: []
       parameters:
         - $ref: '#/components/parameters/TickerPath'
         - name: depth
@@ -260,10 +256,6 @@ paths:
       description: 'Endpoint for getting the current order books for multiple markets in a single request. The order book shows all active bid orders for both yes and no sides of a binary market. It returns yes bids and no bids only (no asks are returned). This is because in binary markets, a bid for yes at price X is equivalent to an ask for no at price (100-X). For example, a yes bid at 7¢ is the same as a no ask at 93¢, with identical contract sizes. Each side shows price levels with their corresponding quantities and order counts, organized from best to worst prices. Returns one orderbook per requested market ticker.'
       tags:
         - market
-      security:
-        - kalshiAccessKey: []
-          kalshiAccessSignature: []
-          kalshiAccessTimestamp: []
       parameters:
         - name: tickers
           in: query
@@ -669,7 +661,7 @@ paths:
     get:
       operationId: GetMultivariateEvents
       summary: Get Multivariate Events
-      description: 'Retrieve multivariate (combo) events. These are dynamically created events from multivariate event collections. Supports filtering by series and collection ticker.'
+      description: 'Retrieve multivariate (combo) events. These are dynamically created events from multivariate event collections. Supports filtering by series ticker, collection ticker, or a comma-separated list of event tickers.'
       tags:
         - events
       parameters:
@@ -695,6 +687,7 @@ paths:
           description: Filter events by collection ticker. Returns only multivariate events belonging to the specified collection. Cannot be used together with series_ticker.
           schema:
             type: string
+        - $ref: '#/components/parameters/EventTickersQuery'
         - name: with_nested_markets
           in: query
           required: false
@@ -762,6 +755,13 @@ paths:
           description: Event ticker
           schema:
             type: string
+        - name: exclude_markets
+          in: query
+          description: Return event metadata without loading child markets. Use GET /markets with event_ticker, limit and cursor for bounded market pages. Cannot be combined with with_nested_markets=true.
+          required: false
+          schema:
+            type: boolean
+            default: false
         - name: with_nested_markets
           in: query
           required: false
@@ -1220,11 +1220,11 @@ paths:
     post:
       operationId: AmendOrderV2
       summary: Amend Order (V2)
-      description: 'Endpoint for amending the price and/or max fillable count of an existing event-market order using the V2 request/response shape. The request `count` is the updated total/max fillable count, equal to already filled count plus desired resting remaining count. This behavior matches the v1 amend endpoints; only the request/response shape differs.'
+      description: 'Endpoint for amending the price, max fillable count, and/or expiration time of an existing event-market order. The request `count` is the updated total/max fillable count, equal to already filled count plus desired resting remaining count. This behavior matches the v1 amend endpoints; only the request/response shape differs.'
       x-mint:
         content: |
           <Note>
-          Amending a resting order preserves queue position only when the amendment decreases size. All other amendments — like increasing size or changing price forfeit queue position and place the order at the back of the queue.
+          Amending only expiry or decreasing size preserves queue position. Increasing size or changing price forfeits queue position and places the order at the back of the queue.
           </Note>
       tags:
         - orders
@@ -1522,7 +1522,10 @@ paths:
     get:
       operationId: GetBalance
       summary: Get Balance
-      description: "Returns the balance and portfolio value for a member. Both values include all exchange indexes unless `exchange_index` is provided. Pass `subaccount` to use a subaccount instead of the primary account. This endpoint also accepts API keys with the 'read::portfolio_balance' scope."
+      description: |
+        Returns the balance and portfolio value for a member. Both values include all exchange indexes unless `exchange_index` is provided. Pass `subaccount` to use a subaccount instead of the primary account. This endpoint also accepts API keys with the 'read::portfolio_balance' scope.
+
+        **Rate limit:** this endpoint has its own bucket, separate from the Read budget. Basic and Advanced tiers may call it **1 time per second**; all higher tiers may call it **5 times per second**. The bucket holds one second of budget, so there is no burst. Calls to this endpoint do not draw down the Read budget, and other reads do not draw down this bucket. Balance only changes on fills, settlements and transfers, so react to those (for example the user fills websocket channel) instead of polling this endpoint.
       tags:
         - portfolio
       security:
@@ -1555,6 +1558,8 @@ paths:
       description: |
         Transfers funds within the same account.
 
+        Subaccount-restricted API keys can only transfer between `event_contract` exchange indices, with `source_subaccount` and `destination_subaccount` both set to the key's subaccount.
+
         When `source_exchange_shard` and `destination_exchange_shard` are the same, Kalshi treats the request as a subaccount transfer. The returned transfer ID appears in the subaccount transfer history.
 
         Cross-exchange-index subaccount transfers run in up to three non-atomic steps. If a later step fails, completed steps are not undone, so funds may remain in the primary account on the source or destination exchange index.
@@ -1583,6 +1588,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '403':
           $ref: '#/components/responses/ForbiddenError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -1712,7 +1719,7 @@ paths:
     get:
       operationId: GetSubaccountBalances
       summary: Get All Subaccount Balances
-      description: 'Gets balances for all subaccounts including the primary account.'
+      description: "Gets balances for all subaccounts including the primary account. For an API key restricted to a subaccount, returns only that subaccount's balances across exchange indices."
       tags:
         - portfolio
       security:
@@ -1810,7 +1817,9 @@ paths:
       operationId: GetPositions
       summary: Get Positions
       description: |
-        Restricts the positions to those with any of following fields with non-zero values, as a comma separated list. The following values are accepted: position, total_traded.
+        Returns unsettled positions by default. Set `settlement_status=settled` to page through settled positions that are still in the live data set, or `settlement_status=all` for both live states. Positions already archived are available via `GET /historical/positions`.
+        Settled and all-state positions are paginated by event ticker to keep large histories bounded. Cursors are specific to the selected settlement status.
+        `count_filter` restricts positions to those with a non-zero position or total traded count.
         Registered partners may also use a user OAuth access token with the explicitly granted read::compliance_partner scope.
       tags:
         - portfolio
@@ -1823,6 +1832,7 @@ paths:
         - $ref: '#/components/parameters/PositionsCursorQuery'
         - $ref: '#/components/parameters/PositionsLimitQuery'
         - $ref: '#/components/parameters/CountFilterQuery'
+        - $ref: '#/components/parameters/PositionSettlementStatusQuery'
         - $ref: '#/components/parameters/TickerQuery'
         - $ref: '#/components/parameters/SingleEventTickerQuery'
         - $ref: '#/components/parameters/SubaccountQueryDefaultPrimary'
@@ -1845,7 +1855,7 @@ paths:
     get:
       operationId: GetSettlements
       summary: Get Settlements
-      description: ' Endpoint for getting the member''s settlements historical track.'
+      description: 'Returns settlement records still in the live data set. Archived positions are available via `GET /historical/positions`, which has different fields; this endpoint does not return archived settlement records.'
       tags:
         - portfolio
       security:
@@ -1969,7 +1979,12 @@ paths:
           kalshiAccessTimestamp: []
         - kalshiOauthAccessToken: []
       parameters:
-        - $ref: '#/components/parameters/TickerQuery'
+        - name: ticker
+          in: query
+          description: Filter by market ticker. Accepts a comma-separated list of up to 100 market tickers.
+          schema:
+            type: string
+            x-go-type-skip-optional-pointer: true
         - $ref: '#/components/parameters/OrderIdQuery'
         - $ref: '#/components/parameters/MinTsQuery'
         - $ref: '#/components/parameters/MaxTsQuery'
@@ -2404,6 +2419,423 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /communications/rfq_batches:
+    get:
+      operationId: GetRFQBatches
+      # Hidden from the published docs until RFQ batches launch.
+      x-excluded: true
+      summary: Get RFQ Batches
+      description: >-
+        List RFQ batches, most recently updated first, each with its child RFQs
+        in request order. A page holds at most limit batches and stops before
+        its child RFQs would exceed 100; a batch is never split across pages.
+        Pass pagination cursors back unchanged; a malformed cursor returns
+        HTTP 400. Use user_filter=self to list only your own batches.
+      tags:
+        - communications
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - $ref: '#/components/parameters/CursorQuery'
+        - $ref: '#/components/parameters/SubaccountQuery'
+        - name: limit
+          in: query
+          description: Maximum number of batches per page. Defaults to 20. A page also stops before its child RFQs would exceed 100.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 20
+            default: 20
+        - name: status
+          in: query
+          description: Filter RFQ batches by status
+          schema:
+            $ref: '#/components/schemas/RFQBatchStatus'
+        - name: user_filter
+          in: query
+          required: false
+          schema:
+            $ref: '#/components/schemas/UserFilter'
+            x-go-type-skip-optional-pointer: true
+          x-oapi-codegen-extra-tags:
+            validate: "omitempty,oneof=self"
+      responses:
+        '200':
+          description: RFQ batches retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetRFQBatchesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      operationId: CreateRFQBatch
+      # Hidden from the published docs until RFQ batches launch.
+      x-excluded: true
+      summary: Create RFQ Batch
+      description: >-
+        Request quotes on several combos at once, for example every parlay of a
+        round robin. Each child is an ordinary RFQ on one combo market. Makers
+        quote the whole batch, but each child is accepted from whichever maker
+        quotes it best on your side, so the batch may fill from several makers.
+        Accepting takes every child or none, and the children then execute
+        together as one fill-or-kill: nothing trades unless every child can
+        fill in full. In the rare case that filling one child cancels a maker
+        order another child needed, the batch closes partially executed. Name
+        each child's combo by its market ticker, or by its legs to look up or
+        create the combo in mve_collection_ticker. Size each child with its own
+        contracts_fp or target_cost_dollars, or set one on the batch for every
+        child that has none; every child must be sized the same way, by
+        contracts or by target cost. rest_remainder must be false, and FCM
+        members cannot create RFQ batches yet (403 rfq_batch_unavailable).
+      x-mint:
+        content: |
+          <Note>
+          A batch has 2 to 57 child RFQs drawn from at most 6 distinct legs, all
+          combos on one exchange index. You can have at most 2 open RFQ
+          batches (a batch being confirmed or executed no longer counts); with
+          replace_existing, creating a batch closes your oldest open batch
+          instead of failing.
+          RFQ batches and single RFQs do not count against each other's limits.
+          </Note>
+      tags:
+        - communications
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRFQBatchRequest'
+      responses:
+        '201':
+          description: RFQ batch created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateRFQBatchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /communications/rfq_batches/{rfq_batch_id}:
+    get:
+      operationId: GetRFQBatch
+      # Hidden from the published docs until RFQ batches launch.
+      x-excluded: true
+      summary: Get RFQ Batch
+      description: ' Endpoint for getting a single RFQ batch, with its child RFQs in request order.'
+      tags:
+        - communications
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - $ref: '#/components/parameters/RfqBatchIdPath'
+      responses:
+        '200':
+          description: RFQ batch retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetRFQBatchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    delete:
+      operationId: DeleteRFQBatch
+      # Hidden from the published docs until RFQ batches launch.
+      x-excluded: true
+      summary: Delete RFQ Batch
+      description: >-
+        Close an RFQ batch and all of its child RFQs. Open batch quotes on it
+        are cancelled. An accepted batch can no longer be closed: it executes
+        or expires as a unit.
+      tags:
+        - communications
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - $ref: '#/components/parameters/RfqBatchIdPath'
+      responses:
+        '204':
+          description: RFQ batch deleted successfully
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /communications/rfq_batches/{rfq_batch_id}/best_quotes:
+    get:
+      operationId: GetRFQBatchBestQuotes
+      # Hidden from the published docs until RFQ batches launch.
+      x-excluded: true
+      summary: Get RFQ Batch Best Quotes
+      description: >-
+        Get the best open bid on each side of every child of your RFQ batch,
+        across makers. Accepting the batch fills at these prices. Makers are not
+        identified. Only the batch creator can read the best quotes, and a batch
+        that is no longer open has none.
+      tags:
+        - communications
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - $ref: '#/components/parameters/RfqBatchIdPath'
+      responses:
+        '200':
+          description: Best quotes retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetRFQBatchBestQuotesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /communications/rfq_batches/{rfq_batch_id}/accept:
+    put:
+      operationId: AcceptRFQBatch
+      # Hidden from the published docs until RFQ batches launch.
+      x-excluded: true
+      summary: Accept RFQ Batch
+      description: >-
+        Accept every child RFQ of your RFQ batch on one side, each from the
+        maker quoting it best on that side. Either every child is accepted or
+        none is, and your balance must cover all of them. min_bids protects your
+        price: give every child the best bid you were shown. If a child's best
+        bid is now worse, the accept fails with rfq_batch_quotes_changed and
+        lists that child; a better bid fills at the better price. Each winning
+        maker then confirms its children. They execute once every winner has
+        confirmed, and a missed confirmation closes the whole batch. An accepted
+        batch cannot be cancelled.
+      tags:
+        - communications
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - $ref: '#/components/parameters/RfqBatchIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/AcceptRFQBatchRequest'
+      responses:
+        '200':
+          description: RFQ batch accepted successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AcceptRFQBatchResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /communications/rfq_batches/{rfq_batch_id}/quotes:
+    get:
+      operationId: GetRFQBatchQuotes
+      # Hidden from the published docs until RFQ batches launch.
+      x-excluded: true
+      summary: Get RFQ Batch Quotes
+      description: >-
+        List the batch quotes on an RFQ batch that are visible to you. A maker
+        sees its own batch quote; once the batch is accepted, it lists only the
+        children that maker won. Once the batch is accepted, the batch creator
+        sees each winning maker's batch quote on the children it won. While the
+        batch is open, the creator reads the best quotes across makers with Get
+        RFQ Batch Best Quotes instead.
+      tags:
+        - communications
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - $ref: '#/components/parameters/RfqBatchIdPath'
+      responses:
+        '200':
+          description: Batch quotes retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetRFQBatchQuotesResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+    post:
+      operationId: CreateRFQBatchQuote
+      # Hidden from the published docs until RFQ batches launch.
+      x-excluded: true
+      summary: Create RFQ Batch Quote
+      description: >-
+        Quote every child RFQ of an RFQ batch, each exactly once. Each child is
+        accepted from the maker bidding best on the requester's side, with ties
+        going to the earliest bid, so you may win some children and not others;
+        you then confirm the children you won. A new batch quote replaces your
+        previous one on the same batch, and a child resent at an unchanged price
+        keeps its time priority. A batch quote can win children only within 30
+        seconds of when you last sent it, so resend it to stay eligible.
+      tags:
+        - communications
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - $ref: '#/components/parameters/RfqBatchIdPath'
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateRFQBatchQuoteRequest'
+      responses:
+        '201':
+          description: Batch quote created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateRFQBatchQuoteResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /communications/rfq_batches/{rfq_batch_id}/quotes/{batch_quote_id}:
+    delete:
+      operationId: DeleteRFQBatchQuote
+      # Hidden from the published docs until RFQ batches launch.
+      x-excluded: true
+      summary: Delete RFQ Batch Quote
+      description: ' Endpoint for withdrawing one of your open batch quotes, which means it can no longer be accepted.'
+      tags:
+        - communications
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - $ref: '#/components/parameters/RfqBatchIdPath'
+        - $ref: '#/components/parameters/BatchQuoteIdPath'
+      responses:
+        '204':
+          description: Batch quote deleted successfully
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /communications/rfq_batches/{rfq_batch_id}/quotes/{batch_quote_id}/confirm:
+    put:
+      operationId: ConfirmRFQBatchQuote
+      # Hidden from the published docs until RFQ batches launch.
+      x-excluded: true
+      summary: Confirm RFQ Batch Quote
+      description: >-
+        Confirm the children your batch quote won, all at once. Nothing executes
+        until every winning maker of the batch has confirmed; the last
+        confirmation starts the execution timer for every child, and the
+        children then execute together. If any winner misses the confirmation
+        deadline, the whole batch closes without trading.
+      tags:
+        - communications
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - $ref: '#/components/parameters/RfqBatchIdPath'
+        - $ref: '#/components/parameters/BatchQuoteIdPath'
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/EmptyResponse'
+      responses:
+        '204':
+          description: Batch quote confirmed successfully
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /communications/quotes:
     get:
       operationId: GetQuotes
@@ -2823,7 +3255,7 @@ paths:
   /account/limits:
     get:
       operationId: GetAccountApiLimits
-      summary: Get Account API Limits 
+      summary: Get Account API Limits
       description: 'Endpoint to retrieve the authenticated user''s Predictions API usage tier and token-bucket limits. Public Predictions tiers include Basic, Advanced, Expert, Premier, Paragon, Prime, and Prestige.'
       tags:
         - account
@@ -2959,7 +3391,9 @@ paths:
     get:
       operationId: GetLiveDataByMilestone
       summary: Get Live Data
-      description: Get live data for a specific milestone.
+      description: >-
+        Get live data for a specific milestone.
+        The response's `live_data.details.status` is updated far more often than the milestone's own `details.status` and is the preferred source for game status. It is not guaranteed to be current: if the provider feed falls behind, a cached board may still be served, with `live_data.details.live_data_delayed` set to `true` only once it is significantly stale (some feeds never set it), so a missing flag does not by itself mean the data is current.
       tags:
         - live-data
       parameters:
@@ -3037,7 +3471,14 @@ paths:
     get:
       operationId: GetLiveDatas
       summary: Get Multiple Live Data
-      description: Get live data for multiple milestones
+      description: >-
+        Get live data for multiple milestones.
+        Each entry's `details.status` is updated far more often than the milestone's
+        own `details.status` and is the preferred source for game status. It is not
+        guaranteed to be current: if the provider feed falls behind, a cached board may
+        still be served, with `details.live_data_delayed` set to `true` only once it is
+        significantly stale (some feeds never set it), so a missing flag does not by
+        itself mean the data is current.
       tags:
         - live-data
       parameters:
@@ -3338,7 +3779,9 @@ paths:
     get:
       operationId: GetMilestone
       summary: Get Milestone
-      description: ' Endpoint for getting data about a specific milestone by its ID.'
+      description: >-
+        Endpoint for getting data about a specific milestone by its ID.
+        The milestone's `details.status`, when present, is maintained by a periodic background job. It lags the game's live state and may be stale or inaccurate, for example remaining `live` after the game ends. For game status, prefer live data, which is updated far more often: `live_data.details.status` from `GET /live_data/milestone/{milestone_id}`, or each entry's `details.status` from `GET /live_data/batch`. Scores are in the sport-specific fields of that live data `details` object.
       tags:
         - milestone
       parameters:
@@ -3368,7 +3811,9 @@ paths:
     get:
       operationId: GetMilestones
       summary: Get Milestones
-      description: 'Minimum start date to filter milestones. Format: RFC3339 timestamp'
+      description: >-
+        Endpoint for listing milestones.
+        A milestone's `details.status`, when present, is maintained by a periodic background job. It lags the game's live state and may be stale or inaccurate, for example remaining `live` after the game ends. For game status, prefer live data, which is updated far more often: `live_data.details.status` from `GET /live_data/milestone/{milestone_id}`, or each entry's `details.status` from `GET /live_data/batch`. Scores are in the sport-specific fields of that live data `details` object.
       tags:
         - milestone
       parameters:
@@ -4133,18 +4578,110 @@ paths:
         '500':
           description: Internal server error
 
+  /fcm/positions/transfers:
+    post:
+      operationId: CreateFCMPositionTransfer
+      summary: Create FCM Position Transfer
+      description: |
+        Endpoint for FCM members to move a position in one market from one of their subtraders into a
+        subtrader under their FCM's error account.
+
+        **This endpoint must be enabled for your FCM by Kalshi.** Kalshi enables it by configuring the
+        error account that receives transferred positions and gives you that account's user id, which
+        prefixes `target_subtrader_id`. Contact Kalshi to enable it; until then, requests return 400.
+
+        - The destination is always your FCM's error account. `target_subtrader_id` picks the subtrader
+          under it, which is created on first use.
+        - Each request moves one market for one source subtrader. To move many positions, send one
+          request per subtrader and market.
+        - The transfer is booked like a trade at `price_centicents`, which is always the YES price, even
+          when moving NO. No fee is charged and no fill is created. For YES, the error account pays the
+          price per contract; for NO, it pays $1 minus the price per contract. The FCM receives the same
+          amount. Use 0 for YES or 10000 for NO to move no cash. These amounts assume the source holds
+          the side being moved and the target subtrader holds no opposite position in that market;
+          otherwise the positions net like a trade and the balance changes differ.
+        - The source's current position is not checked. A request for more than the source holds, or
+          with the opposite sign, flips or grows the source's position.
+        - Requests are not idempotent. After a timeout or 5xx, check the position before retrying.
+        - The market must be open, neither account may be blocked, and the error account must have
+          enough available balance on the market's exchange index to pay for the transfer. Otherwise
+          the request returns 409.
+
+        **Example: moving YES.** A customer subtrader holds 10 YES contracts. Send
+        `position_centicount` 1000 and `price_centicents` 4500 (YES at 45 cents):
+        - The customer subtrader goes from 10 YES to 0, and the error account subtrader from 0 to 10 YES.
+        - The error account pays 10 x $0.45 = $4.50 and the FCM receives $4.50.
+        - Sending `price_centicents` 0 instead moves the position with no cash.
+
+        **Example: moving NO.** A customer subtrader holds 5 NO contracts. Send `position_centicount`
+        -500 and `price_centicents` 7000 (YES at 70 cents, so NO at 30 cents):
+        - The customer subtrader goes from 5 NO to 0, and the error account subtrader from 0 to 5 NO.
+        - The error account pays 5 x $0.30 = $1.50 and the FCM receives $1.50.
+        - Sending `price_centicents` 10000 instead moves the position with no cash. Sending 0 makes the
+          error account pay the full $1 per contract ($5.00).
+      tags:
+        - fcm
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFCMPositionTransferRequest'
+            examples:
+              move_yes:
+                summary: Move 10 YES at 45 cents
+                value:
+                  source_subtrader_id: 3f2a8c1e-5b7d-4e9a-8c6f-1d2b3a4e5f60_CUST123
+                  target_subtrader_id: 9b8c7d6e-5f4a-4b3c-9d2e-1f0a9b8c7d6e_ERR1
+                  market_ticker: KXEXAMPLE-26DEC31
+                  position_centicount: 1000
+                  price_centicents: 4500
+              move_no:
+                summary: Move 5 NO at 30 cents (YES price 70 cents)
+                value:
+                  source_subtrader_id: 3f2a8c1e-5b7d-4e9a-8c6f-1d2b3a4e5f60_CUST123
+                  target_subtrader_id: 9b8c7d6e-5f4a-4b3c-9d2e-1f0a9b8c7d6e_ERR1
+                  market_ticker: KXEXAMPLE-26DEC31
+                  position_centicount: -500
+                  price_centicents: 7000
+      responses:
+        '201':
+          description: Position transferred
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateFCMPositionTransferResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /historical/cutoff:
     get:
       operationId: GetHistoricalCutoff
       summary: Get Historical Cutoff Timestamps
       description: |
-        Returns the cutoff timestamps that define the boundary between **live** and **historical** data.
+        Returns the archive's cutoff timestamps. For positions, the cutoff is the backfill horizon; visibility in the historical API waits for a buffered, whole-event handoff.
 
         ## Cutoff fields
         - `market_settled_ts` : Markets that **settled** before this timestamp, and their candlesticks, must be accessed via `GET /historical/markets` and `GET /historical/markets/{ticker}/candlesticks`.
         - `trades_created_ts` : Trades that were **filled** before this timestamp must be accessed via `GET /historical/fills`.
         - `orders_updated_ts` : Orders that were **canceled or fully executed** before this timestamp must be accessed via `GET /historical/orders`. Resting (active) orders are always available in `GET /portfolio/orders`.
-        - `market_positions_last_updated_ts` : Settled positions **archived from the live data set** before this timestamp must be accessed via `GET /historical/positions`. Unsettled positions are always available in `GET /portfolio/positions`.
+        - `market_positions_last_updated_ts` : Backfill horizon for settled positions, not a guaranteed archive-visibility boundary. An event moves to `GET /historical/positions` only after its buffered handoff completes. Until then, its settled positions remain available via `GET /portfolio/positions?settlement_status=settled`. Unsettled positions remain available in `GET /portfolio/positions`.
       tags:
         - historical
       responses:
@@ -4284,7 +4821,7 @@ paths:
     get:
       operationId: GetHistoricalPositions
       summary: Get Historical Positions
-      description: ' Endpoint for getting settled market positions that have been archived to the historical database. Positions whose markets were archived before `market_positions_last_updated_ts` on `GET /historical/cutoff` are available via this endpoint. Positions are archived per whole event: a settled event''s positions move here together and are never split between this endpoint and `GET /portfolio/positions`. Unsettled positions are always available via `GET /portfolio/positions`.'
+      description: 'Returns settled market positions after their event completes the live-to-historical handoff. Until then, settled positions remain available via `GET /portfolio/positions?settlement_status=settled`. The `market_positions_last_updated_ts` value on `GET /historical/cutoff` is the backfill horizon, not a guarantee that every older position has moved. Unsettled positions are available via `GET /portfolio/positions`.'
       tags:
         - historical
       security:
@@ -4552,6 +5089,22 @@ components:
       schema:
         type: string
 
+    RfqBatchIdPath:
+      name: rfq_batch_id
+      in: path
+      required: true
+      description: RFQ batch UUID returned when the batch was created. Pass it unchanged; malformed IDs return HTTP 400.
+      schema:
+        type: string
+
+    BatchQuoteIdPath:
+      name: batch_quote_id
+      in: path
+      required: true
+      description: Batch quote UUID returned when the batch quote was created. Pass it unchanged; malformed IDs return HTTP 400.
+      schema:
+        type: string
+
     MarketTickerQuery:
       name: market_ticker
       in: query
@@ -4587,7 +5140,7 @@ components:
     MultipleEventTickerQuery:
       name: event_ticker
       in: query
-      description: Event tickers to filter by, as a comma-separated list (maximum 10).
+      description: Event tickers to filter by, as a comma-separated list (maximum 100). Events with no markets return no orders.
       schema:
         type: string
         x-go-type-skip-optional-pointer: true
@@ -4617,6 +5170,15 @@ components:
       schema:
         type: string
 
+    PositionSettlementStatusQuery:
+      name: settlement_status
+      in: query
+      description: Return unsettled positions by default, settled positions that have not yet been archived, or all positions in the live data set.
+      schema:
+        type: string
+        enum: [unsettled, settled, all]
+        default: unsettled
+
     OrderIdQuery:
       name: order_id
       in: query
@@ -4644,16 +5206,20 @@ components:
     SubaccountQuery:
       name: subaccount
       in: query
+      required: false
       description: Subaccount number (0 for primary, 1-63 for subaccounts). If omitted, defaults to all subaccounts.
       schema:
         type: integer
+        minimum: 0
 
     SubaccountQueryDefaultPrimary:
       name: subaccount
       in: query
-      description: Subaccount number (0 for primary, 1-63 for subaccounts). Defaults to 0.
+      required: false
+      description: Subaccount number (0 for primary, 1-63 for subaccounts). Defaults to 0. Subaccount-restricted API keys default to their locked subaccount and must omit this parameter or pass their locked subaccount.
       schema:
         type: integer
+        minimum: 0
 
     ExchangeIndexQuery:
       name: exchange_index
@@ -6591,7 +7157,9 @@ components:
         details:
           type: object
           additionalProperties: true
-          description: Additional details about the milestone.
+          description: >-
+            Additional details about the milestone.
+            `details.status`, when present, is maintained by a periodic background job. It lags the game's live state and may be stale or inaccurate, for example remaining `live` after the game ends. For game status, prefer live data, which is updated far more often: `live_data.details.status` from `GET /live_data/milestone/{milestone_id}`, or each entry's `details.status` from `GET /live_data/batch`. Scores are in the sport-specific fields of that live data `details` object.
         primary_event_tickers:
           type: array
           items:
@@ -7183,6 +7751,54 @@ components:
           type: string
           description: The full id of the created subtrader.
 
+    CreateFCMPositionTransferRequest:
+      type: object
+      required:
+        - source_subtrader_id
+        - target_subtrader_id
+        - market_ticker
+        - position_centicount
+        - price_centicents
+      properties:
+        source_subtrader_id:
+          type: string
+          description: Full id of the FCM subtrader giving up the position, as returned by `GET /fcm/subtraders`.
+          x-oapi-codegen-extra-tags:
+            validate: required
+        target_subtrader_id:
+          type: string
+          description: Subtrader under your error account that receives the position, `{error_account_id}_{suffix}` with a 1-16 character alphanumeric suffix. Created if it does not exist.
+          x-oapi-codegen-extra-tags:
+            validate: required
+        market_ticker:
+          type: string
+          description: Ticker of the market whose position is moved.
+          x-oapi-codegen-extra-tags:
+            validate: required
+        position_centicount:
+          type: integer
+          format: int64
+          description: Contracts to move, in centicounts (contracts x 100). Positive moves YES, negative moves NO. Must be a non-zero whole number of contracts, e.g. 1000 for 10 YES or -500 for 5 NO.
+          x-oapi-codegen-extra-tags:
+            validate: required,ne=0
+        price_centicents:
+          type: integer
+          format: int64
+          minimum: 0
+          maximum: 10000
+          description: YES price per contract in centicents (cents x 100), in whole cents, even when moving NO. For example, 4500 is 45 cents.
+          x-oapi-codegen-extra-tags:
+            validate: gte=0,lte=10000
+
+    CreateFCMPositionTransferResponse:
+      type: object
+      required:
+        - position_transfer_id
+      properties:
+        position_transfer_id:
+          type: string
+          description: Id of the executed transfer. Store it; no Trade API endpoint lists past transfers.
+
     GetFCMEventContractDailyCapResponse:
       type: object
       required:
@@ -7349,6 +7965,12 @@ components:
         - destination
         - amount
       properties:
+        client_transfer_id:
+          type: string
+          format: uuid
+          description: |
+            Client ID for duplicate prevention. Reuse only to retry the same request: if a transfer from the same source exchange instance and shard was already accepted with this ID, the request returns 409 and creates no new transfer. The returned transfer_id is always generated by Kalshi.
+            Only supported for primary accounts. Transfers involving numbered subaccounts reject this field. If omitted, each request creates a new transfer.
         source:
           $ref: '#/components/schemas/ExchangeInstance'
           description: The source exchange instance
@@ -7422,6 +8044,10 @@ components:
         transfer_id:
           type: string
           description: Unique transfer id
+        client_transfer_id:
+          type: string
+          x-go-type-skip-optional-pointer: true
+          description: The client_transfer_id provided when the transfer was created. Omitted if none was provided.
         source:
           $ref: '#/components/schemas/ExchangeInstance'
           description: Source exchange instance
@@ -7812,7 +8438,7 @@ components:
           description: UUID of the RFQ. Preserve the exact returned string.
         creator_id:
           type: string
-          description: Public communications ID of the RFQ creator.
+          description: Public communications ID of the RFQ creator (pseudonymous). When obscure_creator_id is enabled, other users receive the shared placeholder "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" (SHA-256 of empty input). The creator sees their normal ID. After successful quote execution, subsequent RFQ responses show the normal public communications ID to all viewers.
         market_ticker:
           type: string
           description: The ticker of the market this RFQ is for
@@ -7930,6 +8556,11 @@ components:
             Kalshi fees, and quote sizes are reduced to make room for the fees.
             Only valid together with a target cost.
           x-go-type-skip-optional-pointer: true
+        obscure_creator_id:
+          type: boolean
+          description: Replace the RFQ creator's public communications ID with a shared empty-input SHA-256 hash for other users. Applies to RFQ responses and broadcasts, and to quotes before successful execution. Successful execution reveals the normal ID in subsequent RFQ responses and in the executed quote. Accepting or confirming a quote does not reveal the ID. The creator always sees their normal ID. See the RFQ guide for the placeholder and visibility rules.
+          default: false
+          x-go-type-skip-optional-pointer: true
         rest_remainder:
           type: boolean
           description: Whether to rest the remainder of the RFQ after execution
@@ -7981,7 +8612,7 @@ components:
           description: Public communications ID of the quote creator
         rfq_creator_id:
           type: string
-          description: Public communications ID of the RFQ creator
+          description: Public communications ID of the RFQ creator (pseudonymous). When obscure_creator_id is enabled, other users receive the shared placeholder "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855" (SHA-256 of empty input). The creator sees their normal ID. After this quote executes successfully, its counterparty sees the normal public communications ID.
           x-go-type-skip-optional-pointer: true
         market_ticker:
           type: string
@@ -8147,6 +8778,446 @@ components:
           type: string
           description: The side of the quote to accept (yes or no)
           enum: ['yes', 'no']
+
+    RFQBatchStatus:
+      type: string
+      description: Status of an RFQ batch. An open batch takes batch quotes; an accepted batch is waiting for its winning makers to confirm or is executing; a closed batch is finished.
+      enum: [open, accepted, closed]
+
+    RFQBatch:
+      type: object
+      required:
+        - id
+        - creator_id
+        - status
+        - created_ts
+        - rfqs
+      properties:
+        id:
+          type: string
+          description: UUID of the RFQ batch. Preserve the exact returned string.
+        creator_id:
+          type: string
+          description: Public communications ID of the batch creator, obscured for other users like RFQ.creator_id when obscure_creator_id was set. It is revealed once a child RFQ executes.
+        status:
+          $ref: '#/components/schemas/RFQBatchStatus'
+        created_ts:
+          type: string
+          format: date-time
+          description: Timestamp when the RFQ batch was created
+        accepted_ts:
+          type: string
+          format: date-time
+          description: Timestamp when a batch quote on the batch was accepted
+        closed_ts:
+          type: string
+          format: date-time
+          description: Timestamp when the RFQ batch closed
+        rfqs:
+          type: array
+          items:
+            $ref: '#/components/schemas/RFQ'
+          description: The child RFQs, in the order they were requested
+        updated_ts:
+          type: string
+          format: date-time
+          description: Timestamp when the RFQ batch was last updated (visible to the batch creator)
+        close_reason:
+          type: string
+          description: Why the RFQ batch closed, for example executed, execution failed, or cancelled. A batch closes partially executed only in the rare case that filling one child cancelled a maker order another child needed (visible to the batch creator)
+          x-go-type-skip-optional-pointer: true
+        client_batch_id:
+          type: string
+          description: The client_batch_id given at creation (visible to the batch creator)
+          x-go-type-skip-optional-pointer: true
+        creator_user_id:
+          type: string
+          description: User ID of the batch creator (private field)
+          x-go-type-skip-optional-pointer: true
+        creator_subaccount:
+          type: integer
+          description: Subaccount number of the batch creator (visible to the batch creator)
+
+    GetRFQBatchResponse:
+      type: object
+      required:
+        - rfq_batch
+      properties:
+        rfq_batch:
+          $ref: '#/components/schemas/RFQBatch'
+
+    GetRFQBatchesResponse:
+      type: object
+      required:
+        - rfq_batches
+      properties:
+        rfq_batches:
+          type: array
+          items:
+            $ref: '#/components/schemas/RFQBatch'
+          description: RFQ batches matching the query criteria
+        cursor:
+          type: string
+          description: Cursor for pagination to get the next page of results
+          x-go-type-skip-optional-pointer: true
+
+    CreateRFQBatchChild:
+      type: object
+      description: One combo to request quotes on. Set exactly one of market_ticker and selected_markets, and optionally the child's own size.
+      properties:
+        market_ticker:
+          type: string
+          description: Ticker of an existing combo market
+          x-go-type-skip-optional-pointer: true
+        selected_markets:
+          type: array
+          maxItems: 6
+          items:
+            $ref: '#/components/schemas/TickerPair'
+          description: Legs of the combo, at most 6, looked up or created in the request's mve_collection_ticker as POST /multivariate_event_collections/{collection_ticker} does.
+          x-go-type-skip-optional-pointer: true
+          x-oapi-codegen-extra-tags:
+            validate: omitempty,max=6,dive
+        contracts_fp:
+          $ref: '#/components/schemas/FixedPointCount'
+          nullable: true
+          description: Number of contracts requested on this child, in place of the batch's size. Provide at most one of contracts_fp and target_cost_dollars.
+        target_cost_dollars:
+          $ref: '#/components/schemas/FixedPointDollars'
+          description: Target cost of this child, in dollars, in place of the batch's size. Provide at most one of contracts_fp and target_cost_dollars.
+          x-go-type-skip-optional-pointer: true
+
+    CreateRFQBatchRequest:
+      type: object
+      required:
+        - children
+      properties:
+        children:
+          type: array
+          minItems: 2
+          maxItems: 57
+          items:
+            $ref: '#/components/schemas/CreateRFQBatchChild'
+          description: The combos to request quotes on, one child RFQ each. Children must be distinct combos.
+          x-oapi-codegen-extra-tags:
+            validate: required,min=2,max=57,dive
+        mve_collection_ticker:
+          type: string
+          description: Collection in which children given by selected_markets are looked up or created. Required when any child uses selected_markets.
+          x-go-type-skip-optional-pointer: true
+        contracts_fp:
+          $ref: '#/components/schemas/FixedPointCount'
+          nullable: true
+          description: Number of contracts requested on every child that sets no size of its own. Provide at most one of contracts_fp and target_cost_dollars, and one of them unless every child sets its own.
+        target_cost_dollars:
+          $ref: '#/components/schemas/FixedPointDollars'
+          description: Target cost, in dollars, of every child that sets no size of its own. Provide at most one of contracts_fp and target_cost_dollars, and one of them unless every child sets its own.
+          x-go-type-skip-optional-pointer: true
+        target_cost_excludes_fees:
+          type: boolean
+          description: Same as on Create RFQ, applied to every child. Only valid when the children are sized by target cost.
+          x-go-type-skip-optional-pointer: true
+        rest_remainder:
+          type: boolean
+          description: Must be false. A batch executes as one fill-or-kill, so no child rests a remainder.
+          default: false
+          x-go-type-skip-optional-pointer: true
+        replace_existing:
+          type: boolean
+          description: Close your oldest open RFQ batches as needed so this one can be created. Single RFQs are never replaced.
+          default: false
+          x-go-type-skip-optional-pointer: true
+        obscure_creator_id:
+          type: boolean
+          description: Same as on Create RFQ, applied to the batch and every child.
+          default: false
+          x-go-type-skip-optional-pointer: true
+        client_batch_id:
+          type: string
+          maxLength: 64
+          x-oapi-codegen-extra-tags:
+            validate: "omitempty,max=64"
+          description: Optional key for this batch, unique among your RFQ batches, including those closed within the last seven days. Reusing one returns HTTP 409.
+          x-go-type-skip-optional-pointer: true
+        subtrader_id:
+          type: string
+          description: The subtrader to create the RFQ batch for (FCM members only; FCM members cannot create RFQ batches yet)
+          x-go-type-skip-optional-pointer: true
+        subaccount:
+          type: integer
+          description: The subaccount number to create the RFQ batch for (direct members only; 0 for primary, 1-63 for subaccounts)
+
+    CreateRFQBatchResponse:
+      type: object
+      required:
+        - rfq_batch
+      properties:
+        rfq_batch:
+          $ref: '#/components/schemas/RFQBatch'
+
+    RFQBatchQuoteStatus:
+      type: string
+      description: Status of a batch quote. A partially_executed batch quote executed some children and failed others, which happens only in the rare case that filling one child of the batch cancelled a maker order another child needed.
+      enum: [open, accepted, confirmed, executed, partially_executed, cancelled]
+
+    RFQBatchQuote:
+      type: object
+      description: One maker's quote on an RFQ batch. Once the batch is accepted, quotes lists only the children this maker won.
+      required:
+        - id
+        - rfq_batch_id
+        - creator_id
+        - rfq_creator_id
+        - status
+        - created_ts
+        - updated_ts
+        - quotes
+      properties:
+        id:
+          type: string
+          description: UUID of the batch quote. Preserve the exact returned string.
+        rfq_batch_id:
+          type: string
+          description: UUID of the RFQ batch this batch quote prices
+        creator_id:
+          type: string
+          description: Public communications ID of the batch quote creator
+        rfq_creator_id:
+          type: string
+          description: Public communications ID of the RFQ batch creator, obscured like Quote.rfq_creator_id
+        status:
+          $ref: '#/components/schemas/RFQBatchQuoteStatus'
+        created_ts:
+          type: string
+          format: date-time
+          description: Timestamp when the batch quote was created
+        updated_ts:
+          type: string
+          format: date-time
+          description: Timestamp when the batch quote was last updated
+        accepted_side:
+          type: string
+          description: The side that was accepted on this maker's children (yes or no)
+          enum: ['yes', 'no']
+          x-enum-varnames: ['RFQBatchQuoteAcceptedSideYes', 'RFQBatchQuoteAcceptedSideNo']
+        accepted_ts:
+          type: string
+          format: date-time
+          description: Timestamp when the batch quote was accepted
+        confirmed_ts:
+          type: string
+          format: date-time
+          description: Timestamp when the batch quote was confirmed
+        quotes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Quote'
+          description: One quote per child RFQ, or once accepted one per child this maker won; match them to children by rfq_id. Each accepted child quote executes as its own trade.
+        rest_remainder:
+          type: boolean
+          description: Whether to rest the remainder of each child quote after execution (visible to the batch quote creator)
+        post_only:
+          type: boolean
+          description: Whether the batch quote creator's orders are post-only (visible to the batch quote creator)
+        creator_user_id:
+          type: string
+          description: User ID of the batch quote creator (private field)
+          x-go-type-skip-optional-pointer: true
+        creator_subaccount:
+          type: integer
+          description: Subaccount number of the batch quote creator (visible to the batch quote creator)
+        rfq_creator_user_id:
+          type: string
+          description: User ID of the RFQ batch creator (private field)
+          x-go-type-skip-optional-pointer: true
+        rfq_creator_subaccount:
+          type: integer
+          description: Subaccount number of the RFQ batch creator (visible to the RFQ batch creator)
+
+    GetRFQBatchQuotesResponse:
+      type: object
+      required:
+        - batch_quotes
+      properties:
+        batch_quotes:
+          type: array
+          items:
+            $ref: '#/components/schemas/RFQBatchQuote'
+          description: Batch quotes on the RFQ batch visible to you
+
+    RFQBatchQuoteEntry:
+      type: object
+      required:
+        - rfq_id
+        - yes_bid
+        - no_bid
+      properties:
+        rfq_id:
+          type: string
+          description: UUID of the child RFQ to price. Pass it unchanged; malformed IDs return HTTP 400.
+        yes_bid:
+          $ref: '#/components/schemas/FixedPointDollars'
+          description: The bid price for YES contracts on this child, in dollars
+        no_bid:
+          $ref: '#/components/schemas/FixedPointDollars'
+          description: The bid price for NO contracts on this child, in dollars
+
+    CreateRFQBatchQuoteRequest:
+      type: object
+      required:
+        - quotes
+        - rest_remainder
+      properties:
+        quotes:
+          type: array
+          minItems: 2
+          maxItems: 57
+          items:
+            $ref: '#/components/schemas/RFQBatchQuoteEntry'
+          description: Prices for every child RFQ of the batch, one entry per child.
+          x-oapi-codegen-extra-tags:
+            validate: required,min=2,max=57,dive
+        rest_remainder:
+          type: boolean
+          description: Whether to rest the remainder of each child quote after execution
+        post_only:
+          type: boolean
+          description: If true, your resting orders are cancelled rather than crossed if they would take liquidity. Defaults to false.
+        subaccount:
+          type: integer
+          description: Optional subaccount number to place the batch quote under (0 for primary, 1-63 for subaccounts)
+
+    CreateRFQBatchQuoteResponse:
+      type: object
+      required:
+        - id
+      properties:
+        id:
+          type: string
+          description: UUID of the newly created batch quote. Pass it unchanged in subsequent requests.
+
+    RFQBatchBestQuote:
+      type: object
+      required:
+        - rfq_id
+        - market_ticker
+      properties:
+        rfq_id:
+          type: string
+          description: UUID of the child RFQ
+        market_ticker:
+          type: string
+          description: The child's combo market
+        yes_bid_dollars:
+          $ref: '#/components/schemas/FixedPointDollars'
+          description: Best YES bid across makers, in dollars; absent when no maker bids YES
+        no_bid_dollars:
+          $ref: '#/components/schemas/FixedPointDollars'
+          description: Best NO bid across makers, in dollars; absent when no maker bids NO
+        yes_contracts_offered_fp:
+          $ref: '#/components/schemas/FixedPointCount'
+          description: Contracts the best YES bid offers
+        no_contracts_offered_fp:
+          $ref: '#/components/schemas/FixedPointCount'
+          description: Contracts the best NO bid offers
+
+    RFQBatchBestQuotes:
+      type: object
+      required:
+        - rfq_batch_id
+        - status
+        - version
+        - yes_complete
+        - no_complete
+        - rfqs
+      properties:
+        rfq_batch_id:
+          type: string
+          description: UUID of the RFQ batch
+        status:
+          $ref: '#/components/schemas/RFQBatchStatus'
+        version:
+          type: integer
+          format: int64
+          description: Increases whenever a best bid changes
+        updated_ts:
+          type: string
+          format: date-time
+          description: When a best bid last changed
+        yes_complete:
+          type: boolean
+          description: Whether every child has a YES bid, so the batch can be accepted on the yes side
+        no_complete:
+          type: boolean
+          description: Whether every child has a NO bid, so the batch can be accepted on the no side
+        rfqs:
+          type: array
+          items:
+            $ref: '#/components/schemas/RFQBatchBestQuote'
+          description: One entry per child RFQ, in batch order
+
+    GetRFQBatchBestQuotesResponse:
+      type: object
+      required:
+        - best_quotes
+      properties:
+        best_quotes:
+          $ref: '#/components/schemas/RFQBatchBestQuotes'
+
+    RFQBatchAcceptLimit:
+      type: object
+      required:
+        - rfq_id
+        - bid_dollars
+      properties:
+        rfq_id:
+          type: string
+          description: UUID of the child RFQ. Pass it unchanged; malformed IDs return HTTP 400.
+        bid_dollars:
+          $ref: '#/components/schemas/FixedPointDollars'
+          description: The lowest bid you take on this child on the accepted side, normally the best bid you were shown
+
+    AcceptRFQBatchRequest:
+      type: object
+      required:
+        - accepted_side
+        - min_bids
+      properties:
+        accepted_side:
+          type: string
+          description: The side to accept on every child (yes or no)
+          enum: ['yes', 'no']
+          x-enum-varnames: ['AcceptRFQBatchRequestAcceptedSideYes', 'AcceptRFQBatchRequestAcceptedSideNo']
+        min_bids:
+          type: array
+          minItems: 2
+          maxItems: 57
+          items:
+            $ref: '#/components/schemas/RFQBatchAcceptLimit'
+          description: Price protection, exactly one entry per child. A child whose best bid on the accepted side is now below its entry fails the accept.
+          x-oapi-codegen-extra-tags:
+            validate: required,min=2,max=57,dive
+        client_order_id:
+          type: string
+          description: Optional idempotency key. Retrying an accept with the same client_order_id returns the result of the accept that succeeded.
+          x-go-type-skip-optional-pointer: true
+
+    AcceptRFQBatchResponse:
+      type: object
+      required:
+        - accepted_side
+        - quotes
+      properties:
+        accepted_side:
+          type: string
+          description: The side accepted on every child (yes or no)
+          enum: ['yes', 'no']
+          x-enum-varnames: ['AcceptRFQBatchResponseAcceptedSideYes', 'AcceptRFQBatchResponseAcceptedSideNo']
+        quotes:
+          type: array
+          items:
+            $ref: '#/components/schemas/Quote'
+          description: The quote each child was accepted from, in batch order. Each winning maker then confirms its children.
 
     # Order schemas
     GetOrderResponse:
@@ -8531,7 +9602,7 @@ components:
           description: If this flag is set to true, the order will be canceled if the order is open and trading on the exchange is paused for any reason.
         reduce_only:
           type: boolean
-          description: Specifies whether the order place count should be capped by the member's current position.
+          description: Specifies whether the order place count should be capped by the member's current position. Orders with reduce_only set to true will be rejected unless time_in_force is immediate_or_cancel.
         subaccount:
           type: integer
           minimum: 0
@@ -8693,6 +9764,15 @@ components:
           type: string
           description: The new client-specified order ID after amendment
           x-go-type-skip-optional-pointer: true
+        expiration_time:
+          type: integer
+          format: int64
+          minimum: 0
+          description: >-
+            New Unix expiration timestamp in seconds. Omit to preserve the current
+            expiry, or use 0 to remove it (good-till-canceled). A nonzero expiry
+            must be in the future. Send the current price and total quantity for
+            an expiry-only amendment; this preserves queue position.
         exchange_index:
           allOf:
             - $ref: '#/components/schemas/ExchangeIndex'
@@ -8958,6 +10038,8 @@ components:
         - size_min
         - size_max
         - functional_description
+        - price_level_structure
+        - price_ranges
       properties:
         collection_ticker:
           type: string
@@ -9015,6 +10097,14 @@ components:
         functional_description:
           type: string
           description: A functional description of the collection describing how inputs affect the output.
+        price_level_structure:
+          type: string
+          description: Price level structure used for new markets created in this collection. Existing markets may differ; use the market's price_level_structure and price_ranges for its current pricing.
+        price_ranges:
+          type: array
+          description: Price bands and tick sizes in fixed-point dollars for new markets created in this collection. Use these ranges to determine valid prices rather than hardcoding the structure name.
+          items:
+            $ref: '#/components/schemas/PriceRange'
 
     GetMultivariateEventCollectionResponse:
       type: object
@@ -9693,6 +10783,7 @@ components:
         - rules_secondary
         - price_level_structure
         - price_ranges
+        - settlement_bounds_type
       properties:
         ticker:
           type: string
@@ -9809,6 +10900,15 @@ components:
           nullable: true
           x-omitempty: true
           description: Timestamp when the market was settled. Only filled for settled markets
+        settlement_bounds_type:
+          type: string
+          enum: [default, floor]
+          description: Which settlement bounds apply to this market. default means the market has no settlement bounds
+        settlement_floor_dollars:
+          $ref: '#/components/schemas/FixedPointDollars'
+          nullable: true
+          x-omitempty: true
+          description: The lowest value the YES/LONG side of the contract can settle at in dollars. Only filled when settlement_bounds_type is floor
         expiration_value:
           type: string
           description: The value that was considered for the settlement

@@ -193,3 +193,13 @@ TEST(WsLifecycle, CallbackMayReplaceItselfWithoutDeadlocking) {
 	callback.invoke(42);
 	EXPECT_EQ(observed, 42);
 }
+
+TEST(WsEndpoint, RejectsControlBytesAndWhitespaceAnywhereInTheUrl) {
+	for (const char byte : {'\0', '\n', '\r', '\t', ' ', '\x7f'}) {
+		const std::string url = std::string("wss://example.test/path") + byte + "suffix";
+		const kalshi::Result<kalshi::detail::WsEndpoint> result =
+			kalshi::detail::parse_ws_endpoint(url);
+		ASSERT_FALSE(result);
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	}
+}

@@ -2,7 +2,7 @@ name: Docs
 
 # Builds the Doxygen API reference on pull requests that touch it. Deploys it
 # to GitHub Pages when dispatched, which release.yml does after it publishes a
-# release, so only released headers are documented.
+# release, so release tags can publish their headers.
 on:
   pull_request:
     paths:
@@ -26,6 +26,15 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Require a release tag for deployment
+        if: github.event_name == 'workflow_dispatch'
+        shell: bash
+        run: |
+          expected="v$(./tools/project_version.sh)"
+          test "$GITHUB_REF" = "refs/tags/$expected" || {
+            echo "::error::Dispatch docs from the matching release tag ($expected)"
+            exit 1
+          }
       - name: Install Doxygen
         run: |
           sudo apt-get update
@@ -40,7 +49,7 @@ jobs:
   deploy:
     if: github.event_name == 'workflow_dispatch'
     needs: build
-    # One deploy at a time, in order, so an older release never lands last.
+    # Serialize deployments.
     concurrency:
       group: pages-deploy
       cancel-in-progress: false

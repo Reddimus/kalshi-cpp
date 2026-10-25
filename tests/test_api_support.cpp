@@ -104,6 +104,17 @@ TEST(ApiSupport, UnexpectedBodiesAreParseErrors) {
 	EXPECT_EQ(decoded.error().message.find("secret"), std::string::npos) << decoded.error().message;
 }
 
+TEST(ApiSupport, MalformedJsonIsNotRepairedByNullFallback) {
+	for (const std::string& body : {std::string{"{\"balance\":0} garbage"},
+									std::string{"{\"balance\":null,,\"portfolio_value\":0}"},
+									std::string{"{\"balance\":0}\0{}", 16}}) {
+		const kalshi::Result<kalshi::GetBalanceResponse> decoded =
+			kalshi::detail::decode<kalshi::GetBalanceResponse>(response(200, body));
+		ASSERT_FALSE(decoded.has_value()) << body;
+		EXPECT_EQ(decoded.error().code, kalshi::ErrorCode::ParseError);
+	}
+}
+
 TEST(ApiSupport, UnknownEnumValuesAndFieldsDoNotFailParsing) {
 	const kalshi::Result<kalshi::CancelOrderV2Response> decoded =
 		kalshi::detail::decode<kalshi::CancelOrderV2Response>(response(
@@ -195,4 +206,9 @@ TEST(ApiSupport, ValidationRejectsMissingEnumsAndMalformedDecimals) {
 	kalshi::BatchCreateOrdersV2Request batch;
 	batch.orders = {order, bad_price};
 	EXPECT_FALSE(kalshi::detail::validate(batch).has_value());
+}
+
+TEST(ApiSupport, NullTransportUsesTheDefaultHttpClient) {
+	const kalshi::KalshiClient client{std::shared_ptr<const kalshi::HttpTransport>{}};
+	EXPECT_NE(dynamic_cast<const kalshi::HttpClient*>(&client.transport()), nullptr);
 }

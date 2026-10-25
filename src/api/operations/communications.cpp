@@ -147,6 +147,138 @@ Result<void> KalshiClient::confirm_rfq_quote(std::string_view rfq_id, std::strin
 		impl_->send(HttpMethod::PUT, *target, std::string{"{}"}, "confirm_rfq_quote"));
 }
 
+Result<GetRFQBatchesResponse> KalshiClient::get_rfq_batches(const GetRfqBatchesParams& params) {
+	detail::Query query(std::string{"/communications/rfq_batches"});
+	query.add("cursor", params.cursor);
+	query.add("subaccount", params.subaccount);
+	query.add("limit", params.limit);
+	query.add("status", params.status);
+	query.add("user_filter", params.user_filter);
+	return detail::decode<GetRFQBatchesResponse>(
+		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_rfq_batches"));
+}
+
+Result<RFQBatch> KalshiClient::create_rfq_batch(const CreateRFQBatchRequest& body) {
+	if (Result<void> valid = detail::validate(body); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
+	Result<CreateRFQBatchResponse> response = detail::decode<CreateRFQBatchResponse>(
+		impl_->send(HttpMethod::POST, std::string{"/communications/rfq_batches"},
+					detail::encode(body), "create_rfq_batch"));
+	if (!response) {
+		return std::unexpected(std::move(response.error()));
+	}
+	return std::move(response->rfq_batch);
+}
+
+Result<RFQBatch> KalshiClient::get_rfq_batch(std::string_view rfq_batch_id) {
+	Result<std::string> target =
+		detail::expand_path("/communications/rfq_batches/{rfq_batch_id}", {rfq_batch_id});
+	if (!target) {
+		return std::unexpected(std::move(target.error()));
+	}
+	Result<GetRFQBatchResponse> response = detail::decode<GetRFQBatchResponse>(
+		impl_->send(HttpMethod::GET, *target, {}, "get_rfq_batch"));
+	if (!response) {
+		return std::unexpected(std::move(response.error()));
+	}
+	return std::move(response->rfq_batch);
+}
+
+Result<void> KalshiClient::delete_rfq_batch(std::string_view rfq_batch_id) {
+	Result<std::string> target =
+		detail::expand_path("/communications/rfq_batches/{rfq_batch_id}", {rfq_batch_id});
+	if (!target) {
+		return std::unexpected(std::move(target.error()));
+	}
+	return detail::expect_success(impl_->send(HttpMethod::DEL, *target, {}, "delete_rfq_batch"));
+}
+
+Result<RFQBatchBestQuotes> KalshiClient::get_rfq_batch_best_quotes(std::string_view rfq_batch_id) {
+	Result<std::string> target = detail::expand_path(
+		"/communications/rfq_batches/{rfq_batch_id}/best_quotes", {rfq_batch_id});
+	if (!target) {
+		return std::unexpected(std::move(target.error()));
+	}
+	Result<GetRFQBatchBestQuotesResponse> response = detail::decode<GetRFQBatchBestQuotesResponse>(
+		impl_->send(HttpMethod::GET, *target, {}, "get_rfq_batch_best_quotes"));
+	if (!response) {
+		return std::unexpected(std::move(response.error()));
+	}
+	return std::move(response->best_quotes);
+}
+
+Result<AcceptRFQBatchResponse> KalshiClient::accept_rfq_batch(std::string_view rfq_batch_id,
+															  const AcceptRFQBatchRequest& body) {
+	if (Result<void> valid = detail::validate(body); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
+	Result<std::string> target =
+		detail::expand_path("/communications/rfq_batches/{rfq_batch_id}/accept", {rfq_batch_id});
+	if (!target) {
+		return std::unexpected(std::move(target.error()));
+	}
+	return detail::decode<AcceptRFQBatchResponse>(
+		impl_->send(HttpMethod::PUT, *target, detail::encode(body), "accept_rfq_batch"));
+}
+
+Result<std::vector<RFQBatchQuote>>
+KalshiClient::get_rfq_batch_quotes(std::string_view rfq_batch_id) {
+	Result<std::string> target =
+		detail::expand_path("/communications/rfq_batches/{rfq_batch_id}/quotes", {rfq_batch_id});
+	if (!target) {
+		return std::unexpected(std::move(target.error()));
+	}
+	Result<GetRFQBatchQuotesResponse> response = detail::decode<GetRFQBatchQuotesResponse>(
+		impl_->send(HttpMethod::GET, *target, {}, "get_rfq_batch_quotes"));
+	if (!response) {
+		return std::unexpected(std::move(response.error()));
+	}
+	return std::move(response->batch_quotes);
+}
+
+Result<std::string> KalshiClient::create_rfq_batch_quote(std::string_view rfq_batch_id,
+														 const CreateRFQBatchQuoteRequest& body) {
+	if (Result<void> valid = detail::validate(body); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
+	Result<std::string> target =
+		detail::expand_path("/communications/rfq_batches/{rfq_batch_id}/quotes", {rfq_batch_id});
+	if (!target) {
+		return std::unexpected(std::move(target.error()));
+	}
+	Result<CreateRFQBatchQuoteResponse> response = detail::decode<CreateRFQBatchQuoteResponse>(
+		impl_->send(HttpMethod::POST, *target, detail::encode(body), "create_rfq_batch_quote"));
+	if (!response) {
+		return std::unexpected(std::move(response.error()));
+	}
+	return std::move(response->id);
+}
+
+Result<void> KalshiClient::delete_rfq_batch_quote(std::string_view rfq_batch_id,
+												  std::string_view batch_quote_id) {
+	Result<std::string> target =
+		detail::expand_path("/communications/rfq_batches/{rfq_batch_id}/quotes/{batch_quote_id}",
+							{rfq_batch_id, batch_quote_id});
+	if (!target) {
+		return std::unexpected(std::move(target.error()));
+	}
+	return detail::expect_success(
+		impl_->send(HttpMethod::DEL, *target, {}, "delete_rfq_batch_quote"));
+}
+
+Result<void> KalshiClient::confirm_rfq_batch_quote(std::string_view rfq_batch_id,
+												   std::string_view batch_quote_id) {
+	Result<std::string> target = detail::expand_path(
+		"/communications/rfq_batches/{rfq_batch_id}/quotes/{batch_quote_id}/confirm",
+		{rfq_batch_id, batch_quote_id});
+	if (!target) {
+		return std::unexpected(std::move(target.error()));
+	}
+	return detail::expect_success(
+		impl_->send(HttpMethod::PUT, *target, std::string{"{}"}, "confirm_rfq_batch_quote"));
+}
+
 Result<GetQuotesResponse> KalshiClient::get_quotes(const GetQuotesParams& params) {
 	detail::Query query(std::string{"/communications/quotes"});
 	query.add("cursor", params.cursor);

@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <charconv>
+#include <cmath>
 #include <random>
 #include <thread>
 
@@ -42,17 +43,25 @@ bool should_retry(HttpMethod method, const Error& error, const RetryPolicy& poli
 }
 
 std::chrono::milliseconds retry_delay(std::uint8_t attempt, const RetryPolicy& policy) {
-	const double max_ms = static_cast<double>(policy.max_delay.count());
-	double delay_ms = static_cast<double>(policy.initial_delay.count());
-	for (std::uint8_t i = 1; i < attempt && delay_ms < max_ms; ++i) {
-		delay_ms *= policy.backoff_multiplier;
+	const std::chrono::milliseconds maximum =
+		std::max(policy.max_delay, std::chrono::milliseconds::zero());
+	const double max_ms = static_cast<double>(maximum.count());
+	double delay_ms = static_cast<double>(std::max(policy.initial_delay.count(), std::int64_t{0}));
+	const double multiplier =
+		std::isfinite(policy.backoff_multiplier) ? std::max(policy.backoff_multiplier, 0.0) : 1.0;
+	for (std::uint8_t i = 1; i < attempt; ++i) {
+		delay_ms *= multiplier;
 	}
-	delay_ms = std::clamp(delay_ms, 0.0, max_ms);
-	if (policy.jitter_factor > 0.0) {
-		thread_local std::mt19937 rng{std::random_device{}()};
-		const double spread = std::min(policy.jitter_factor, 1.0);
+	const double spread =
+		std::isfinite(policy.jitter_factor) ? std::clamp(policy.jitter_factor, 0.0, 1.0) : 0.0;
+	if (spread > 0.0) {
+		static thread_local std::mt19937 rng{std::random_device{}()};
 		std::uniform_real_distribution<double> jitter(1.0 - spread, 1.0 + spread);
-		delay_ms = std::min(delay_ms * jitter(rng), max_ms);
+		delay_ms *= jitter(rng);
+	}
+	// Comparing before conversion also handles overflow and rounded INT64_MAX.
+	if (!std::isfinite(delay_ms) || delay_ms >= max_ms) {
+		return maximum;
 	}
 	return std::chrono::milliseconds{static_cast<std::int64_t>(delay_ms)};
 }
@@ -76,7 +85,8 @@ Result<HttpResponse> RetryingTransport::request(HttpMethod method, std::string_v
 		std::chrono::milliseconds delay = retry_delay(attempt, policy_);
 		if (result) {
 			if (const std::optional<std::chrono::milliseconds> server = retry_after(*result)) {
-				delay = std::min(std::max(delay, *server), policy_.max_delay);
+				delay = std::min(std::max(delay, *server),
+								 std::max(policy_.max_delay, std::chrono::milliseconds::zero()));
 			}
 		}
 		std::this_thread::sleep_for(delay);

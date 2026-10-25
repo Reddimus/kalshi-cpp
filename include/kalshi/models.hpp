@@ -601,6 +601,59 @@ enum class QuoteStatus : std::uint8_t {
 	return "";
 }
 
+/// Status of a batch quote.
+enum class RFQBatchQuoteStatus : std::uint8_t {
+	Unknown,		   ///< A value this SDK version does not know.
+	Open,			   ///< `open`
+	Accepted,		   ///< `accepted`
+	Confirmed,		   ///< `confirmed`
+	Executed,		   ///< `executed`
+	PartiallyExecuted, ///< `partially_executed`
+	Cancelled,		   ///< `cancelled`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(RFQBatchQuoteStatus value) noexcept {
+	switch (value) {
+		case RFQBatchQuoteStatus::Open:
+			return "open";
+		case RFQBatchQuoteStatus::Accepted:
+			return "accepted";
+		case RFQBatchQuoteStatus::Confirmed:
+			return "confirmed";
+		case RFQBatchQuoteStatus::Executed:
+			return "executed";
+		case RFQBatchQuoteStatus::PartiallyExecuted:
+			return "partially_executed";
+		case RFQBatchQuoteStatus::Cancelled:
+			return "cancelled";
+		case RFQBatchQuoteStatus::Unknown:
+			break;
+	}
+	return "";
+}
+
+/// Status of an RFQ batch.
+enum class RFQBatchStatus : std::uint8_t {
+	Unknown,  ///< A value this SDK version does not know.
+	Open,	  ///< `open`
+	Accepted, ///< `accepted`
+	Closed,	  ///< `closed`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(RFQBatchStatus value) noexcept {
+	switch (value) {
+		case RFQBatchStatus::Open:
+			return "open";
+		case RFQBatchStatus::Accepted:
+			return "accepted";
+		case RFQBatchStatus::Closed:
+			return "closed";
+		case RFQBatchStatus::Unknown:
+			break;
+	}
+	return "";
+}
+
 /// Current status of the RFQ (open, closed)
 enum class RFQStatus : std::uint8_t {
 	Unknown, ///< A value this SDK version does not know.
@@ -661,6 +714,25 @@ enum class SelfTradePreventionType : std::uint8_t {
 	return "";
 }
 
+/// Which settlement bounds apply to this market.
+enum class SettlementBoundsType : std::uint8_t {
+	Unknown, ///< A value this SDK version does not know.
+	Default, ///< `default`
+	Floor,	 ///< `floor`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(SettlementBoundsType value) noexcept {
+	switch (value) {
+		case SettlementBoundsType::Default:
+			return "default";
+		case SettlementBoundsType::Floor:
+			return "floor";
+		case SettlementBoundsType::Unknown:
+			break;
+	}
+	return "";
+}
+
 /// The outcome of the market settlement.
 enum class SettlementMarketResult : std::uint8_t {
 	Unknown, ///< A value this SDK version does not know.
@@ -683,22 +755,23 @@ enum class SettlementMarketResult : std::uint8_t {
 	return "";
 }
 
-/// Settlement status of the markets to return.
+/// Return unsettled positions by default, settled positions that have not yet been archived, or
+/// all positions in the live data set.
 enum class SettlementStatus : std::uint8_t {
 	Unknown,   ///< A value this SDK version does not know.
-	All,	   ///< `all`
 	Unsettled, ///< `unsettled`
 	Settled,   ///< `settled`
+	All,	   ///< `all`
 };
 
 [[nodiscard]] constexpr std::string_view to_string(SettlementStatus value) noexcept {
 	switch (value) {
-		case SettlementStatus::All:
-			return "all";
 		case SettlementStatus::Unsettled:
 			return "unsettled";
 		case SettlementStatus::Settled:
 			return "settled";
+		case SettlementStatus::All:
+			return "all";
 		case SettlementStatus::Unknown:
 			break;
 	}
@@ -811,6 +884,93 @@ struct AcceptBlockTradeProposalRequest {
 struct AcceptQuoteRequest {
 	/// The side of the quote to accept (yes or no)
 	Side accepted_side{};
+};
+
+struct RFQBatchAcceptLimit {
+	/// UUID of the child RFQ.
+	std::string rfq_id;
+	/// The lowest bid you take on this child on the accepted side, normally the best bid you were
+	/// shown
+	FixedPointDollars bid_dollars;
+};
+
+struct AcceptRFQBatchRequest {
+	/// The side to accept on every child (yes or no)
+	Side accepted_side{};
+	/// Price protection, exactly one entry per child.
+	std::vector<RFQBatchAcceptLimit> min_bids;
+	/// Optional idempotency key.
+	std::optional<std::string> client_order_id;
+};
+
+struct Quote {
+	/// UUID of the quote.
+	std::string id;
+	/// UUID of the RFQ this quote is responding to.
+	std::string rfq_id;
+	/// Public communications ID of the quote creator
+	std::string creator_id;
+	/// Public communications ID of the RFQ creator (pseudonymous).
+	std::string rfq_creator_id;
+	/// The ticker of the market this quote is for
+	std::string market_ticker;
+	/// String representation of the number of contracts in the quote
+	FixedPointCount contracts_fp;
+	/// Bid price for YES contracts, in dollars
+	FixedPointDollars yes_bid_dollars;
+	/// Bid price for NO contracts, in dollars
+	FixedPointDollars no_bid_dollars;
+	/// Timestamp when the quote was created
+	std::string created_ts;
+	/// Timestamp when the quote was last updated
+	std::string updated_ts;
+	/// Current status of the quote
+	QuoteStatus status{};
+	/// The side that was accepted (yes or no)
+	std::optional<Side> accepted_side;
+	/// Timestamp when the quote was accepted
+	std::optional<std::string> accepted_ts;
+	/// Timestamp when the quote was confirmed
+	std::optional<std::string> confirmed_ts;
+	/// Timestamp when the quote was executed
+	std::optional<std::string> executed_ts;
+	/// Timestamp when the quote was cancelled
+	std::optional<std::string> cancelled_ts;
+	/// Whether to rest the remainder of the quote after execution
+	std::optional<bool> rest_remainder;
+	/// Whether the quote creator's order is post-only (visible when the caller is the quote
+	/// creator)
+	std::optional<bool> post_only;
+	/// Reason for quote cancellation if cancelled
+	std::optional<std::string> cancellation_reason;
+	/// User ID of the quote creator (private field)
+	std::optional<std::string> creator_user_id;
+	/// User ID of the RFQ creator (private field)
+	std::optional<std::string> rfq_creator_user_id;
+	/// Total value requested in the RFQ in dollars
+	std::optional<FixedPointDollars> rfq_target_cost_dollars;
+	/// True when the RFQ's target cost is principal-only and the contracts-offered sizes were
+	/// computed without reserving taker fees (fees are charged on top of the target cost).
+	std::optional<bool> target_cost_excludes_fees;
+	/// Order ID for the RFQ creator (private field)
+	std::optional<std::string> rfq_creator_order_id;
+	/// Order ID for the quote creator (private field)
+	std::optional<std::string> creator_order_id;
+	/// Subaccount number of the quote creator (visible when the caller is the quote creator)
+	std::optional<std::int64_t> creator_subaccount;
+	/// Subaccount number of the RFQ creator (visible when the caller is the RFQ creator)
+	std::optional<std::int64_t> rfq_creator_subaccount;
+	/// Number of YES contracts offered in the quote (fixed-point)
+	std::optional<FixedPointCount> yes_contracts_fp;
+	/// Number of NO contracts offered in the quote (fixed-point)
+	std::optional<FixedPointCount> no_contracts_fp;
+};
+
+struct AcceptRFQBatchResponse {
+	/// The side accepted on every child (yes or no)
+	Side accepted_side{};
+	/// The quote each child was accepted from, in batch order.
+	std::vector<Quote> quotes;
 };
 
 struct AccountApiUsageLevelVolumeGoal {
@@ -932,6 +1092,8 @@ struct AmendOrderV2Request {
 	std::optional<std::string> client_order_id;
 	/// The new client-specified order ID after amendment
 	std::optional<std::string> updated_client_order_id;
+	/// New Unix expiration timestamp in seconds.
+	std::optional<std::int64_t> expiration_time;
 	/// Exchange shard index.
 	std::optional<ExchangeIndex> exchange_index;
 };
@@ -1370,6 +1532,25 @@ struct CreateApiKeyResponse {
 	std::optional<std::string> warning;
 };
 
+struct CreateFCMPositionTransferRequest {
+	/// Full id of the FCM subtrader giving up the position, as returned by `GET /fcm/subtraders`.
+	std::string source_subtrader_id;
+	/// Subtrader under your error account that receives the position,
+	/// `{error_account_id}_{suffix}` with a 1-16 character alphanumeric suffix.
+	std::string target_subtrader_id;
+	/// Ticker of the market whose position is moved.
+	std::string market_ticker;
+	/// Contracts to move, in centicounts (contracts x 100).
+	std::int64_t position_centicount{};
+	/// YES price per contract in centicents (cents x 100), in whole cents, even when moving NO.
+	std::int64_t price_centicents{};
+};
+
+struct CreateFCMPositionTransferResponse {
+	/// Id of the executed transfer.
+	std::string position_transfer_id;
+};
+
 struct CreateFCMSubtraderRequest {
 	/// Suffix for the new subtrader, 1-16 case-sensitive ASCII alphanumeric characters
 	/// ([A-Za-z0-9]).
@@ -1477,6 +1658,10 @@ struct Market {
 	std::optional<FixedPointDollars> settlement_value_dollars;
 	/// Timestamp when the market was settled.
 	std::optional<std::string> settlement_ts;
+	/// Which settlement bounds apply to this market.
+	SettlementBoundsType settlement_bounds_type{};
+	/// The lowest value the YES/LONG side of the contract can settle at in dollars.
+	std::optional<FixedPointDollars> settlement_floor_dollars;
 	/// The value that was considered for the settlement
 	std::string expiration_value;
 	/// The recorded datetime when the underlying event occurred, if available
@@ -1583,6 +1768,141 @@ struct CreateQuoteResponse {
 	std::string id;
 };
 
+/// One combo to request quotes on.
+struct CreateRFQBatchChild {
+	/// Ticker of an existing combo market
+	std::optional<std::string> market_ticker;
+	/// Legs of the combo, at most 6, looked up or created in the request's mve_collection_ticker
+	/// as POST /multivariate_event_collections/{collection_ticker} does.
+	std::optional<std::vector<TickerPair>> selected_markets;
+	/// Number of contracts requested on this child, in place of the batch's size.
+	std::optional<FixedPointCount> contracts_fp;
+	/// Target cost of this child, in dollars, in place of the batch's size.
+	std::optional<FixedPointDollars> target_cost_dollars;
+};
+
+struct RFQBatchQuoteEntry {
+	/// UUID of the child RFQ to price.
+	std::string rfq_id;
+	/// The bid price for YES contracts on this child, in dollars
+	FixedPointDollars yes_bid;
+	/// The bid price for NO contracts on this child, in dollars
+	FixedPointDollars no_bid;
+};
+
+struct CreateRFQBatchQuoteRequest {
+	/// Prices for every child RFQ of the batch, one entry per child.
+	std::vector<RFQBatchQuoteEntry> quotes;
+	/// Whether to rest the remainder of each child quote after execution
+	bool rest_remainder{};
+	/// If true, your resting orders are cancelled rather than crossed if they would take
+	/// liquidity.
+	std::optional<bool> post_only;
+	/// Optional subaccount number to place the batch quote under (0 for primary, 1-63 for
+	/// subaccounts)
+	std::optional<std::int64_t> subaccount;
+};
+
+struct CreateRFQBatchQuoteResponse {
+	/// UUID of the newly created batch quote.
+	std::string id;
+};
+
+struct CreateRFQBatchRequest {
+	/// The combos to request quotes on, one child RFQ each.
+	std::vector<CreateRFQBatchChild> children;
+	/// Collection in which children given by selected_markets are looked up or created.
+	std::optional<std::string> mve_collection_ticker;
+	/// Number of contracts requested on every child that sets no size of its own.
+	std::optional<FixedPointCount> contracts_fp;
+	/// Target cost, in dollars, of every child that sets no size of its own.
+	std::optional<FixedPointDollars> target_cost_dollars;
+	/// Same as on Create RFQ, applied to every child.
+	std::optional<bool> target_cost_excludes_fees;
+	/// Must be false.
+	std::optional<bool> rest_remainder;
+	/// Close your oldest open RFQ batches as needed so this one can be created.
+	std::optional<bool> replace_existing;
+	/// Same as on Create RFQ, applied to the batch and every child.
+	std::optional<bool> obscure_creator_id;
+	/// Optional key for this batch, unique among your RFQ batches, including those closed within
+	/// the last seven days.
+	std::optional<std::string> client_batch_id;
+	/// The subtrader to create the RFQ batch for (FCM members only; FCM members cannot create RFQ
+	/// batches yet)
+	std::optional<std::string> subtrader_id;
+	/// The subaccount number to create the RFQ batch for (direct members only; 0 for primary, 1-63
+	/// for subaccounts)
+	std::optional<std::int64_t> subaccount;
+};
+
+struct RFQ {
+	/// UUID of the RFQ.
+	std::string id;
+	/// Public communications ID of the RFQ creator (pseudonymous).
+	std::string creator_id;
+	/// The ticker of the market this RFQ is for
+	std::string market_ticker;
+	/// String representation of the number of contracts requested in the RFQ
+	FixedPointCount contracts_fp;
+	/// Total value of the RFQ in dollars
+	std::optional<FixedPointDollars> target_cost_dollars;
+	/// True when the target cost is principal-only and quote sizes are computed without reserving
+	/// taker fees (fees are charged on top).
+	std::optional<bool> target_cost_excludes_fees;
+	/// Current status of the RFQ (open, closed)
+	RFQStatus status{};
+	/// Timestamp when the RFQ was created
+	std::string created_ts;
+	/// Ticker of the MVE collection this market belongs to
+	std::optional<std::string> mve_collection_ticker;
+	/// Selected legs for the MVE collection
+	std::optional<std::vector<MveSelectedLeg>> mve_selected_legs;
+	/// Whether to rest the remainder of the RFQ after execution
+	std::optional<bool> rest_remainder;
+	/// Reason for RFQ cancellation if cancelled
+	std::optional<std::string> cancellation_reason;
+	/// User ID of the RFQ creator (private field)
+	std::optional<std::string> creator_user_id;
+	/// Subaccount number of the RFQ creator (visible when the caller is the RFQ creator)
+	std::optional<std::int64_t> creator_subaccount;
+	/// Timestamp when the RFQ was cancelled
+	std::optional<std::string> cancelled_ts;
+	/// Timestamp when the RFQ was last updated
+	std::optional<std::string> updated_ts;
+};
+
+struct RFQBatch {
+	/// UUID of the RFQ batch.
+	std::string id;
+	/// Public communications ID of the batch creator, obscured for other users like RFQ.creator_id
+	/// when obscure_creator_id was set.
+	std::string creator_id;
+	RFQBatchStatus status{};
+	/// Timestamp when the RFQ batch was created
+	std::string created_ts;
+	/// Timestamp when a batch quote on the batch was accepted
+	std::optional<std::string> accepted_ts;
+	/// Timestamp when the RFQ batch closed
+	std::optional<std::string> closed_ts;
+	/// The child RFQs, in the order they were requested
+	std::vector<RFQ> rfqs;
+	/// Timestamp when the RFQ batch was last updated (visible to the batch creator)
+	std::optional<std::string> updated_ts;
+	/// Why the RFQ batch closed, for example executed, execution failed, or cancelled.
+	std::optional<std::string> close_reason;
+	/// The client_batch_id given at creation (visible to the batch creator)
+	std::optional<std::string> client_batch_id;
+	/// User ID of the batch creator (private field)
+	std::optional<std::string> creator_user_id;
+	/// Subaccount number of the batch creator (visible to the batch creator)
+	std::optional<std::int64_t> creator_subaccount;
+};
+
+struct CreateRFQBatchResponse {
+	RFQBatch rfq_batch;
+};
+
 struct CreateRFQRequest {
 	/// The ticker of the market for which to create an RFQ
 	std::string market_ticker;
@@ -1597,6 +1917,9 @@ struct CreateRFQRequest {
 	/// Sizes quotes against the target cost as principal only (contracts = target cost / price),
 	/// with your taker fees charged on top of the target cost.
 	std::optional<bool> target_cost_excludes_fees;
+	/// Replace the RFQ creator's public communications ID with a shared empty-input SHA-256 hash
+	/// for other users.
+	std::optional<bool> obscure_creator_id;
 	/// Whether to rest the remainder of the RFQ after execution
 	bool rest_remainder{};
 	/// Whether to delete existing RFQs as part of this RFQ's creation
@@ -2116,6 +2439,8 @@ struct GetEventMetadataResponse {
 
 /// Query parameters for `get_event`.
 struct GetEventParams {
+	/// Return event metadata without loading child markets.
+	std::optional<bool> exclude_markets;
 	/// If true, markets are included within the event object.
 	std::optional<bool> with_nested_markets;
 };
@@ -2328,7 +2653,7 @@ struct GetFillsHistoricalParams {
 
 /// Query parameters for `get_fills`.
 struct GetFillsParams {
-	/// Filter by market ticker
+	/// Filter by market ticker.
 	std::optional<std::string> ticker;
 	/// Filter by order ID
 	std::optional<std::string> order_id;
@@ -2490,6 +2815,8 @@ struct GetIncentiveProgramsResponse {
 struct IntraExchangeInstanceTransfer {
 	/// Unique transfer id
 	std::string transfer_id;
+	/// The client_transfer_id provided when the transfer was created.
+	std::optional<std::string> client_transfer_id;
 	/// Source exchange instance
 	ExchangeInstance source{};
 	/// Destination exchange instance
@@ -2785,6 +3112,11 @@ struct MultivariateEventCollection {
 	std::int64_t size_max{};
 	/// A functional description of the collection describing how inputs affect the output.
 	std::string functional_description;
+	/// Price level structure used for new markets created in this collection.
+	std::string price_level_structure;
+	/// Price bands and tick sizes in fixed-point dollars for new markets created in this
+	/// collection.
+	std::vector<PriceRange> price_ranges;
 };
 
 struct GetMultivariateEventCollectionResponse {
@@ -2823,6 +3155,8 @@ struct GetMultivariateEventsParams {
 	std::optional<std::string> series_ticker;
 	/// Filter events by collection ticker.
 	std::optional<std::string> collection_ticker;
+	/// Filter by specific event tickers.
+	std::optional<std::string> tickers;
 	/// Parameter to specify if nested markets should be included in the response.
 	std::optional<bool> with_nested_markets;
 };
@@ -2909,7 +3243,7 @@ struct GetOrderResponse {
 struct GetOrdersParams {
 	/// Filter by market ticker
 	std::optional<std::string> ticker;
-	/// Event tickers to filter by, as a comma-separated list (maximum 10).
+	/// Event tickers to filter by, as a comma-separated list (maximum 100).
 	std::optional<std::string> event_ticker;
 	/// Filter items after this Unix timestamp
 	std::optional<std::int64_t> min_ts;
@@ -2949,6 +3283,9 @@ struct GetPositionsParams {
 	/// Restricts the positions to those with any of following fields with non-zero values, as a
 	/// comma separated list.
 	std::optional<std::string> count_filter;
+	/// Return unsettled positions by default, settled positions that have not yet been archived,
+	/// or all positions in the live data set.
+	std::optional<SettlementStatus> settlement_status;
 	/// Filter by market ticker
 	std::optional<std::string> ticker;
 	/// Event ticker to filter by.
@@ -2984,69 +3321,6 @@ struct GetPositionsResponse {
 	std::vector<MarketPosition> market_positions;
 	/// List of event positions
 	std::vector<EventPosition> event_positions;
-};
-
-struct Quote {
-	/// UUID of the quote.
-	std::string id;
-	/// UUID of the RFQ this quote is responding to.
-	std::string rfq_id;
-	/// Public communications ID of the quote creator
-	std::string creator_id;
-	/// Public communications ID of the RFQ creator
-	std::string rfq_creator_id;
-	/// The ticker of the market this quote is for
-	std::string market_ticker;
-	/// String representation of the number of contracts in the quote
-	FixedPointCount contracts_fp;
-	/// Bid price for YES contracts, in dollars
-	FixedPointDollars yes_bid_dollars;
-	/// Bid price for NO contracts, in dollars
-	FixedPointDollars no_bid_dollars;
-	/// Timestamp when the quote was created
-	std::string created_ts;
-	/// Timestamp when the quote was last updated
-	std::string updated_ts;
-	/// Current status of the quote
-	QuoteStatus status{};
-	/// The side that was accepted (yes or no)
-	std::optional<Side> accepted_side;
-	/// Timestamp when the quote was accepted
-	std::optional<std::string> accepted_ts;
-	/// Timestamp when the quote was confirmed
-	std::optional<std::string> confirmed_ts;
-	/// Timestamp when the quote was executed
-	std::optional<std::string> executed_ts;
-	/// Timestamp when the quote was cancelled
-	std::optional<std::string> cancelled_ts;
-	/// Whether to rest the remainder of the quote after execution
-	std::optional<bool> rest_remainder;
-	/// Whether the quote creator's order is post-only (visible when the caller is the quote
-	/// creator)
-	std::optional<bool> post_only;
-	/// Reason for quote cancellation if cancelled
-	std::optional<std::string> cancellation_reason;
-	/// User ID of the quote creator (private field)
-	std::optional<std::string> creator_user_id;
-	/// User ID of the RFQ creator (private field)
-	std::optional<std::string> rfq_creator_user_id;
-	/// Total value requested in the RFQ in dollars
-	std::optional<FixedPointDollars> rfq_target_cost_dollars;
-	/// True when the RFQ's target cost is principal-only and the contracts-offered sizes were
-	/// computed without reserving taker fees (fees are charged on top of the target cost).
-	std::optional<bool> target_cost_excludes_fees;
-	/// Order ID for the RFQ creator (private field)
-	std::optional<std::string> rfq_creator_order_id;
-	/// Order ID for the quote creator (private field)
-	std::optional<std::string> creator_order_id;
-	/// Subaccount number of the quote creator (visible when the caller is the quote creator)
-	std::optional<std::int64_t> creator_subaccount;
-	/// Subaccount number of the RFQ creator (visible when the caller is the RFQ creator)
-	std::optional<std::int64_t> rfq_creator_subaccount;
-	/// Number of YES contracts offered in the quote (fixed-point)
-	std::optional<FixedPointCount> yes_contracts_fp;
-	/// Number of NO contracts offered in the quote (fixed-point)
-	std::optional<FixedPointCount> no_contracts_fp;
 };
 
 struct GetQuoteResponse {
@@ -3089,40 +3363,94 @@ struct GetQuotesResponse {
 	std::optional<std::string> cursor;
 };
 
-struct RFQ {
-	/// UUID of the RFQ.
-	std::string id;
-	/// Public communications ID of the RFQ creator.
-	std::string creator_id;
-	/// The ticker of the market this RFQ is for
+struct RFQBatchBestQuote {
+	/// UUID of the child RFQ
+	std::string rfq_id;
+	/// The child's combo market
 	std::string market_ticker;
-	/// String representation of the number of contracts requested in the RFQ
-	FixedPointCount contracts_fp;
-	/// Total value of the RFQ in dollars
-	std::optional<FixedPointDollars> target_cost_dollars;
-	/// True when the target cost is principal-only and quote sizes are computed without reserving
-	/// taker fees (fees are charged on top).
-	std::optional<bool> target_cost_excludes_fees;
-	/// Current status of the RFQ (open, closed)
-	RFQStatus status{};
-	/// Timestamp when the RFQ was created
-	std::string created_ts;
-	/// Ticker of the MVE collection this market belongs to
-	std::optional<std::string> mve_collection_ticker;
-	/// Selected legs for the MVE collection
-	std::optional<std::vector<MveSelectedLeg>> mve_selected_legs;
-	/// Whether to rest the remainder of the RFQ after execution
-	std::optional<bool> rest_remainder;
-	/// Reason for RFQ cancellation if cancelled
-	std::optional<std::string> cancellation_reason;
-	/// User ID of the RFQ creator (private field)
-	std::optional<std::string> creator_user_id;
-	/// Subaccount number of the RFQ creator (visible when the caller is the RFQ creator)
-	std::optional<std::int64_t> creator_subaccount;
-	/// Timestamp when the RFQ was cancelled
-	std::optional<std::string> cancelled_ts;
-	/// Timestamp when the RFQ was last updated
+	/// Best YES bid across makers, in dollars; absent when no maker bids YES
+	std::optional<FixedPointDollars> yes_bid_dollars;
+	/// Best NO bid across makers, in dollars; absent when no maker bids NO
+	std::optional<FixedPointDollars> no_bid_dollars;
+	/// Contracts the best YES bid offers
+	std::optional<FixedPointCount> yes_contracts_offered_fp;
+	/// Contracts the best NO bid offers
+	std::optional<FixedPointCount> no_contracts_offered_fp;
+};
+
+struct RFQBatchBestQuotes {
+	/// UUID of the RFQ batch
+	std::string rfq_batch_id;
+	RFQBatchStatus status{};
+	/// Increases whenever a best bid changes
+	std::int64_t version{};
+	/// When a best bid last changed
 	std::optional<std::string> updated_ts;
+	/// Whether every child has a YES bid, so the batch can be accepted on the yes side
+	bool yes_complete{};
+	/// Whether every child has a NO bid, so the batch can be accepted on the no side
+	bool no_complete{};
+	/// One entry per child RFQ, in batch order
+	std::vector<RFQBatchBestQuote> rfqs;
+};
+
+struct GetRFQBatchBestQuotesResponse {
+	RFQBatchBestQuotes best_quotes;
+};
+
+/// One maker's quote on an RFQ batch.
+struct RFQBatchQuote {
+	/// UUID of the batch quote.
+	std::string id;
+	/// UUID of the RFQ batch this batch quote prices
+	std::string rfq_batch_id;
+	/// Public communications ID of the batch quote creator
+	std::string creator_id;
+	/// Public communications ID of the RFQ batch creator, obscured like Quote.rfq_creator_id
+	std::string rfq_creator_id;
+	RFQBatchQuoteStatus status{};
+	/// Timestamp when the batch quote was created
+	std::string created_ts;
+	/// Timestamp when the batch quote was last updated
+	std::string updated_ts;
+	/// The side that was accepted on this maker's children (yes or no)
+	std::optional<Side> accepted_side;
+	/// Timestamp when the batch quote was accepted
+	std::optional<std::string> accepted_ts;
+	/// Timestamp when the batch quote was confirmed
+	std::optional<std::string> confirmed_ts;
+	/// One quote per child RFQ, or once accepted one per child this maker won; match them to
+	/// children by rfq_id.
+	std::vector<Quote> quotes;
+	/// Whether to rest the remainder of each child quote after execution (visible to the batch
+	/// quote creator)
+	std::optional<bool> rest_remainder;
+	/// Whether the batch quote creator's orders are post-only (visible to the batch quote creator)
+	std::optional<bool> post_only;
+	/// User ID of the batch quote creator (private field)
+	std::optional<std::string> creator_user_id;
+	/// Subaccount number of the batch quote creator (visible to the batch quote creator)
+	std::optional<std::int64_t> creator_subaccount;
+	/// User ID of the RFQ batch creator (private field)
+	std::optional<std::string> rfq_creator_user_id;
+	/// Subaccount number of the RFQ batch creator (visible to the RFQ batch creator)
+	std::optional<std::int64_t> rfq_creator_subaccount;
+};
+
+struct GetRFQBatchQuotesResponse {
+	/// Batch quotes on the RFQ batch visible to you
+	std::vector<RFQBatchQuote> batch_quotes;
+};
+
+struct GetRFQBatchResponse {
+	RFQBatch rfq_batch;
+};
+
+struct GetRFQBatchesResponse {
+	/// RFQ batches matching the query criteria
+	std::vector<RFQBatch> rfq_batches;
+	/// Cursor for pagination to get the next page of results
+	std::optional<std::string> cursor;
 };
 
 struct GetRFQResponse {
@@ -3135,6 +3463,19 @@ struct GetRFQsResponse {
 	std::vector<RFQ> rfqs;
 	/// Cursor for pagination to get the next page of results
 	std::optional<std::string> cursor;
+};
+
+/// Query parameters for `get_rfq_batches`.
+struct GetRfqBatchesParams {
+	/// Pagination cursor.
+	std::optional<std::string> cursor;
+	/// Subaccount number (0 for primary, 1-63 for subaccounts).
+	std::optional<std::int64_t> subaccount;
+	/// Maximum number of batches per page.
+	std::optional<std::int64_t> limit;
+	/// Filter RFQ batches by status
+	std::optional<RFQBatchStatus> status;
+	std::optional<UserFilter> user_filter;
 };
 
 /// Query parameters for `get_rfqs`.
@@ -3610,6 +3951,8 @@ struct GetWithdrawalsResponse {
 };
 
 struct IntraExchangeInstanceTransferRequest {
+	/// Client ID for duplicate prevention.
+	std::optional<std::string> client_transfer_id;
 	/// The source exchange instance
 	ExchangeInstance source{};
 	/// The destination exchange instance

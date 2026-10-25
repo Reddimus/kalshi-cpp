@@ -1,12 +1,12 @@
 # Upstream contract
 
 kalshi-cpp follows Kalshi's published Predictions contracts. The copies in
-`spec/` are byte-identical to what Kalshi served on 2026-09-25.
+`spec/` are byte-identical to what Kalshi served on 2026-10-25.
 
 | File | Version | SHA-256 |
 | --- | --- | --- |
-| `spec/openapi.yaml` from <https://docs.kalshi.com/openapi.yaml> | 3.31.0 | `7a870e939ec61793ff31d04e89c40a85246a82d5a60e0f3803a45806444baa97` |
-| `spec/asyncapi.yaml` from <https://docs.kalshi.com/asyncapi.yaml> | 2.0.0 | `1fe32a4b7c63fe6b98b09cdb8a2510ae14cc09764c0679feb7d2fe772a023537` |
+| `spec/openapi.yaml` from <https://docs.kalshi.com/openapi.yaml> | 3.34.0 | `fb86c72f185dc5866616caf20842484bdbfb9be7013208a81133f0bbe853f0af` |
+| `spec/asyncapi.yaml` from <https://docs.kalshi.com/asyncapi.yaml> | 2.0.0 | `4feebe151d5b7e74758b6070a65d388afca21d43dd59bc452836ec0647dc2602` |
 
 Kalshi's Margin API (<https://docs.kalshi.com/perps_openapi.yaml>) has its own
 host, authentication, and risk model, so this client leaves it out.

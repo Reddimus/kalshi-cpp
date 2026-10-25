@@ -1,6 +1,6 @@
 # REST operations
 
-Covers Kalshi's Predictions OpenAPI 3.31.0 document (`spec/openapi.yaml`).
+Covers Kalshi's Predictions OpenAPI 3.34.0 document (`spec/openapi.yaml`).
 Each row is a `KalshiClient` method.
 
 ## account
@@ -37,6 +37,16 @@ Each row is a `KalshiClient` method.
 | DELETE | `/communications/rfqs/{rfq_id}/quotes/{quote_id}` | `delete_rfq_quote` |
 | PUT | `/communications/rfqs/{rfq_id}/quotes/{quote_id}/accept` | `accept_rfq_quote` |
 | PUT | `/communications/rfqs/{rfq_id}/quotes/{quote_id}/confirm` | `confirm_rfq_quote` |
+| GET | `/communications/rfq_batches` | `get_rfq_batches` |
+| POST | `/communications/rfq_batches` | `create_rfq_batch` |
+| GET | `/communications/rfq_batches/{rfq_batch_id}` | `get_rfq_batch` |
+| DELETE | `/communications/rfq_batches/{rfq_batch_id}` | `delete_rfq_batch` |
+| GET | `/communications/rfq_batches/{rfq_batch_id}/best_quotes` | `get_rfq_batch_best_quotes` |
+| PUT | `/communications/rfq_batches/{rfq_batch_id}/accept` | `accept_rfq_batch` |
+| GET | `/communications/rfq_batches/{rfq_batch_id}/quotes` | `get_rfq_batch_quotes` |
+| POST | `/communications/rfq_batches/{rfq_batch_id}/quotes` | `create_rfq_batch_quote` |
+| DELETE | `/communications/rfq_batches/{rfq_batch_id}/quotes/{batch_quote_id}` | `delete_rfq_batch_quote` |
+| PUT | `/communications/rfq_batches/{rfq_batch_id}/quotes/{batch_quote_id}/confirm` | `confirm_rfq_batch_quote` |
 | GET | `/communications/quotes` | `get_quotes` |
 | POST | `/communications/quotes` | `create_quote` |
 | GET | `/communications/quotes/{quote_id}` | `get_quote` (deprecated) |
@@ -79,6 +89,7 @@ Each row is a `KalshiClient` method.
 | GET | `/fcm/subtraders/blocked_categories` | `get_fcm_subtrader_blocked_categories` |
 | PUT | `/fcm/subtraders/blocked_categories` | `update_fcm_subtrader_blocked_categories` |
 | GET | `/fcm/positions` | `get_fcm_positions` |
+| POST | `/fcm/positions/transfers` | `create_fcm_position_transfer` |
 
 ## historical
 

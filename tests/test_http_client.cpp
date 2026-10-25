@@ -262,6 +262,42 @@ TEST(HttpClientLoopback, RefusedConnectionsAreNetworkErrors) {
 	EXPECT_EQ(response.error().code, kalshi::ErrorCode::NetworkError);
 }
 
+TEST(HttpClientLoopback, ResponseLimitAppliesToKnownAndChunkedBodies) {
+	for (const std::string& response :
+		 {http_response(200, "12345"),
+		  std::string("HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\nConnection: "
+					  "close\r\n\r\n5\r\n12345\r\n0\r\n\r\n")}) {
+		const LoopbackServer server(response);
+		kalshi::ClientConfig config = config_for(server);
+		config.max_response_bytes = 4;
+		const kalshi::HttpClient client(config);
+		const kalshi::Result<kalshi::HttpResponse> result = client.get("/markets");
+		ASSERT_FALSE(result);
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	}
+}
+
+TEST(HttpClientLoopback, ExactResponseLimitAndUnlimitedBodiesSucceed) {
+	const LoopbackServer server(http_response(200, "12345"));
+	for (const std::size_t limit : {5U, 0U}) {
+		kalshi::ClientConfig config = config_for(server);
+		config.max_response_bytes = limit;
+		const kalshi::HttpClient client(config);
+		const kalshi::Result<kalshi::HttpResponse> result = client.get("/markets");
+		ASSERT_TRUE(result);
+		EXPECT_EQ(result->body, "12345");
+	}
+}
+
+TEST(HttpClientLoopback, RejectsNonHttpProtocols) {
+	kalshi::ClientConfig config;
+	config.base_url = "file:///etc";
+	const kalshi::HttpClient client(config);
+	const kalshi::Result<kalshi::HttpResponse> result = client.get("/hosts");
+	ASSERT_FALSE(result);
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+}
+
 #else
 
 TEST(HttpClientLoopback, SkippedOnWindows) {

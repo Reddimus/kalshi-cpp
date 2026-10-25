@@ -8,7 +8,8 @@ KalshiClient::KalshiClient(HttpClient client)
 	: impl_(std::make_unique<Impl>(Impl{std::make_shared<const HttpClient>(std::move(client))})) {}
 
 KalshiClient::KalshiClient(std::shared_ptr<const HttpTransport> transport)
-	: impl_(std::make_unique<Impl>(Impl{std::move(transport)})) {}
+	: impl_(std::make_unique<Impl>(
+		  Impl{transport ? std::move(transport) : std::make_shared<const HttpClient>()})) {}
 
 KalshiClient::~KalshiClient() = default;
 KalshiClient::KalshiClient(KalshiClient&&) noexcept = default;
@@ -31,6 +32,11 @@ RateLimitConfig rate_limit_config(const GetAccountApiLimitsResponse& limits,
 		config.write = {.capacity = static_cast<double>(limits.write.bucket_capacity),
 						.refill_per_second = static_cast<double>(limits.write.refill_rate),
 						.initial_tokens = std::nullopt};
+	}
+	if (limits.usage_tier == "expert" || limits.usage_tier == "premier" ||
+		limits.usage_tier == "paragon" || limits.usage_tier == "prime" ||
+		limits.usage_tier == "prestige") {
+		config.balance = {.capacity = 5.0, .refill_per_second = 5.0, .initial_tokens = {}};
 	}
 	if (costs.default_cost > 0) {
 		config.default_cost = static_cast<double>(costs.default_cost);

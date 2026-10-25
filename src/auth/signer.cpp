@@ -4,6 +4,7 @@
 #include <chrono>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <memory>
 #include <openssl/crypto.h>
 #include <openssl/err.h>
@@ -80,6 +81,20 @@ KeyType Signer::key_type() const noexcept {
 }
 
 Result<Signer> Signer::from_pem(std::string_view api_key_id, std::string_view pem_key) {
+	if (api_key_id.empty()) {
+		return std::unexpected(Error{ErrorCode::InvalidKey, "API key ID must not be empty"});
+	}
+	for (const unsigned char byte : api_key_id) {
+		if (byte <= 0x20 || byte >= 0x7f) {
+			return std::unexpected(
+				Error{ErrorCode::InvalidKey,
+					  "API key ID must contain only printable ASCII without spaces"});
+		}
+	}
+	if (pem_key.size() > static_cast<std::size_t>(std::numeric_limits<int>::max())) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidKey, "PEM key exceeds OpenSSL's buffer limit"});
+	}
 	ERR_clear_error();
 	const BioPtr bio{BIO_new_mem_buf(pem_key.data(), static_cast<int>(pem_key.size()))};
 	if (!bio) {

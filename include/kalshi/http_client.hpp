@@ -5,6 +5,7 @@
 #include "kalshi/signer.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <memory>
 #include <optional>
@@ -49,6 +50,8 @@ struct ClientConfig {
 	std::chrono::milliseconds timeout{std::chrono::seconds{30}};
 	std::chrono::milliseconds connect_timeout{std::chrono::seconds{10}};
 	bool verify_ssl{true};
+	/// Maximum decompressed response body; zero disables the limit.
+	std::size_t max_response_bytes{std::size_t{64} * 1024 * 1024};
 
 	[[nodiscard]] static ClientConfig for_environment(Environment environment) {
 		ClientConfig config;

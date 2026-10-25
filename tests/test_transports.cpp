@@ -9,6 +9,7 @@
 #include <deque>
 #include <gtest/gtest.h>
 #include <latch>
+#include <limits>
 #include <memory>
 #include <string>
 #include <thread>
@@ -334,4 +335,78 @@ TEST(RateLimitedTransport, ConfigComesFromAccountLimits) {
 	ASSERT_EQ(config.costs.size(), 1U);
 	EXPECT_EQ(config.costs[0].method, kalshi::HttpMethod::DEL);
 	EXPECT_DOUBLE_EQ(config.costs[0].cost, 2.0);
+}
+
+TEST(RateLimitedTransport, BalanceUsesAnIndependentOneCallBucket) {
+	const std::shared_ptr<ScriptedTransport> inner = std::make_shared<ScriptedTransport>();
+	kalshi::RateLimitConfig config;
+	config.read = {.capacity = 0.0, .refill_per_second = 0.0, .initial_tokens = {}};
+	config.max_wait = 0ms;
+	const kalshi::RateLimitedTransport transport(inner, config);
+	EXPECT_DOUBLE_EQ(transport.cost(kalshi::HttpMethod::GET, "/portfolio/balance", {}), 1.0);
+	EXPECT_TRUE(transport.get("/portfolio/balance?subaccount=1"));
+	const kalshi::Result<kalshi::HttpResponse> limited =
+		transport.get("/trade-api/v2/portfolio/balance");
+	ASSERT_FALSE(limited);
+	EXPECT_EQ(limited.error().code, kalshi::ErrorCode::RateLimited);
+	EXPECT_EQ(inner->calls, 1);
+}
+
+TEST(RateLimitedTransport, BalanceBudgetDependsOnTheAccountTier) {
+	for (const std::string tier :
+		 {"basic", "advanced", "expert", "premier", "paragon", "prime", "prestige", "unknown"}) {
+		kalshi::GetAccountApiLimitsResponse limits;
+		limits.usage_tier = tier;
+		const kalshi::RateLimitConfig config = kalshi::rate_limit_config(limits, {});
+		const double expected =
+			tier == "basic" || tier == "advanced" || tier == "unknown" ? 1.0 : 5.0;
+		EXPECT_DOUBLE_EQ(config.balance.capacity, expected) << tier;
+		EXPECT_DOUBLE_EQ(config.balance.refill_per_second, expected) << tier;
+	}
+}
+
+TEST(RateLimitedTransport, WriteRoutesRespectPathSegmentsAndApiPrefixes) {
+	EXPECT_TRUE(kalshi::RateLimitedTransport::is_write(kalshi::HttpMethod::POST,
+													   "/communications/rfq_batches"));
+	EXPECT_TRUE(kalshi::RateLimitedTransport::is_write(kalshi::HttpMethod::POST,
+													   "/trade-api/v2/portfolio/orders"));
+	EXPECT_FALSE(kalshi::RateLimitedTransport::is_write(kalshi::HttpMethod::POST,
+														"/portfolio/orders_other"));
+}
+
+TEST(Retry, InvalidAndExtremePoliciesRemainBounded) {
+	kalshi::RetryPolicy policy;
+	policy.jitter_factor = 0.0;
+	policy.max_delay = std::chrono::milliseconds{-1};
+	EXPECT_EQ(kalshi::retry_delay(2, policy), std::chrono::milliseconds::zero());
+	policy.max_delay = std::chrono::milliseconds::max();
+	policy.initial_delay = policy.max_delay;
+	EXPECT_EQ(kalshi::retry_delay(1, policy), policy.max_delay);
+	policy.initial_delay = std::chrono::milliseconds{10};
+	policy.backoff_multiplier = std::numeric_limits<double>::quiet_NaN();
+	policy.jitter_factor = std::numeric_limits<double>::infinity();
+	EXPECT_EQ(kalshi::retry_delay(2, policy), std::chrono::milliseconds{10});
+	policy.backoff_multiplier = std::numeric_limits<double>::max();
+	EXPECT_EQ(kalshi::retry_delay(255, policy), policy.max_delay);
+}
+
+TEST(RateLimitedTransport, InvalidCostsNeverBypassPacing) {
+	for (const double cost : {-1.0, std::numeric_limits<double>::infinity(),
+							  std::numeric_limits<double>::quiet_NaN()}) {
+		const std::shared_ptr<ScriptedTransport> inner = std::make_shared<ScriptedTransport>();
+		kalshi::RateLimitConfig config;
+		config.default_cost = cost;
+		const kalshi::RateLimitedTransport transport(inner, config);
+		const kalshi::Result<kalshi::HttpResponse> result = transport.get("/markets");
+		ASSERT_FALSE(result);
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+		EXPECT_EQ(inner->calls, 0);
+	}
+}
+
+TEST(RateLimitedTransport, MaximumWaitDoesNotOverflow) {
+	kalshi::RateLimitConfig config;
+	config.max_wait = std::chrono::milliseconds::max();
+	const kalshi::RateLimitedTransport transport(std::make_shared<ScriptedTransport>(), config);
+	EXPECT_TRUE(transport.get("/markets"));
 }

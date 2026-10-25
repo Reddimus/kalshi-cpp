@@ -27,6 +27,7 @@ public:
 	/// Uses a libcurl client. It signs requests when constructed with a Signer.
 	explicit KalshiClient(HttpClient client);
 	/// Uses any transport, such as RetryingTransport or a test double.
+	/// A null transport selects the default unauthenticated HttpClient.
 	explicit KalshiClient(std::shared_ptr<const HttpTransport> transport);
 	~KalshiClient();
 
@@ -129,6 +130,53 @@ public:
 	/// `PUT /communications/rfqs/{rfq_id}/quotes/{quote_id}/confirm`
 	[[nodiscard]] Result<void> confirm_rfq_quote(std::string_view rfq_id,
 												 std::string_view quote_id);
+
+	/// Get RFQ Batches
+	/// `GET /communications/rfq_batches`
+	[[nodiscard]] Result<GetRFQBatchesResponse>
+	get_rfq_batches(const GetRfqBatchesParams& params = {});
+
+	/// Create RFQ Batch
+	/// `POST /communications/rfq_batches`
+	[[nodiscard]] Result<RFQBatch> create_rfq_batch(const CreateRFQBatchRequest& body);
+
+	/// Get RFQ Batch
+	/// `GET /communications/rfq_batches/{rfq_batch_id}`
+	[[nodiscard]] Result<RFQBatch> get_rfq_batch(std::string_view rfq_batch_id);
+
+	/// Delete RFQ Batch
+	/// `DELETE /communications/rfq_batches/{rfq_batch_id}`
+	[[nodiscard]] Result<void> delete_rfq_batch(std::string_view rfq_batch_id);
+
+	/// Get RFQ Batch Best Quotes
+	/// `GET /communications/rfq_batches/{rfq_batch_id}/best_quotes`
+	[[nodiscard]] Result<RFQBatchBestQuotes>
+	get_rfq_batch_best_quotes(std::string_view rfq_batch_id);
+
+	/// Accept RFQ Batch
+	/// `PUT /communications/rfq_batches/{rfq_batch_id}/accept`
+	[[nodiscard]] Result<AcceptRFQBatchResponse>
+	accept_rfq_batch(std::string_view rfq_batch_id, const AcceptRFQBatchRequest& body);
+
+	/// Get RFQ Batch Quotes
+	/// `GET /communications/rfq_batches/{rfq_batch_id}/quotes`
+	[[nodiscard]] Result<std::vector<RFQBatchQuote>>
+	get_rfq_batch_quotes(std::string_view rfq_batch_id);
+
+	/// Create RFQ Batch Quote
+	/// `POST /communications/rfq_batches/{rfq_batch_id}/quotes`
+	[[nodiscard]] Result<std::string>
+	create_rfq_batch_quote(std::string_view rfq_batch_id, const CreateRFQBatchQuoteRequest& body);
+
+	/// Delete RFQ Batch Quote
+	/// `DELETE /communications/rfq_batches/{rfq_batch_id}/quotes/{batch_quote_id}`
+	[[nodiscard]] Result<void> delete_rfq_batch_quote(std::string_view rfq_batch_id,
+													  std::string_view batch_quote_id);
+
+	/// Confirm RFQ Batch Quote
+	/// `PUT /communications/rfq_batches/{rfq_batch_id}/quotes/{batch_quote_id}/confirm`
+	[[nodiscard]] Result<void> confirm_rfq_batch_quote(std::string_view rfq_batch_id,
+													   std::string_view batch_quote_id);
 
 	/// Get Quotes
 	/// `GET /communications/quotes`
@@ -262,6 +310,11 @@ public:
 	/// `GET /fcm/positions`
 	[[nodiscard]] Result<GetPositionsResponse>
 	get_fcm_positions(const GetFcmPositionsParams& params = {});
+
+	/// Create FCM Position Transfer
+	/// `POST /fcm/positions/transfers`
+	[[nodiscard]] Result<std::string>
+	create_fcm_position_transfer(const CreateFCMPositionTransferRequest& body);
 
 	// ----- historical --------------------------------------------------------
 

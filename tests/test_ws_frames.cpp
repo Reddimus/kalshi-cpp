@@ -118,6 +118,17 @@ TEST(WsFrames, NullsForNonNullableFieldsReadAsEmpty) {
 	EXPECT_EQ(update->msg.market_ticker, "KXA");
 }
 
+TEST(WsFrames, MalformedJsonIsNotRepairedByNullFallback) {
+	for (const std::string& body :
+		 {std::string{R"({"type":"trade","sid":1,"msg":{}} trailing)"},
+		  std::string{
+			  R"({"type":"trade","sid":1,"msg":{"trade_id":null,,"market_ticker":"A"}})"}}) {
+		EXPECT_TRUE(std::holds_alternative<kalshi::detail::MalformedFrame>(
+			kalshi::detail::parse_frame(body)))
+			<< body;
+	}
+}
+
 TEST(WsFrames, OrderbookLevelsArePriceAndCountPairs) {
 	const kalshi::detail::Frame snapshot = kalshi::detail::parse_frame(
 		R"({"type":"orderbook_snapshot","sid":2,"seq":1,"msg":{"market_ticker":"KXA","market_id":"m","yes_dollars_fp":[["0.4500","10.00"],["0.4400","3.00"]]}})");
@@ -129,4 +140,23 @@ TEST(WsFrames, OrderbookLevelsArePriceAndCountPairs) {
 	EXPECT_EQ((*update->msg.yes_dollars_fp)[0][0], "0.4500");
 	EXPECT_EQ((*update->msg.yes_dollars_fp)[1][1], "3.00");
 	EXPECT_FALSE(update->msg.no_dollars_fp.has_value());
+}
+
+TEST(WsFrames, ControlFramesKeepServerTimestamps) {
+	const kalshi::detail::Frame subscribed = kalshi::detail::parse_frame(
+		R"({"type":"subscribed","sending_ts_ms":1234,"msg":{"channel":"trade","sid":1}})");
+	ASSERT_TRUE(std::holds_alternative<kalshi::detail::SubscribedFrame>(subscribed));
+	EXPECT_EQ(std::get<kalshi::detail::SubscribedFrame>(subscribed).sending_ts_ms, 1234);
+	const kalshi::detail::Frame ok =
+		kalshi::detail::parse_frame(R"({"type":"ok","sending_ts_ms":1235,"msg":{}})");
+	ASSERT_TRUE(std::holds_alternative<kalshi::detail::OkFrame>(ok));
+	EXPECT_EQ(std::get<kalshi::detail::OkFrame>(ok).sending_ts_ms, 1235);
+	const kalshi::detail::Frame error = kalshi::detail::parse_frame(
+		R"({"type":"error","sending_ts_ms":1236,"msg":{"code":1,"msg":"failure"}})");
+	ASSERT_TRUE(std::holds_alternative<kalshi::detail::ErrorFrame>(error));
+	EXPECT_EQ(std::get<kalshi::detail::ErrorFrame>(error).sending_ts_ms, 1236);
+	const kalshi::detail::Frame unsubscribed =
+		kalshi::detail::parse_frame(R"({"type":"unsubscribed","sending_ts_ms":1237,"sid":1})");
+	ASSERT_TRUE(std::holds_alternative<kalshi::detail::UnsubscribedFrame>(unsubscribed));
+	EXPECT_EQ(std::get<kalshi::detail::UnsubscribedFrame>(unsubscribed).sending_ts_ms, 1237);
 }

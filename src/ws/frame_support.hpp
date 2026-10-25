@@ -16,7 +16,7 @@
 
 namespace kalshi::detail {
 
-inline constexpr glz::opts kWsReadOptions{.error_on_unknown_keys = false};
+inline constexpr JsonReadOptions kWsReadOptions{{.error_on_unknown_keys = false}};
 
 /// Reads a data frame into ws::Update<T>, retrying without null members when
 /// Kalshi sends null for a field its spec marks non-null.
@@ -25,6 +25,9 @@ template <typename T>
 	ws::Update<T> update;
 	if (!glz::read<kWsReadOptions>(update, json)) {
 		return WsMessage{std::move(update)};
+	}
+	if (glz::validate_json(json)) {
+		return std::nullopt;
 	}
 	const std::string stripped = strip_null_members(json);
 	update = ws::Update<T>{};

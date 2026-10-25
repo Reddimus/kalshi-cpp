@@ -87,8 +87,8 @@ dropping them. `tools/codegen/test_codegen.py` covers each of these checks, and
   or an entry in `tools/cpp_auto_allowlist.txt`; `make lint` checks this.
 - `.clang-format` sets the layout: tabs, 100 columns, project includes before
   system includes.
-- Glaze reads and writes JSON. `strip_null_members` is the only hand-written
-  scanner, and it runs only after a parse fails.
+- Glaze reads and writes JSON. Null fallback runs only after validating the
+  complete input.
 - Keep tests offline. Inject an `HttpTransport`, or use the local HTTP and
   WebSocket servers in `tests/`.
 
@@ -130,3 +130,13 @@ only fix things.
 ## License
 
 Contributions are licensed under the repository's MIT license.
+
+## Repository tools
+
+`.mcp.json` (Claude) and `.codex/config.toml` (Codex) provide Kalshi's
+[documentation MCP](https://docs.kalshi.com/mcp). It needs no API key and
+has no trading tools. Codex enables only documentation searches and file reads.
+Start a new trusted client session to load it; keep credentials outside git.
+
+`.greptile/config.json` requests Apex reviews when a PR opens, preserves its
+description, and disables automatic approval. Each Apex review costs 10 credits.

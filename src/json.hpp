@@ -12,6 +12,17 @@
 #error "kalshi-cpp requires Glaze 8.3 or newer"
 #endif
 
+namespace kalshi::detail {
+
+struct JsonReadOptions : glz::opts {
+	bool validate_skipped{true};
+	bool validate_trailing_whitespace{true};
+};
+
+inline constexpr JsonReadOptions kJsonReadOptions{{.error_on_unknown_keys = false}};
+
+} // namespace kalshi::detail
+
 template <>
 struct glz::meta<kalshi::RawJson> {
 	static constexpr auto read = [](kalshi::RawJson& value, const glz::raw_json& raw) { // auto-ok

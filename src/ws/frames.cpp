@@ -16,6 +16,7 @@ struct SubscribedWire {
 		std::string channel;
 		std::int64_t sid{0};
 	} msg;
+	std::optional<std::int64_t> sending_ts_ms;
 };
 
 struct OkWire {
@@ -23,6 +24,7 @@ struct OkWire {
 	std::optional<std::int64_t> sid;
 	std::optional<std::int64_t> seq;
 	glz::raw_json msg{"{}"};
+	std::optional<std::int64_t> sending_ts_ms;
 };
 
 struct ErrorWire {
@@ -33,6 +35,7 @@ struct ErrorWire {
 		std::int64_t code{0};
 		std::string msg;
 	} msg;
+	std::optional<std::int64_t> sending_ts_ms;
 };
 
 struct UpdatedWire {
@@ -53,7 +56,8 @@ Frame parse_frame(const std::string& json) {
 		if (glz::read<kWsReadOptions>(wire, json)) {
 			return MalformedFrame{std::string(type)};
 		}
-		return SubscribedFrame{wire.id, std::move(wire.msg.channel), wire.msg.sid};
+		return SubscribedFrame{wire.id, std::move(wire.msg.channel), wire.msg.sid,
+							   wire.sending_ts_ms};
 	}
 	if (type == "unsubscribed") {
 		UnsubscribedFrame frame;
@@ -67,14 +71,16 @@ Frame parse_frame(const std::string& json) {
 		if (glz::read<kWsReadOptions>(wire, json)) {
 			return MalformedFrame{std::string(type)};
 		}
-		return OkFrame{wire.id, wire.sid, wire.seq, std::move(wire.msg.str)};
+		return OkFrame{wire.id, wire.sid, wire.seq, std::move(wire.msg.str), wire.sending_ts_ms};
 	}
 	if (type == "error") {
 		ErrorWire wire;
 		if (glz::read<kWsReadOptions>(wire, json)) {
 			return MalformedFrame{std::string(type)};
 		}
-		return ErrorFrame{wire.id, wire.sid, wire.seq, wire.msg.code, std::move(wire.msg.msg)};
+		return ErrorFrame{
+			wire.id,		   wire.sid, wire.seq, wire.msg.code, std::move(wire.msg.msg),
+			wire.sending_ts_ms};
 	}
 	if (std::optional<WsMessage> message = parse_data_frame(type, json)) {
 		return std::move(*message);

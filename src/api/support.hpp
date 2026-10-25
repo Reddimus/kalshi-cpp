@@ -98,16 +98,21 @@ template <class T>
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
-	constexpr glz::opts options{.error_on_unknown_keys = false};
 	T value{};
-	if (!glz::read<options>(value, response->body)) {
+	if (!glz::read<kJsonReadOptions>(value, response->body)) {
 		return value;
+	}
+	if (const glz::error_ctx error = glz::validate_json(response->body)) {
+		return std::unexpected(Error{ErrorCode::ParseError,
+									 "Invalid JSON response: " + glz::format_error(error),
+									 response->status_code,
+									 {}});
 	}
 	// Kalshi sometimes sends null for fields its spec marks non-null. Retry
 	// without null members only then, so well-formed bodies parse in one pass.
 	const std::string json = strip_null_members(response->body);
 	value = T{};
-	if (const glz::error_ctx error = glz::read<options>(value, json)) {
+	if (const glz::error_ctx error = glz::read<kJsonReadOptions>(value, json)) {
 		return std::unexpected(Error{ErrorCode::ParseError,
 									 // The error names the problem but quotes none of the
 									 // body, which can hold secrets (generate_api_key).

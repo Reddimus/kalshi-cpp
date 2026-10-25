@@ -31,6 +31,7 @@ struct WsError {
 	std::optional<std::int64_t> seq;
 	/// The subscription the error concerns, when known.
 	std::optional<ws::Subscription> subscription;
+	std::optional<std::int64_t> sending_ts_ms;
 };
 
 enum class WsState : std::uint8_t { Disconnected, Connecting, Connected, Reconnecting };

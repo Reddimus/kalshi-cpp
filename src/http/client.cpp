@@ -6,7 +6,9 @@
 #include <cctype>
 #include <cstdlib>
 #include <curl/curl.h>
+#include <limits>
 #include <mutex>
+#include <new>
 #include <string>
 
 namespace kalshi {
@@ -37,30 +39,55 @@ const ClientConfig kMovedFromConfig{};
 
 const std::string kUserAgent = std::string("User-Agent: kalshi-cpp/") + VERSION;
 
-std::size_t write_body(char* data, std::size_t size, std::size_t count, void* userdata) {
-	static_cast<std::string*>(userdata)->append(data, size * count);
-	return size * count;
+struct ResponseSink {
+	HttpResponse response;
+	std::size_t limit;
+	bool too_large{false};
+};
+
+std::size_t write_body(char* data, std::size_t size, std::size_t count, void* userdata) noexcept {
+	ResponseSink& sink = *static_cast<ResponseSink*>(userdata);
+	if (size != 0 && count > std::numeric_limits<std::size_t>::max() / size) {
+		return 0;
+	}
+	const std::size_t bytes = size * count;
+	if (sink.limit != 0 && bytes > sink.limit - sink.response.body.size()) {
+		sink.too_large = true;
+		return 0;
+	}
+	try {
+		sink.response.body.append(data, bytes);
+		return bytes;
+	} catch (...) {
+		return 0;
+	}
 }
 
-std::size_t write_header(char* data, std::size_t size, std::size_t count, void* userdata) {
-	std::vector<std::pair<std::string, std::string>>& headers =
-		*static_cast<std::vector<std::pair<std::string, std::string>>*>(userdata);
-	const std::string_view line{data, size * count};
-	// A new status line starts a new response (after redirects or 100 Continue).
-	if (line.starts_with("HTTP/")) {
-		headers.clear();
+std::size_t write_header(char* data, std::size_t size, std::size_t count, void* userdata) noexcept {
+	if (size != 0 && count > std::numeric_limits<std::size_t>::max() / size) {
+		return 0;
+	}
+	try {
+		std::vector<std::pair<std::string, std::string>>& headers =
+			*static_cast<std::vector<std::pair<std::string, std::string>>*>(userdata);
+		const std::string_view line{data, size * count};
+		if (line.starts_with("HTTP/")) {
+			headers.clear();
+			return size * count;
+		}
+		const std::size_t colon = line.find(':');
+		if (colon != std::string_view::npos) {
+			std::string_view value = line.substr(colon + 1);
+			const std::size_t first = value.find_first_not_of(" \t\r\n");
+			const std::size_t last = value.find_last_not_of(" \t\r\n");
+			value = first == std::string_view::npos ? std::string_view{}
+													: value.substr(first, last - first + 1);
+			headers.emplace_back(std::string(line.substr(0, colon)), std::string(value));
+		}
 		return size * count;
+	} catch (...) {
+		return 0;
 	}
-	const std::size_t colon = line.find(':');
-	if (colon != std::string_view::npos) {
-		std::string_view value = line.substr(colon + 1);
-		const std::size_t first = value.find_first_not_of(" \t\r\n");
-		const std::size_t last = value.find_last_not_of(" \t\r\n");
-		value = first == std::string_view::npos ? std::string_view{}
-												: value.substr(first, last - first + 1);
-		headers.emplace_back(std::string(line.substr(0, colon)), std::string(value));
-	}
-	return size * count;
 }
 
 long to_curl_millis(std::chrono::milliseconds duration) {
@@ -126,9 +153,19 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 												  : curl_easy_strerror(impl_->init_result)));
 	}
 
-	curl_slist* raw_headers = nullptr;
-	const auto append_header = [&raw_headers](const std::string& header) {
-		raw_headers = curl_slist_append(raw_headers, header.c_str());
+	const std::string url = detail::request_url(impl_->config.base_url, path);
+	if ((!url.starts_with("https://") && !url.starts_with("http://")) ||
+		url.find('\0') != std::string::npos) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest, "Expected an HTTP or HTTPS URL without NUL bytes"});
+	}
+	std::unique_ptr<curl_slist, SlistDeleter> headers;
+	bool headers_ok = true;
+	const auto append_header = [&headers, &headers_ok](const std::string& header) {
+		curl_slist* previous = headers.release();
+		curl_slist* updated = curl_slist_append(previous, header.c_str());
+		headers.reset(updated != nullptr ? updated : previous);
+		headers_ok = headers_ok && updated != nullptr;
 	};
 	if (const std::optional<Signer>& signer = impl_->signer; signer.has_value()) {
 		const Result<AuthHeaders> auth = signer->sign(
@@ -146,49 +183,66 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 		append_header("Content-Type: application/json");
 	}
 	append_header(kUserAgent);
-	const std::unique_ptr<curl_slist, SlistDeleter> headers{raw_headers};
-
-	const std::string url = detail::request_url(impl_->config.base_url, path);
-	HttpResponse response;
+	if (!headers_ok) {
+		return std::unexpected(Error::network("Failed to allocate HTTP headers"));
+	}
+	ResponseSink sink{{}, impl_->config.max_response_bytes};
 
 	// Reset clears per-request options but keeps pooled connections and the
 	// TLS session cache.
 	curl_easy_reset(curl);
-	curl_easy_setopt(curl, CURLOPT_URL, url.c_str());
-	curl_easy_setopt(curl, CURLOPT_HTTPHEADER, headers.get());
-	curl_easy_setopt(curl, CURLOPT_NOSIGNAL, 1L);
-	curl_easy_setopt(curl, CURLOPT_TIMEOUT_MS, to_curl_millis(impl_->config.timeout));
-	curl_easy_setopt(curl, CURLOPT_CONNECTTIMEOUT_MS,
-					 to_curl_millis(impl_->config.connect_timeout));
-	curl_easy_setopt(curl, CURLOPT_TCP_KEEPALIVE, 1L);
-	curl_easy_setopt(curl, CURLOPT_ACCEPT_ENCODING, ""); // every encoding libcurl supports
-	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYPEER, impl_->config.verify_ssl ? 1L : 0L);
-	curl_easy_setopt(curl, CURLOPT_SSL_VERIFYHOST, impl_->config.verify_ssl ? 2L : 0L);
-	curl_easy_setopt(curl, CURLOPT_WRITEFUNCTION, write_body);
-	curl_easy_setopt(curl, CURLOPT_WRITEDATA, &response.body);
-	curl_easy_setopt(curl, CURLOPT_HEADERFUNCTION, write_header);
-	curl_easy_setopt(curl, CURLOPT_HEADERDATA, &response.headers);
+	CURLcode option_error = CURLE_OK;
+	const auto set_option = [curl, &option_error](CURLoption option, auto value) {
+		if (option_error == CURLE_OK) {
+			option_error = curl_easy_setopt(curl, option, value);
+		}
+	};
+	set_option(CURLOPT_URL, url.c_str());
+#if LIBCURL_VERSION_NUM >= 0x075500
+	set_option(CURLOPT_PROTOCOLS_STR, "http,https");
+#else
+	set_option(CURLOPT_PROTOCOLS, CURLPROTO_HTTP | CURLPROTO_HTTPS);
+#endif
+	set_option(CURLOPT_HTTPHEADER, headers.get());
+	set_option(CURLOPT_NOSIGNAL, 1L);
+	set_option(CURLOPT_TIMEOUT_MS, to_curl_millis(impl_->config.timeout));
+	set_option(CURLOPT_CONNECTTIMEOUT_MS, to_curl_millis(impl_->config.connect_timeout));
+	set_option(CURLOPT_TCP_KEEPALIVE, 1L);
+	set_option(CURLOPT_ACCEPT_ENCODING, ""); // every encoding libcurl supports
+	set_option(CURLOPT_SSL_VERIFYPEER, impl_->config.verify_ssl ? 1L : 0L);
+	set_option(CURLOPT_SSL_VERIFYHOST, impl_->config.verify_ssl ? 2L : 0L);
+	set_option(CURLOPT_WRITEFUNCTION, write_body);
+	set_option(CURLOPT_WRITEDATA, &sink);
+	set_option(CURLOPT_HEADERFUNCTION, write_header);
+	set_option(CURLOPT_HEADERDATA, &sink.response.headers);
 
 	if (method == HttpMethod::GET) {
-		curl_easy_setopt(curl, CURLOPT_HTTPGET, 1L);
+		set_option(CURLOPT_HTTPGET, 1L);
 	} else {
-		curl_easy_setopt(curl, CURLOPT_CUSTOMREQUEST, to_string(method).data());
+		set_option(CURLOPT_CUSTOMREQUEST, to_string(method).data());
 	}
 	// Always pass the body explicitly, even when empty: a POST without
 	// POSTFIELDS makes libcurl read the request body from stdin.
 	if (sends_body) {
-		curl_easy_setopt(curl, CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(body.size()));
-		curl_easy_setopt(curl, CURLOPT_POSTFIELDS, body.data());
+		set_option(CURLOPT_POSTFIELDSIZE_LARGE, static_cast<curl_off_t>(body.size()));
+		set_option(CURLOPT_POSTFIELDS, body.data());
 	}
 
+	if (option_error != CURLE_OK) {
+		return std::unexpected(Error::network(curl_easy_strerror(option_error)));
+	}
 	const CURLcode result = curl_easy_perform(curl);
+	if (sink.too_large) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest, "Response body exceeds max_response_bytes"});
+	}
 	if (result != CURLE_OK) {
 		return std::unexpected(Error::network(curl_easy_strerror(result)));
 	}
 	long status = 0;
 	curl_easy_getinfo(curl, CURLINFO_RESPONSE_CODE, &status);
-	response.status_code = static_cast<int>(status);
-	return response;
+	sink.response.status_code = static_cast<int>(status);
+	return std::move(sink.response);
 }
 
 } // namespace kalshi
