@@ -91,10 +91,10 @@ jobs:
         shell: pwsh
         run: |
           New-Item -ItemType Directory -Force .vcpkg-cache | Out-Null
-          # vcpkg reads port versions from its working tree, which can be older
-          # than the manifest baseline. Update it; the baseline still pins versions.
-          git -C "$env:VCPKG_INSTALLATION_ROOT" fetch --quiet origin master
-          git -C "$env:VCPKG_INSTALLATION_ROOT" reset --quiet --hard origin/master
+          $PSNativeCommandUseErrorActionPreference = $true
+          $baseline = (Get-Content vcpkg.json | ConvertFrom-Json).'builtin-baseline'
+          git -C "$env:VCPKG_INSTALLATION_ROOT" fetch --quiet --depth 1 origin $baseline
+          git -C "$env:VCPKG_INSTALLATION_ROOT" checkout --quiet --detach $baseline
           & "$env:VCPKG_INSTALLATION_ROOT/bootstrap-vcpkg.bat" -disableMetrics
           cmake -S . -B build `
             "-DCMAKE_TOOLCHAIN_FILE=$env:VCPKG_INSTALLATION_ROOT/scripts/buildsystems/vcpkg.cmake" `

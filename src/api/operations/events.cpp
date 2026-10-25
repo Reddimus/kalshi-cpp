@@ -45,6 +45,7 @@ KalshiClient::get_multivariate_events(const GetMultivariateEventsParams& params)
 	query.add("cursor", params.cursor);
 	query.add("series_ticker", params.series_ticker);
 	query.add("collection_ticker", params.collection_ticker);
+	query.add("tickers", params.tickers);
 	query.add("with_nested_markets", params.with_nested_markets);
 	return detail::decode<GetMultivariateEventsResponse>(
 		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_multivariate_events"));
@@ -67,6 +68,7 @@ Result<GetEventResponse> KalshiClient::get_event(std::string_view event_ticker,
 		return std::unexpected(std::move(target.error()));
 	}
 	detail::Query query(*target);
+	query.add("exclude_markets", params.exclude_markets);
 	query.add("with_nested_markets", params.with_nested_markets);
 	return detail::decode<GetEventResponse>(
 		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_event"));

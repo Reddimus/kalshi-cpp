@@ -15,6 +15,8 @@ namespace kalshi::test {
 namespace {
 
 struct Counters {
+	bool fail{false};
+	std::uint64_t failures{0};
 	std::uint64_t count{0};
 	std::uint64_t bytes{0};
 	// Live and peak bytes change only while a probe is open, because looking up
@@ -40,6 +42,10 @@ std::int64_t block_size(void* block) noexcept {
 }
 
 void* allocate(std::size_t size) noexcept {
+	if (counters.fail) {
+		++counters.failures;
+		return nullptr;
+	}
 	void* block = std::malloc(size == 0 ? 1 : size);
 	if (block != nullptr) {
 		Counters& c = counters;
@@ -64,6 +70,14 @@ void release(void* block) noexcept {
 }
 
 } // namespace
+
+void set_allocation_failure(bool enabled) noexcept {
+	counters.fail = enabled;
+}
+
+std::uint64_t allocation_failures() noexcept {
+	return counters.failures;
+}
 
 AllocationCount allocations() noexcept {
 	return {counters.count, counters.bytes};

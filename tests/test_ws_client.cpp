@@ -12,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -547,4 +548,71 @@ TEST_F(WsClient, DisconnectInsideACallbackThenReconnect) {
 	ws.on_message(nullptr);
 	EXPECT_TRUE(ws.connect().has_value());
 	EXPECT_TRUE(server.wait_for_connections(2));
+}
+
+TEST_F(WsClient, OversizedMessagesCloseTheConnection) {
+	Recorder events;
+	kalshi::WsConfig config = local(server);
+	config.auto_reconnect = false;
+	config.max_message_bytes = 32;
+	kalshi::WebSocketClient ws(kalshi::test::make_signer(), config);
+	events.attach(ws);
+	ASSERT_TRUE(ws.connect());
+	ASSERT_TRUE(server.wait_for_connections(1));
+	server.send(std::string(128, 'x'));
+	const std::optional<kalshi::WsError> error = events.next_error();
+	ASSERT_TRUE(error);
+	EXPECT_NE(error->message.find("max_message_bytes"), std::string::npos);
+	EXPECT_TRUE(events.reached(kalshi::WsState::Disconnected));
+}
+
+TEST_F(WsClient, ExactMessageLimitAndUnlimitedMessagesParse) {
+	const std::string message = R"({"type":"error","msg":{"code":1,"msg":"test"}})";
+	int connections = 0;
+	for (const std::size_t limit : {message.size(), std::size_t{0}}) {
+		Recorder events;
+		kalshi::WsConfig config = local(server);
+		config.max_message_bytes = limit;
+		kalshi::WebSocketClient ws(kalshi::test::make_signer(), config);
+		events.attach(ws);
+		ASSERT_TRUE(ws.connect());
+		ASSERT_TRUE(server.wait_for_connections(++connections));
+		server.send(message);
+		const std::optional<kalshi::WsError> error = events.next_error();
+		ASSERT_TRUE(error);
+		EXPECT_EQ(error->message, "test");
+	}
+}
+
+TEST_F(WsClient, ThrowingUserCallbacksAreContainedWithoutInterruptingTheSession) {
+	std::promise<void> connected;
+	std::promise<void> message;
+	std::promise<void> error;
+	kalshi::WebSocketClient ws(kalshi::test::make_signer(), local(server));
+	ws.on_state_change([&](kalshi::WsState state) {
+		if (state == kalshi::WsState::Connected) {
+			connected.set_value();
+		}
+		throw std::runtime_error("state callback");
+	});
+	ws.on_message([&](const kalshi::WsMessage&) {
+		message.set_value();
+		throw std::runtime_error("message callback");
+	});
+	ws.on_error([&](const kalshi::WsError&) {
+		error.set_value();
+		throw std::runtime_error("error callback");
+	});
+	ASSERT_TRUE(ws.connect());
+	ASSERT_EQ(connected.get_future().wait_for(5s), std::future_status::ready);
+	ASSERT_TRUE(ws.subscribe(kalshi::ws::Channel::Trade));
+	const std::optional<std::string> command = server.next_command();
+	ASSERT_TRUE(command);
+	server.send(subscribed(id_of(*command), "trade", 7));
+	ASSERT_EQ(message.get_future().wait_for(5s), std::future_status::ready);
+	server.send(R"({"type":"error","msg":{"code":1,"msg":"test"}})");
+	ASSERT_EQ(error.get_future().wait_for(5s), std::future_status::ready);
+	EXPECT_TRUE(ws.is_connected());
+	ws.disconnect();
+	EXPECT_EQ(ws.state(), kalshi::WsState::Disconnected);
 }

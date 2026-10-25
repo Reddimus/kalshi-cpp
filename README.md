@@ -33,7 +33,7 @@ Add the library to your CMake project:
 include(FetchContent)
 FetchContent_Declare(kalshi
   GIT_REPOSITORY https://github.com/Reddimus/kalshi-cpp.git
-  GIT_TAG v0.6.2)
+  GIT_TAG v0.7.0)
 FetchContent_MakeAvailable(kalshi)
 target_link_libraries(myapp PRIVATE kalshi::kalshi)
 ```
@@ -155,10 +155,17 @@ kalshi::KalshiClient client{std::make_shared<kalshi::RetryingTransport>(paced)};
 ```
 
 By default, `RetryingTransport` repeats a POST, PUT, or DELETE only after a 429,
-so it never places an order twice. `RateLimitConfig{}` matches Kalshi's Basic
+to avoid repeating a write whose outcome is unknown. `RateLimitConfig{}` matches Kalshi's Basic
 tier. To match your account's limits, pass the results of
 `get_account_api_limits()` and `get_account_endpoint_costs()` to
-`kalshi::rate_limit_config()`.
+`kalshi::rate_limit_config()`. Balance requests have a separate bucket: one
+call/s for Basic and Advanced, five for higher known tiers. Write pacing is
+conservative across exchange shards. Share one paced transport per account;
+separate instances cannot coordinate their budgets.
+
+`ClientConfig::max_response_bytes` limits decompressed HTTP bodies to 64 MiB;
+set it to zero to disable the limit. WebSocket messages have the same default
+limit through `WsConfig::max_message_bytes`.
 
 ## Examples
 

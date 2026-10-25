@@ -33,6 +33,7 @@ class Signer {
 public:
 	/// Loads an unencrypted PEM private key (PKCS#1 or PKCS#8). Encrypted
 	/// keys and algorithms other than RSA and Ed25519 are rejected.
+	/// The key ID must be nonempty printable ASCII without spaces.
 	[[nodiscard]] static Result<Signer> from_pem(std::string_view api_key_id,
 												 std::string_view pem_key);
 

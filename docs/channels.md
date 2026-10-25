@@ -19,3 +19,4 @@ arrives in `on_message` as `ws::Update<T>`.
 | `cfbenchmarks_value` | `CfbenchmarksValue` | `ws::CfbenchmarksValue`, `ws::CfbenchmarksIndexList` |
 | `cfbenchmarks_value_5hz` | `CfbenchmarksValue5hz` | `ws::CfbenchmarksValue5Hz`, `ws::Cfbenchmarks5HzIndexList` |
 | `pyth_value` | `PythValue` | `ws::PythValue`, `ws::PythUnderlyingList` |
+| `batch_communications` | `BatchCommunications` | `ws::RfqBatchCreated`, `ws::RfqBatchDeleted`, `ws::BatchQuoteCreated`, `ws::RfqBatchBestQuotes`, `ws::BatchQuoteAccepted`, `ws::RfqBatchExecuted`, `ws::BatchQuoteExecuted` |

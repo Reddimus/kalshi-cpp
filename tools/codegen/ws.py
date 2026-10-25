@@ -3,7 +3,7 @@
 Mapping rules:
 - Each data message's `msg` payload becomes a struct in `kalshi::ws` named after
   the message (`ticker` -> `ws::Ticker`). Frames arrive as `ws::Update<T>`,
-  which adds the envelope's `sid`, `seq`, and `id`.
+  which adds the envelope's `sid`, `seq`, `id`, and `sending_ts_ms`.
 - Enums reuse a REST enum with the same values when the match is unambiguous,
   so `ws::Fill::side` and `Fill::side` are both `kalshi::Side`.
 - Messages that share a `type` are told apart by a `msg` property with a
@@ -42,7 +42,7 @@ UPDATE_PAYLOADS = ("updateSubscriptionCommandPayload", "cfbenchmarksUpdateSubscr
                    "pythUpdateSubscriptionCommandPayload")
 
 # The envelope fields Update<T> carries. Any other field on a data message would be dropped.
-ENVELOPE_FIELDS = {"type", "sid", "seq", "id", "msg"}
+ENVELOPE_FIELDS = {"type", "sid", "seq", "id", "msg", "sending_ts_ms"}
 
 # Keywords that describe a parameter without changing how it is sent.
 PARAM_NOTES = {"description", "example", "examples"}
@@ -87,6 +87,10 @@ class WsGenerator:
                                  "Update UPDATE_PAYLOADS in tools/codegen/ws.py")
         subscribe = self.schemas["subscribeCommandPayload"]["properties"]["params"]
         self.channels = list(subscribe["properties"]["channels"]["items"]["enum"])
+        # The channel declarations can precede updates to the command's enum.
+        for channel, spec in self.spec["channels"].items():
+            if channel not in CONTROL_CHANNELS and channel not in self.channels:
+                self.channels.append(channel)
         self.enums["Channel"] = EnumType("Channel", self.channels, "A WebSocket channel.")
 
         for channel, spec in self.spec["channels"].items():
@@ -115,6 +119,11 @@ class WsGenerator:
         payload = self.schemas[ref_name(spec["payload"]["$ref"])]
         if extra := sorted(set(payload["properties"]) - ENVELOPE_FIELDS):
             raise SystemExit(f"{key}: envelope fields {extra} are not supported; Update<T> would drop them")
+        for field in ("sid", "seq", "id", "sending_ts_ms"):
+            if field in payload["properties"]:
+                _, schema = self.resolve(payload["properties"][field], f"{key}.{field}")
+                if schema.get("type") != "integer":
+                    raise SystemExit(f"{key}.{field} must be an integer")
         type_value = payload["properties"]["type"]["const"]
         name = pascal(key)
         self.struct_for(name, self.message_body(key, payload), doc=spec.get("summary") or spec.get("title"))
@@ -388,13 +397,15 @@ class WsGenerator:
             for index, example in enumerate(message.examples):
                 text = json.dumps(example, separators=(",", ":"))
                 check = self.example_check(message, example)
+                envelope = "".join(f"\tEXPECT_EQ(update->{field}, {example[field]});\n"
+                                   for field in ("seq", "id", "sending_ts_ms") if field in example)
                 out.append(f"TEST(WsMessages, {message.struct}Example{index}) {{\n"
                            f'\tconst std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(R"json({text})json");\n'
                            "\tASSERT_TRUE(message.has_value());\n"
                            f"\tconst kalshi::ws::Update<kalshi::ws::{message.struct}>* update =\n"
                            f"\t\tstd::get_if<kalshi::ws::Update<kalshi::ws::{message.struct}>>(&*message);\n"
                            "\tASSERT_NE(update, nullptr);\n"
-                           f"\tEXPECT_EQ(update->sid, {example.get('sid', 0)});\n{check}}}\n\n")
+                           f"\tEXPECT_EQ(update->sid, {example.get('sid', 0)});\n{envelope}{check}}}\n\n")
         return "".join(out)
 
     def example_check(self, message: DataMessage, example: dict) -> str:

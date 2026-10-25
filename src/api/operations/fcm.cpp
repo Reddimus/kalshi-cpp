@@ -119,4 +119,19 @@ Result<GetPositionsResponse> KalshiClient::get_fcm_positions(const GetFcmPositio
 		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_fcm_positions"));
 }
 
+Result<std::string>
+KalshiClient::create_fcm_position_transfer(const CreateFCMPositionTransferRequest& body) {
+	if (Result<void> valid = detail::validate(body); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
+	Result<CreateFCMPositionTransferResponse> response =
+		detail::decode<CreateFCMPositionTransferResponse>(
+			impl_->send(HttpMethod::POST, std::string{"/fcm/positions/transfers"},
+						detail::encode(body), "create_fcm_position_transfer"));
+	if (!response) {
+		return std::unexpected(std::move(response.error()));
+	}
+	return std::move(response->position_transfer_id);
+}
+
 } // namespace kalshi

@@ -56,6 +56,9 @@ inline ws::Channel parse_ws_channel(std::string_view text) noexcept {
 	if (text == "pyth_value") {
 		return ws::Channel::PythValue;
 	}
+	if (text == "batch_communications") {
+		return ws::Channel::BatchCommunications;
+	}
 	return ws::Channel::Unknown;
 }
 
@@ -89,6 +92,43 @@ inline ws::FeeTypeOverride parse_ws_fee_type_override(std::string_view text) noe
 		return ws::FeeTypeOverride::MarginMarketMakerProgramFees;
 	}
 	return ws::FeeTypeOverride::Unknown;
+}
+
+inline ws::LastUpdateReason parse_ws_last_update_reason(std::string_view text) noexcept {
+	if (text == "Decrease") {
+		return ws::LastUpdateReason::Decrease;
+	}
+	if (text == "Amend") {
+		return ws::LastUpdateReason::Amend;
+	}
+	if (text == "MarginCancel") {
+		return ws::LastUpdateReason::MarginCancel;
+	}
+	if (text == "SelfTradeCancel") {
+		return ws::LastUpdateReason::SelfTradeCancel;
+	}
+	if (text == "ExpiryCancel") {
+		return ws::LastUpdateReason::ExpiryCancel;
+	}
+	if (text == "CloseCancel") {
+		return ws::LastUpdateReason::CloseCancel;
+	}
+	if (text == "HaltCancel") {
+		return ws::LastUpdateReason::HaltCancel;
+	}
+	if (text == "Trade") {
+		return ws::LastUpdateReason::Trade;
+	}
+	if (text == "PostOnlyCrossCancel") {
+		return ws::LastUpdateReason::PostOnlyCrossCancel;
+	}
+	if (text == "ReduceOnlyCancel") {
+		return ws::LastUpdateReason::ReduceOnlyCancel;
+	}
+	if (text == "SettlementBoundsCancel") {
+		return ws::LastUpdateReason::SettlementBoundsCancel;
+	}
+	return ws::LastUpdateReason::Unknown;
 }
 
 inline ws::LifecyclePriceLevelStructure
@@ -390,6 +430,27 @@ inline std::optional<WsMessage> parse_data_frame(std::string_view type, const st
 	if (type == "quote_executed") {
 		return read_update<ws::QuoteExecuted>(json);
 	}
+	if (type == "rfq_batch_created") {
+		return read_update<ws::RfqBatchCreated>(json);
+	}
+	if (type == "rfq_batch_deleted") {
+		return read_update<ws::RfqBatchDeleted>(json);
+	}
+	if (type == "batch_quote_created") {
+		return read_update<ws::BatchQuoteCreated>(json);
+	}
+	if (type == "rfq_batch_best_quotes") {
+		return read_update<ws::RfqBatchBestQuotes>(json);
+	}
+	if (type == "batch_quote_accepted") {
+		return read_update<ws::BatchQuoteAccepted>(json);
+	}
+	if (type == "rfq_batch_executed") {
+		return read_update<ws::RfqBatchExecuted>(json);
+	}
+	if (type == "batch_quote_executed") {
+		return read_update<ws::BatchQuoteExecuted>(json);
+	}
 	if (type == "order_group_updates") {
 		return read_update<ws::OrderGroupUpdates>(json);
 	}
@@ -425,15 +486,19 @@ inline std::optional<WsMessage> parse_data_frame(std::string_view type, const st
 
 /// Whether `type` names a data message this SDK version parses.
 inline bool is_data_type(std::string_view type) noexcept {
-	return type == "cfbenchmarks_value" || type == "cfbenchmarks_value_5hz" ||
-		   type == "cfbenchmarks_value_5hz_indexlist" || type == "cfbenchmarks_value_indexlist" ||
-		   type == "event_fee_update" || type == "event_lifecycle" || type == "fill" ||
-		   type == "market_lifecycle_v2" || type == "market_position" ||
-		   type == "multivariate_market_lifecycle" || type == "order_group_updates" ||
-		   type == "orderbook_delta" || type == "orderbook_snapshot" || type == "pyth_value" ||
+	return type == "batch_quote_accepted" || type == "batch_quote_created" ||
+		   type == "batch_quote_executed" || type == "cfbenchmarks_value" ||
+		   type == "cfbenchmarks_value_5hz" || type == "cfbenchmarks_value_5hz_indexlist" ||
+		   type == "cfbenchmarks_value_indexlist" || type == "event_fee_update" ||
+		   type == "event_lifecycle" || type == "fill" || type == "market_lifecycle_v2" ||
+		   type == "market_position" || type == "multivariate_market_lifecycle" ||
+		   type == "order_group_updates" || type == "orderbook_delta" ||
+		   type == "orderbook_snapshot" || type == "pyth_value" ||
 		   type == "pyth_value_underlying_list" || type == "quote_accepted" ||
-		   type == "quote_created" || type == "quote_executed" || type == "rfq_created" ||
-		   type == "rfq_deleted" || type == "ticker" || type == "trade" || type == "user_order";
+		   type == "quote_created" || type == "quote_executed" || type == "rfq_batch_best_quotes" ||
+		   type == "rfq_batch_created" || type == "rfq_batch_deleted" ||
+		   type == "rfq_batch_executed" || type == "rfq_created" || type == "rfq_deleted" ||
+		   type == "ticker" || type == "trade" || type == "user_order";
 }
 
 } // namespace kalshi::detail
@@ -492,6 +557,25 @@ template <>
 struct to<JSON, kalshi::ws::FeeTypeOverride> {
 	template <auto Opts>
 	static void op(const kalshi::ws::FeeTypeOverride& value, auto&& ctx, auto&&... args) {
+		const std::string_view text = kalshi::ws::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
+struct from<JSON, kalshi::ws::LastUpdateReason> {
+	template <auto Opts>
+	static void op(kalshi::ws::LastUpdateReason& value, auto&& ctx, auto&& it, auto&& end) {
+		std::string text;
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_ws_last_update_reason(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::ws::LastUpdateReason> {
+	template <auto Opts>
+	static void op(const kalshi::ws::LastUpdateReason& value, auto&& ctx, auto&&... args) {
 		const std::string_view text = kalshi::ws::to_string(value);
 		serialize<JSON>::op<Opts>(text, ctx, args...);
 	}

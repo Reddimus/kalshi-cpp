@@ -706,6 +706,108 @@ TEST(OperationRoutes, ConfirmRFQQuote) {
 	EXPECT_EQ(route(transport->target), "/communications/rfqs/p0/quotes/p1/confirm");
 }
 
+TEST(OperationRoutes, GetRFQBatches) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<GetRFQBatchesResponse> result = client.get_rfq_batches(GetRfqBatchesParams{});
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(route(transport->target), "/communications/rfq_batches");
+}
+
+TEST(OperationRoutes, CreateRFQBatch) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<RFQBatch> result = client.create_rfq_batch(CreateRFQBatchRequest{});
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::POST);
+	EXPECT_EQ(route(transport->target), "/communications/rfq_batches");
+}
+
+TEST(OperationRoutes, GetRFQBatch) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<RFQBatch> result = client.get_rfq_batch("p0");
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(route(transport->target), "/communications/rfq_batches/p0");
+}
+
+TEST(OperationRoutes, DeleteRFQBatch) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<void> result = client.delete_rfq_batch("p0");
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::DEL);
+	EXPECT_EQ(route(transport->target), "/communications/rfq_batches/p0");
+}
+
+TEST(OperationRoutes, GetRFQBatchBestQuotes) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<RFQBatchBestQuotes> result = client.get_rfq_batch_best_quotes("p0");
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(route(transport->target), "/communications/rfq_batches/p0/best_quotes");
+}
+
+TEST(OperationRoutes, AcceptRFQBatch) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<AcceptRFQBatchResponse> result =
+		client.accept_rfq_batch("p0", AcceptRFQBatchRequest{});
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
+}
+
+TEST(OperationRoutes, GetRFQBatchQuotes) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<std::vector<RFQBatchQuote>> result = client.get_rfq_batch_quotes("p0");
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(route(transport->target), "/communications/rfq_batches/p0/quotes");
+}
+
+TEST(OperationRoutes, CreateRFQBatchQuote) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<std::string> result =
+		client.create_rfq_batch_quote("p0", CreateRFQBatchQuoteRequest{});
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::POST);
+	EXPECT_EQ(route(transport->target), "/communications/rfq_batches/p0/quotes");
+}
+
+TEST(OperationRoutes, DeleteRFQBatchQuote) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<void> result = client.delete_rfq_batch_quote("p0", "p1");
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::DEL);
+	EXPECT_EQ(route(transport->target), "/communications/rfq_batches/p0/quotes/p1");
+}
+
+TEST(OperationRoutes, ConfirmRFQBatchQuote) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<void> result = client.confirm_rfq_batch_quote("p0", "p1");
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::PUT);
+	EXPECT_EQ(route(transport->target), "/communications/rfq_batches/p0/quotes/p1/confirm");
+}
+
 TEST(OperationRoutes, GetQuotes) {
 	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
 		std::make_shared<kalshi::test::RecordingTransport>();
@@ -1152,6 +1254,17 @@ TEST(OperationRoutes, GetFCMPositions) {
 	EXPECT_TRUE(result.has_value());
 	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
 	EXPECT_EQ(route(transport->target), "/fcm/positions");
+}
+
+TEST(OperationRoutes, CreateFCMPositionTransfer) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<std::string> result =
+		client.create_fcm_position_transfer(CreateFCMPositionTransferRequest{});
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, GetHistoricalCutoff) {

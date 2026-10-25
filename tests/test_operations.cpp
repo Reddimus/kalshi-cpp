@@ -1,6 +1,6 @@
 // Contract tests for the operations applications use most: the exact request
 // each one sends and how its documented response parses. Fixtures are
-// synthetic and follow Kalshi Predictions OpenAPI 3.31.0.
+// synthetic and follow Kalshi Predictions OpenAPI 3.34.0.
 
 #include "kalshi/api.hpp"
 #include "kalshi/helpers.hpp"
@@ -250,4 +250,88 @@ TEST(Operations, CollectPagesFollowsCursors) {
 	EXPECT_EQ(markets->back().ticker, "C");
 	EXPECT_EQ(transport->targets,
 			  (std::vector<std::string>{"/markets?limit=2", "/markets?limit=2&cursor=c2"}));
+}
+
+TEST(Operations, AcceptRfqBatchPreservesPriceProtectionAndQuotes) {
+	Fixture f;
+	f.transport->response_body =
+		R"({"accepted_side":"yes","quotes":[{"id":"q-1","rfq_id":"r-1","market_ticker":"KXTEST","contracts_fp":"2.00","yes_bid_dollars":"0.4000","no_bid_dollars":"0.5000","status":"accepted"}]})";
+	kalshi::AcceptRFQBatchRequest request;
+	request.accepted_side = kalshi::Side::Yes;
+	request.min_bids = {{"r-1", "0.3900"}};
+	request.client_order_id = "client-1";
+	const kalshi::Result<kalshi::AcceptRFQBatchResponse> result =
+		f.client.accept_rfq_batch("batch/1", request);
+	ASSERT_TRUE(result) << result.error().message;
+	EXPECT_EQ(f.transport->method, kalshi::HttpMethod::PUT);
+	EXPECT_EQ(f.transport->target, "/communications/rfq_batches/batch%2F1/accept");
+	EXPECT_EQ(
+		f.transport->body,
+		R"({"accepted_side":"yes","min_bids":[{"rfq_id":"r-1","bid_dollars":"0.3900"}],"client_order_id":"client-1"})");
+	EXPECT_EQ(result->accepted_side, kalshi::Side::Yes);
+	ASSERT_EQ(result->quotes.size(), 1U);
+	EXPECT_EQ(result->quotes[0].id, "q-1");
+	EXPECT_EQ(result->quotes[0].contracts_fp, "2.00");
+	EXPECT_EQ(result->quotes[0].yes_bid_dollars, "0.4000");
+	EXPECT_EQ(result->quotes[0].status, kalshi::QuoteStatus::Accepted);
+}
+
+TEST(Operations, FcmPositionTransferSendsCenticountsAndReturnsItsId) {
+	Fixture f;
+	f.transport->status = 201;
+	f.transport->response_body = R"({"position_transfer_id":"transfer-1"})";
+	const kalshi::CreateFCMPositionTransferRequest request{"source_1", "error_2", "KXTEST", 200,
+														   5600};
+	const kalshi::Result<std::string> result = f.client.create_fcm_position_transfer(request);
+	ASSERT_TRUE(result) << result.error().message;
+	EXPECT_EQ(f.transport->method, kalshi::HttpMethod::POST);
+	EXPECT_EQ(f.transport->target, "/fcm/positions/transfers");
+	EXPECT_EQ(
+		f.transport->body,
+		R"({"source_subtrader_id":"source_1","target_subtrader_id":"error_2","market_ticker":"KXTEST","position_centicount":200,"price_centicents":5600})");
+	EXPECT_EQ(*result, "transfer-1");
+}
+
+TEST(Operations, RfqBatchCreationPreservesChildrenAndNestedResponse) {
+	Fixture f;
+	f.transport->status = 201;
+	f.transport->response_body =
+		R"({"rfq_batch":{"id":"batch-1","status":"open","client_batch_id":"client-batch","rfqs":[{"id":"r-1","market_ticker":"KXA","contracts_fp":"2.00","status":"open"},{"id":"r-2","market_ticker":"KXB","contracts_fp":"2.00","status":"open"}]}})";
+	kalshi::CreateRFQBatchRequest request;
+	request.children = {{.market_ticker = "KXA"}, {.market_ticker = "KXB"}};
+	request.contracts_fp = "2.00";
+	request.rest_remainder = false;
+	request.client_batch_id = "client-batch";
+	const kalshi::Result<kalshi::RFQBatch> result = f.client.create_rfq_batch(request);
+	ASSERT_TRUE(result) << result.error().message;
+	EXPECT_EQ(f.transport->method, kalshi::HttpMethod::POST);
+	EXPECT_EQ(f.transport->target, "/communications/rfq_batches");
+	EXPECT_EQ(
+		f.transport->body,
+		R"({"children":[{"market_ticker":"KXA"},{"market_ticker":"KXB"}],"contracts_fp":"2.00","rest_remainder":false,"client_batch_id":"client-batch"})");
+	EXPECT_EQ(result->id, "batch-1");
+	EXPECT_EQ(result->status, kalshi::RFQBatchStatus::Open);
+	EXPECT_EQ(result->client_batch_id, "client-batch");
+	ASSERT_EQ(result->rfqs.size(), 2U);
+	EXPECT_EQ(result->rfqs[1].market_ticker, "KXB");
+	EXPECT_EQ(result->rfqs[1].contracts_fp, "2.00");
+}
+
+TEST(Operations, RfqBatchQuoteCreationSendsPricesAndReturnsId) {
+	Fixture f;
+	f.transport->status = 201;
+	f.transport->response_body = R"({"id":"batch-quote-1"})";
+	kalshi::CreateRFQBatchQuoteRequest request;
+	request.quotes = {{"r-1", "0.4000", "0.5000"}, {"r-2", "0.3000", "0.6000"}};
+	request.rest_remainder = false;
+	request.post_only = true;
+	request.subaccount = 2;
+	const kalshi::Result<std::string> result = f.client.create_rfq_batch_quote("batch-1", request);
+	ASSERT_TRUE(result) << result.error().message;
+	EXPECT_EQ(f.transport->method, kalshi::HttpMethod::POST);
+	EXPECT_EQ(f.transport->target, "/communications/rfq_batches/batch-1/quotes");
+	EXPECT_EQ(
+		f.transport->body,
+		R"({"quotes":[{"rfq_id":"r-1","yes_bid":"0.4000","no_bid":"0.5000"},{"rfq_id":"r-2","yes_bid":"0.3000","no_bid":"0.6000"}],"rest_remainder":false,"post_only":true,"subaccount":2})");
+	EXPECT_EQ(*result, "batch-quote-1");
 }

@@ -1,0 +1,18 @@
+{
+  "effort": "apex",
+  "strictness": 2,
+  "commentTypes": [
+    "syntax",
+    "logic",
+    "style"
+  ],
+  "autoReview": [
+    "open"
+  ],
+  "statusCheck": true,
+  "shouldUpdateDescription": false,
+  "autoApprove": {
+    "enabled": false
+  },
+  "triggerOnDrafts": false
+}

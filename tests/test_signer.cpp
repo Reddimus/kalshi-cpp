@@ -216,3 +216,13 @@ TEST(Signer, MissingKeyFileNamesThePath) {
 	ASSERT_FALSE(signer.has_value());
 	EXPECT_NE(signer.error().message.find("/nonexistent/kalshi.pem"), std::string::npos);
 }
+
+TEST(Signer, RejectsEmptyIdsAndHeaderControlBytes) {
+	for (const std::string& id : {std::string{}, std::string("key\r\nInjected: value"),
+								  std::string("key\0suffix", 10), std::string("key id")}) {
+		const kalshi::Result<kalshi::Signer> result =
+			kalshi::Signer::from_pem(id, kalshi::test::private_key_pem());
+		ASSERT_FALSE(result);
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidKey);
+	}
+}

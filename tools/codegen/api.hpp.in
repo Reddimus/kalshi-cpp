@@ -26,6 +26,7 @@ public:
 	/// Uses a libcurl client. It signs requests when constructed with a Signer.
 	explicit KalshiClient(HttpClient client);
 	/// Uses any transport, such as RetryingTransport or a test double.
+	/// A null transport selects the default unauthenticated HttpClient.
 	explicit KalshiClient(std::shared_ptr<const HttpTransport> transport);
 	~KalshiClient();
 

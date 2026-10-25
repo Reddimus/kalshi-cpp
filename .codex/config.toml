@@ -1,0 +1,3 @@
+[mcp_servers.kalshi-docs]
+url = "https://docs.kalshi.com/mcp"
+enabled_tools = ["search_api_documentation", "query_docs_filesystem_api_documentation"]

@@ -6,6 +6,13 @@
 namespace kalshi::detail {
 
 Result<WsEndpoint> parse_ws_endpoint(std::string_view url) {
+	for (const unsigned char character : url) {
+		if (character <= 0x20 || character == 0x7f) {
+			return std::unexpected(Error{ErrorCode::InvalidRequest,
+										 "WebSocket URL contains whitespace or control bytes"});
+		}
+	}
+
 	bool use_ssl = false;
 	std::string_view remainder;
 	if (url.starts_with("wss://")) {
@@ -63,12 +70,6 @@ Result<WsEndpoint> parse_ws_endpoint(std::string_view url) {
 	if (host.empty()) {
 		return std::unexpected(
 			Error{ErrorCode::InvalidRequest, "WebSocket URL must contain a host"});
-	}
-	for (const char character : host) {
-		if (character == ' ' || character == '\t' || character == '\r' || character == '\n') {
-			return std::unexpected(
-				Error{ErrorCode::InvalidRequest, "WebSocket URL host contains whitespace"});
-		}
 	}
 
 	int port = use_ssl ? 443 : 80;

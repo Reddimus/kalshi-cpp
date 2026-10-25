@@ -15,12 +15,14 @@ struct SubscribedFrame {
 	std::optional<std::int64_t> id;
 	std::string channel;
 	std::int64_t sid{0};
+	std::optional<std::int64_t> sending_ts_ms;
 };
 
 struct UnsubscribedFrame {
 	std::optional<std::int64_t> id;
 	std::optional<std::int64_t> sid;
 	std::optional<std::int64_t> seq;
+	std::optional<std::int64_t> sending_ts_ms;
 };
 
 /// An `ok` reply. `msg` stays raw because its shape depends on the command:
@@ -30,6 +32,7 @@ struct OkFrame {
 	std::optional<std::int64_t> sid;
 	std::optional<std::int64_t> seq;
 	std::string msg;
+	std::optional<std::int64_t> sending_ts_ms;
 };
 
 struct ErrorFrame {
@@ -38,6 +41,7 @@ struct ErrorFrame {
 	std::optional<std::int64_t> seq;
 	std::int64_t code{0};
 	std::string message;
+	std::optional<std::int64_t> sending_ts_ms;
 };
 
 /// A frame of a known type that did not match its schema.

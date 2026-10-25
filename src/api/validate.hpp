@@ -16,6 +16,8 @@ inline Result<void> invalid(std::string_view type, std::string_view field, std::
 }
 
 inline Result<void> validate(const AcceptQuoteRequest& value);
+inline Result<void> validate(const RFQBatchAcceptLimit& value);
+inline Result<void> validate(const AcceptRFQBatchRequest& value);
 inline Result<void> validate(const AmendOrderV2Request& value);
 inline Result<void> validate(const ApplySubaccountTransferRequest& value);
 inline Result<void> validate(const BatchCancelOrdersV2RequestOrdersItem& value);
@@ -23,11 +25,16 @@ inline Result<void> validate(const BatchCancelOrdersV2Request& value);
 inline Result<void> validate(const CreateOrderV2Request& value);
 inline Result<void> validate(const BatchCreateOrdersV2Request& value);
 inline Result<void> validate(const CreateApiKeyRequest& value);
+inline Result<void> validate(const CreateFCMPositionTransferRequest& value);
 inline Result<void> validate(const CreateFCMSubtraderRequest& value);
 inline Result<void> validate(const TickerPair& value);
 inline Result<void> validate(const CreateMarketInMultivariateEventCollectionRequest& value);
 inline Result<void> validate(const CreateOrderGroupRequest& value);
 inline Result<void> validate(const CreateQuoteRequest& value);
+inline Result<void> validate(const CreateRFQBatchChild& value);
+inline Result<void> validate(const RFQBatchQuoteEntry& value);
+inline Result<void> validate(const CreateRFQBatchQuoteRequest& value);
+inline Result<void> validate(const CreateRFQBatchRequest& value);
 inline Result<void> validate(const CreateRFQRequest& value);
 inline Result<void> validate(const DecreaseOrderV2Request& value);
 inline Result<void> validate(const GenerateApiKeyRequest& value);
@@ -40,6 +47,28 @@ inline Result<void> validate(const UpdateOrderGroupLimitRequest& value);
 inline Result<void> validate(const AcceptQuoteRequest& value) {
 	if (value.accepted_side == Side::Unknown) {
 		return invalid("AcceptQuoteRequest", "accepted_side", "is required");
+	}
+	return {};
+}
+
+inline Result<void> validate(const RFQBatchAcceptLimit& value) {
+	if (value.rfq_id.empty()) {
+		return invalid("RFQBatchAcceptLimit", "rfq_id", "is required");
+	}
+	if (!FixedPoint::parse(value.bid_dollars)) {
+		return invalid("RFQBatchAcceptLimit", "bid_dollars", "is not a fixed-point decimal");
+	}
+	return {};
+}
+
+inline Result<void> validate(const AcceptRFQBatchRequest& value) {
+	if (value.accepted_side == Side::Unknown) {
+		return invalid("AcceptRFQBatchRequest", "accepted_side", "is required");
+	}
+	for (const RFQBatchAcceptLimit& item : value.min_bids) {
+		if (Result<void> valid = validate(item); !valid) {
+			return valid;
+		}
 	}
 	return {};
 }
@@ -124,6 +153,19 @@ inline Result<void> validate(const CreateApiKeyRequest& value) {
 	return {};
 }
 
+inline Result<void> validate(const CreateFCMPositionTransferRequest& value) {
+	if (value.source_subtrader_id.empty()) {
+		return invalid("CreateFCMPositionTransferRequest", "source_subtrader_id", "is required");
+	}
+	if (value.target_subtrader_id.empty()) {
+		return invalid("CreateFCMPositionTransferRequest", "target_subtrader_id", "is required");
+	}
+	if (value.market_ticker.empty()) {
+		return invalid("CreateFCMPositionTransferRequest", "market_ticker", "is required");
+	}
+	return {};
+}
+
 inline Result<void> validate(const CreateFCMSubtraderRequest& value) {
 	if (value.subtrader_suffix.empty()) {
 		return invalid("CreateFCMSubtraderRequest", "subtrader_suffix", "is required");
@@ -170,6 +212,62 @@ inline Result<void> validate(const CreateQuoteRequest& value) {
 	}
 	if (!FixedPoint::parse(value.no_bid)) {
 		return invalid("CreateQuoteRequest", "no_bid", "is not a fixed-point decimal");
+	}
+	return {};
+}
+
+inline Result<void> validate(const CreateRFQBatchChild& value) {
+	if (value.selected_markets) {
+		for (const TickerPair& item : *value.selected_markets) {
+			if (Result<void> valid = validate(item); !valid) {
+				return valid;
+			}
+		}
+	}
+	if ((value.contracts_fp && !FixedPoint::parse(*value.contracts_fp))) {
+		return invalid("CreateRFQBatchChild", "contracts_fp", "is not a fixed-point decimal");
+	}
+	if ((value.target_cost_dollars && !FixedPoint::parse(*value.target_cost_dollars))) {
+		return invalid("CreateRFQBatchChild", "target_cost_dollars",
+					   "is not a fixed-point decimal");
+	}
+	return {};
+}
+
+inline Result<void> validate(const RFQBatchQuoteEntry& value) {
+	if (value.rfq_id.empty()) {
+		return invalid("RFQBatchQuoteEntry", "rfq_id", "is required");
+	}
+	if (!FixedPoint::parse(value.yes_bid)) {
+		return invalid("RFQBatchQuoteEntry", "yes_bid", "is not a fixed-point decimal");
+	}
+	if (!FixedPoint::parse(value.no_bid)) {
+		return invalid("RFQBatchQuoteEntry", "no_bid", "is not a fixed-point decimal");
+	}
+	return {};
+}
+
+inline Result<void> validate(const CreateRFQBatchQuoteRequest& value) {
+	for (const RFQBatchQuoteEntry& item : value.quotes) {
+		if (Result<void> valid = validate(item); !valid) {
+			return valid;
+		}
+	}
+	return {};
+}
+
+inline Result<void> validate(const CreateRFQBatchRequest& value) {
+	for (const CreateRFQBatchChild& item : value.children) {
+		if (Result<void> valid = validate(item); !valid) {
+			return valid;
+		}
+	}
+	if ((value.contracts_fp && !FixedPoint::parse(*value.contracts_fp))) {
+		return invalid("CreateRFQBatchRequest", "contracts_fp", "is not a fixed-point decimal");
+	}
+	if ((value.target_cost_dollars && !FixedPoint::parse(*value.target_cost_dollars))) {
+		return invalid("CreateRFQBatchRequest", "target_cost_dollars",
+					   "is not a fixed-point decimal");
 	}
 	return {};
 }

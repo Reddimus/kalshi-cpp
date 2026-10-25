@@ -76,13 +76,16 @@ struct RateLimitConfig {
 	/// request that costs more than its bucket holds fails with InvalidRequest,
 	/// because Kalshi rejects it too; split large batches.
 	std::chrono::milliseconds max_wait{std::chrono::seconds{5}};
+	/// Independent balance calls per second; Basic and Advanced allow one.
+	TokenBucket::Config balance{.capacity = 1.0, .refill_per_second = 1.0, .initial_tokens = {}};
 };
 
 /// Transport decorator that paces requests to Kalshi's Read and Write budgets
 /// so they are not rejected with 429.
 ///
 /// Writes are order, order-group, RFQ, quote, and block-trade mutations; every
-/// other request uses the Read budget. Batch requests cost their per-item cost
+/// other request uses the Read budget, except GET /portfolio/balance, which
+/// has its own one-token-per-call bucket. Batch requests cost their per-item cost
 /// times the number of items. Per-shard Write buckets are not modeled
 /// separately, so pacing is conservative when orders target several shards.
 ///
@@ -107,6 +110,7 @@ private:
 	RateLimitConfig config_;
 	mutable TokenBucket read_;
 	mutable TokenBucket write_;
+	mutable TokenBucket balance_;
 };
 
 } // namespace kalshi

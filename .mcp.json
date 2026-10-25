@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "kalshi-docs": {
+      "type": "http",
+      "url": "https://docs.kalshi.com/mcp"
+    }
+  }
+}

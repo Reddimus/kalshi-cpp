@@ -443,6 +443,13 @@ class WebSocketSpec(unittest.TestCase):
     def test_base_spec_generates(self) -> None:
         self.assertIn("price", self.members("Ticker"))
 
+    def test_declared_channel_is_subscribable_when_command_enum_lags(self) -> None:
+        self.spec["channels"]["batch_communications"] = {
+            "address": "batch_communications", "messages": self.spec["channels"]["ticker"]["messages"]}
+        generator = generate_ws(self.spec)
+        self.assertIn("batch_communications", generator.channels)
+        self.assertIn("BatchCommunications", generator.models_header())
+
     def test_msg_given_as_a_ref(self) -> None:
         self.schemas["tickerMsg"] = self.schemas["tickerPayload"]["properties"]["msg"]
         self.schemas["tickerPayload"]["properties"]["msg"] = ref("tickerMsg")
@@ -462,6 +469,16 @@ class WebSocketSpec(unittest.TestCase):
     def test_extra_envelope_field(self) -> None:
         self.schemas["tickerPayload"]["properties"]["ts_ms"] = {"type": "integer"}
         self.stops("ticker: envelope fields ['ts_ms'] are not supported")
+
+    def test_sending_timestamp_is_preserved(self) -> None:
+        self.schemas["sendingTimestampMs"] = {"type": "integer", "format": "int64"}
+        self.schemas["tickerPayload"]["properties"]["sending_ts_ms"] = ref("sendingTimestampMs")
+        header = generate_ws(self.spec).models_header()
+        self.assertIn("std::optional<std::int64_t> sending_ts_ms;", header)
+
+    def test_sending_timestamp_cannot_change_type_silently(self) -> None:
+        self.schemas["tickerPayload"]["properties"]["sending_ts_ms"] = {"type": "string"}
+        self.stops("ticker.sending_ts_ms must be an integer")
 
     def test_new_update_command(self) -> None:
         self.schemas["fooUpdateSubscriptionCommandPayload"] = update_command(["subscribe_foo"])

@@ -371,6 +371,41 @@ inline QuoteStatus parse_quote_status(std::string_view text) noexcept {
 	return QuoteStatus::Unknown;
 }
 
+inline RFQBatchQuoteStatus parse_rfq_batch_quote_status(std::string_view text) noexcept {
+	if (text == "open") {
+		return RFQBatchQuoteStatus::Open;
+	}
+	if (text == "accepted") {
+		return RFQBatchQuoteStatus::Accepted;
+	}
+	if (text == "confirmed") {
+		return RFQBatchQuoteStatus::Confirmed;
+	}
+	if (text == "executed") {
+		return RFQBatchQuoteStatus::Executed;
+	}
+	if (text == "partially_executed") {
+		return RFQBatchQuoteStatus::PartiallyExecuted;
+	}
+	if (text == "cancelled") {
+		return RFQBatchQuoteStatus::Cancelled;
+	}
+	return RFQBatchQuoteStatus::Unknown;
+}
+
+inline RFQBatchStatus parse_rfq_batch_status(std::string_view text) noexcept {
+	if (text == "open") {
+		return RFQBatchStatus::Open;
+	}
+	if (text == "accepted") {
+		return RFQBatchStatus::Accepted;
+	}
+	if (text == "closed") {
+		return RFQBatchStatus::Closed;
+	}
+	return RFQBatchStatus::Unknown;
+}
+
 inline RFQStatus parse_rfq_status(std::string_view text) noexcept {
 	if (text == "open") {
 		return RFQStatus::Open;
@@ -404,6 +439,16 @@ inline SelfTradePreventionType parse_self_trade_prevention_type(std::string_view
 	return SelfTradePreventionType::Unknown;
 }
 
+inline SettlementBoundsType parse_settlement_bounds_type(std::string_view text) noexcept {
+	if (text == "default") {
+		return SettlementBoundsType::Default;
+	}
+	if (text == "floor") {
+		return SettlementBoundsType::Floor;
+	}
+	return SettlementBoundsType::Unknown;
+}
+
 inline SettlementMarketResult parse_settlement_market_result(std::string_view text) noexcept {
 	if (text == "yes") {
 		return SettlementMarketResult::Yes;
@@ -418,14 +463,14 @@ inline SettlementMarketResult parse_settlement_market_result(std::string_view te
 }
 
 inline SettlementStatus parse_settlement_status(std::string_view text) noexcept {
-	if (text == "all") {
-		return SettlementStatus::All;
-	}
 	if (text == "unsettled") {
 		return SettlementStatus::Unsettled;
 	}
 	if (text == "settled") {
 		return SettlementStatus::Settled;
+	}
+	if (text == "all") {
+		return SettlementStatus::All;
 	}
 	return SettlementStatus::Unknown;
 }
@@ -955,6 +1000,44 @@ struct to<JSON, kalshi::QuoteStatus> {
 };
 
 template <>
+struct from<JSON, kalshi::RFQBatchQuoteStatus> {
+	template <auto Opts>
+	static void op(kalshi::RFQBatchQuoteStatus& value, auto&& ctx, auto&& it, auto&& end) {
+		std::string text;
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_rfq_batch_quote_status(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::RFQBatchQuoteStatus> {
+	template <auto Opts>
+	static void op(const kalshi::RFQBatchQuoteStatus& value, auto&& ctx, auto&&... args) {
+		const std::string_view text = kalshi::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
+struct from<JSON, kalshi::RFQBatchStatus> {
+	template <auto Opts>
+	static void op(kalshi::RFQBatchStatus& value, auto&& ctx, auto&& it, auto&& end) {
+		std::string text;
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_rfq_batch_status(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::RFQBatchStatus> {
+	template <auto Opts>
+	static void op(const kalshi::RFQBatchStatus& value, auto&& ctx, auto&&... args) {
+		const std::string_view text = kalshi::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
 struct from<JSON, kalshi::RFQStatus> {
 	template <auto Opts>
 	static void op(kalshi::RFQStatus& value, auto&& ctx, auto&& it, auto&& end) {
@@ -1006,6 +1089,25 @@ template <>
 struct to<JSON, kalshi::SelfTradePreventionType> {
 	template <auto Opts>
 	static void op(const kalshi::SelfTradePreventionType& value, auto&& ctx, auto&&... args) {
+		const std::string_view text = kalshi::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
+struct from<JSON, kalshi::SettlementBoundsType> {
+	template <auto Opts>
+	static void op(kalshi::SettlementBoundsType& value, auto&& ctx, auto&& it, auto&& end) {
+		std::string text;
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_settlement_bounds_type(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::SettlementBoundsType> {
+	template <auto Opts>
+	static void op(const kalshi::SettlementBoundsType& value, auto&& ctx, auto&&... args) {
 		const std::string_view text = kalshi::to_string(value);
 		serialize<JSON>::op<Opts>(text, ctx, args...);
 	}

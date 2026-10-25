@@ -114,6 +114,7 @@ Result<GetPositionsResponse> KalshiClient::get_positions(const GetPositionsParam
 	query.add("cursor", params.cursor);
 	query.add("limit", params.limit);
 	query.add("count_filter", params.count_filter);
+	query.add("settlement_status", params.settlement_status);
 	query.add("ticker", params.ticker);
 	query.add("event_ticker", params.event_ticker);
 	query.add("subaccount", params.subaccount);

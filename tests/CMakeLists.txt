@@ -26,6 +26,7 @@ kalshi_configure_target(kalshi_tests)
 if(WIN32)
     # The WebSocket test server includes <libwebsockets.h>, which pulls in <windows.h>.
     target_compile_definitions(kalshi_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    target_link_libraries(kalshi_tests PRIVATE ws2_32)
 endif()
 # The generated route tests also cover operations Kalshi marks deprecated.
 set_source_files_properties(test_operation_routes.cpp PROPERTIES COMPILE_OPTIONS
@@ -38,9 +39,13 @@ gtest_discover_tests(kalshi_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30)
 # Its own binary, because it replaces operator new for the whole process.
 if(TARGET kalshi_allocation_counter)
     add_executable(kalshi_allocation_tests test_allocation_counter.cpp
-        test_allocation_budgets.cpp)
+        test_allocation_budgets.cpp test_ws_allocation_failure.cpp)
     target_link_libraries(kalshi_allocation_tests PRIVATE kalshi_allocation_counter kalshi::kalshi
-        GTest::gtest_main)
+        GTest::gtest_main OpenSSL::Crypto ${KALSHI_WEBSOCKETS_TARGET})
+    target_include_directories(kalshi_allocation_tests PRIVATE ${CMAKE_CURRENT_SOURCE_DIR})
+    if(WIN32)
+        target_compile_definitions(kalshi_allocation_tests PRIVATE NOMINMAX WIN32_LEAN_AND_MEAN)
+    endif()
     kalshi_configure_target(kalshi_allocation_tests)
     gtest_discover_tests(kalshi_allocation_tests DISCOVERY_MODE PRE_TEST)
 endif()

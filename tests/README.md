@@ -10,7 +10,7 @@ memory.
 | `test_operation_routes.cpp` | Every REST operation's method and path (generated) |
 | `test_operations.cpp` | Request bodies and response parsing for common operations |
 | `test_api_support.cpp` | Encoding, error mapping, null handling, validation |
-| `test_http_client.cpp` | The libcurl transport, POSIX only |
+| `test_http_client.cpp` | The libcurl transport on POSIX and Windows |
 | `test_transports.cpp` | Retries, token buckets, rate limiting |
 | `test_signer.cpp` | Ed25519 and RSA-PSS signing |
 | `test_helpers.cpp` | Cents, contracts, timestamps, order directions, pagination |
@@ -19,6 +19,7 @@ memory.
 | `test_version.cpp` | `kalshi::VERSION` and its components |
 | `parse_benchmark.cpp` | A coarse throughput guard, run as its own test |
 | `test_allocation_counter.cpp` | The `operator new` counter in `support/`, in its own binary |
+| `test_ws_allocation_failure.cpp` | Sustained allocation failure during disconnect and client reuse |
 | `test_allocation_budgets.cpp` | Hot paths whose allocations must not grow with the size of each item |
 | `test_ws_messages.cpp` | Every example frame in the AsyncAPI spec (generated) |
 | `test_ws_frames.cpp` | Control frames, discriminated types, nulls, unknown values |
@@ -26,5 +27,8 @@ memory.
 | `test_ws_client.cpp` | The WebSocket client against a local server |
 | `test_ws_lifecycle.cpp` | URL validation, moved-from clients, concurrent calls |
 
-Response fixtures are synthetic and follow Kalshi Predictions OpenAPI 3.31.0;
+Allocation suites replace `operator new` and are excluded from sanitizer and
+coverage builds.
+
+Response fixtures are synthetic and follow Kalshi Predictions OpenAPI 3.34.0;
 none come from a real account. Add new files to `tests/CMakeLists.txt`.

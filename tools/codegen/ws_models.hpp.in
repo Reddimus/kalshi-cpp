@@ -37,6 +37,8 @@ struct Update {
 	/// `Subscription::id` of the subscription that produced the frame.
 	std::int64_t subscription{0};
 	T msg;
+	/// Server send time in Unix milliseconds, when supplied.
+	std::optional<std::int64_t> sending_ts_ms;
 };
 
 @STRUCTS@
@@ -44,11 +46,13 @@ struct Update {
 struct Subscribed {
 	Subscription subscription;
 	std::int64_t sid{0};
+	std::optional<std::int64_t> sending_ts_ms;
 };
 
 /// The server ended a subscription after `unsubscribe`.
 struct Unsubscribed {
 	Subscription subscription;
+	std::optional<std::int64_t> sending_ts_ms;
 };
 
 /// An `update_subscription` succeeded. The lists hold what the subscription
@@ -59,6 +63,7 @@ struct Updated {
 	std::vector<std::string> market_ids;
 	std::vector<std::string> index_ids;
 	std::vector<std::string> underlying_tickers;
+	std::optional<std::int64_t> sending_ts_ms;
 };
 
 /// One entry of a `list_subscriptions` reply.
@@ -71,6 +76,7 @@ struct ListedSubscription {
 struct SubscriptionList {
 	std::int64_t id{0};
 	std::vector<ListedSubscription> subscriptions;
+	std::optional<std::int64_t> sending_ts_ms;
 };
 
 @MESSAGE@

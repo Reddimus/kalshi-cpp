@@ -11,305 +11,464 @@
 
 TEST(WsMessages, OrderbookSnapshotExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"orderbook_snapshot","sid":2,"seq":2,"msg":{"market_ticker":"FED-23DEC-T3.00","market_id":"9b0f6b43-5b68-4f9f-9f02-9a2d1b8ac1a1","yes_dollars_fp":[["0.0800","300.00"],["0.2200","333.00"]],"no_dollars_fp":[["0.5400","20.00"],["0.5600","146.00"]]}})json");
+		R"json({"type":"orderbook_snapshot","sending_ts_ms":1669149841234,"sid":2,"seq":2,"msg":{"market_ticker":"FED-23DEC-T3.00","market_id":"9b0f6b43-5b68-4f9f-9f02-9a2d1b8ac1a1","clock":4182057,"yes_dollars_fp":[["0.0800","300.00"],["0.2200","333.00"]],"no_dollars_fp":[["0.5400","20.00"],["0.5600","146.00"]]}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::OrderbookSnapshot>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::OrderbookSnapshot>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 2);
+	EXPECT_EQ(update->seq, 2);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.market_ticker, "FED-23DEC-T3.00");
 }
 
 TEST(WsMessages, OrderbookDeltaExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"orderbook_delta","sid":2,"seq":3,"msg":{"market_ticker":"FED-23DEC-T3.00","market_id":"9b0f6b43-5b68-4f9f-9f02-9a2d1b8ac1a1","price_dollars":"0.9600","delta_fp":"-54.00","side":"yes","ts":"2022-11-22T20:44:01Z","ts_ms":1669149841000}})json");
+		R"json({"type":"orderbook_delta","sending_ts_ms":1669149841123,"sid":2,"seq":3,"msg":{"market_ticker":"FED-23DEC-T3.00","market_id":"9b0f6b43-5b68-4f9f-9f02-9a2d1b8ac1a1","clock":4182061,"price_dollars":"0.9600","delta_fp":"-54.00","side":"yes","ts":"2022-11-22T20:44:01Z","ts_ms":1669149841000}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::OrderbookDelta>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::OrderbookDelta>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 2);
+	EXPECT_EQ(update->seq, 3);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841123);
 	EXPECT_EQ(update->msg.market_ticker, "FED-23DEC-T3.00");
 }
 
 TEST(WsMessages, TickerExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"ticker","sid":11,"msg":{"market_id":"9b0f6b43-5b68-4f9f-9f02-9a2d1b8ac1a1","market_ticker":"FED-23DEC-T3.00","price_dollars":"0.4800","yes_bid_dollars":"0.4500","yes_ask_dollars":"0.5300","volume_fp":"33896.00","open_interest_fp":"20422.00","dollar_volume":16948,"dollar_open_interest":10211,"yes_bid_size_fp":"300.00","yes_ask_size_fp":"150.00","last_trade_size_fp":"25.00","ts":1669149841,"ts_ms":1669149841000,"time":"2022-11-22T20:44:01Z"}})json");
+		R"json({"type":"ticker","sending_ts_ms":1669149841123,"sid":11,"msg":{"market_id":"9b0f6b43-5b68-4f9f-9f02-9a2d1b8ac1a1","market_ticker":"FED-23DEC-T3.00","price_dollars":"0.4800","yes_bid_dollars":"0.4500","yes_ask_dollars":"0.5300","volume_fp":"33896.00","open_interest_fp":"20422.00","dollar_volume":16948,"dollar_open_interest":10211,"yes_bid_size_fp":"300.00","yes_ask_size_fp":"150.00","last_trade_size_fp":"25.00","ts":1669149841,"ts_ms":1669149841000,"time":"2022-11-22T20:44:01Z"}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::Ticker>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::Ticker>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 11);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841123);
 	EXPECT_EQ(update->msg.market_id, "9b0f6b43-5b68-4f9f-9f02-9a2d1b8ac1a1");
 }
 
 TEST(WsMessages, TradeExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"trade","sid":11,"seq":2,"msg":{"trade_id":"d91bc706-ee49-470d-82d8-11418bda6fed","market_ticker":"HIGHNY-22DEC23-B53.5","yes_price_dollars":"0.3600","no_price_dollars":"0.6400","count_fp":"136.00","taker_side":"no","taker_outcome_side":"no","taker_book_side":"ask","is_block_trade":false,"ts":1669149841,"ts_ms":1669149841000}})json");
+		R"json({"type":"trade","sending_ts_ms":1669149841123,"sid":11,"seq":2,"msg":{"trade_id":"d91bc706-ee49-470d-82d8-11418bda6fed","market_ticker":"HIGHNY-22DEC23-B53.5","yes_price_dollars":"0.3600","no_price_dollars":"0.6400","count_fp":"136.00","taker_side":"no","taker_outcome_side":"no","taker_book_side":"ask","is_block_trade":false,"ts":1669149841,"ts_ms":1669149841000}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::Trade>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::Trade>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 11);
+	EXPECT_EQ(update->seq, 2);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841123);
 	EXPECT_EQ(update->msg.trade_id, "d91bc706-ee49-470d-82d8-11418bda6fed");
 }
 
 TEST(WsMessages, FillExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"fill","sid":13,"msg":{"trade_id":"d91bc706-ee49-470d-82d8-11418bda6fed","order_id":"ee587a1c-8b87-4dcf-b721-9f6f790619fa","client_order_id":"my-order-1","market_ticker":"HIGHNY-22DEC23-B53.5","exchange_index":2,"is_taker":true,"side":"yes","yes_price_dollars":"0.7500","count_fp":"278.00","fee_cost":"0.010000","action":"buy","ts":1671899397,"ts_ms":1671899397000,"post_position_fp":"500.00","purchased_side":"yes","outcome_side":"yes","book_side":"bid","subaccount":3}})json");
+		R"json({"type":"fill","sending_ts_ms":1671899397123,"sid":13,"msg":{"trade_id":"d91bc706-ee49-470d-82d8-11418bda6fed","order_id":"ee587a1c-8b87-4dcf-b721-9f6f790619fa","client_order_id":"my-order-1","market_ticker":"HIGHNY-22DEC23-B53.5","exchange_index":2,"is_taker":true,"side":"yes","yes_price_dollars":"0.7500","count_fp":"278.00","fee_cost":"0.010000","action":"buy","ts":1671899397,"ts_ms":1671899397000,"post_position_fp":"500.00","purchased_side":"yes","outcome_side":"yes","book_side":"bid","subaccount":3}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::Fill>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::Fill>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 13);
+	EXPECT_EQ(update->sending_ts_ms, 1671899397123);
 	EXPECT_EQ(update->msg.trade_id, "d91bc706-ee49-470d-82d8-11418bda6fed");
 }
 
 TEST(WsMessages, MarketPositionExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"market_position","sid":14,"msg":{"user_id":"user123","market_ticker":"FED-23DEC-T3.00","position_fp":"100.00","position_cost_dollars":"50.0000","realized_pnl_dollars":"10.0000","fees_paid_dollars":"1.0000","position_fee_cost_dollars":"0.5000","volume_fp":"15.00"}})json");
+		R"json({"type":"market_position","sending_ts_ms":1669149841234,"sid":14,"msg":{"user_id":"user123","market_ticker":"FED-23DEC-T3.00","position_fp":"100.00","position_cost_dollars":"50.0000","realized_pnl_dollars":"10.0000","fees_paid_dollars":"1.0000","position_fee_cost_dollars":"0.5000","volume_fp":"15.00"}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::MarketPosition>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::MarketPosition>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 14);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.user_id, "user123");
 }
 
 TEST(WsMessages, EventLifecycleExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"event_lifecycle","sid":5,"seq":8,"msg":{"event_ticker":"KXQUICKSETTLE-26JAN25H2150","exchange_index":0,"title":"What will 1+1 equal on Jan 25 at 21:50?","subtitle":"Jan 25 at 21:50","collateral_return_type":"MECNET","series_ticker":"KXQUICKSETTLE"}})json");
+		R"json({"type":"event_lifecycle","sending_ts_ms":1669149841234,"sid":5,"seq":8,"msg":{"event_ticker":"KXQUICKSETTLE-26JAN25H2150","exchange_index":0,"title":"What will 1+1 equal on Jan 25 at 21:50?","subtitle":"Jan 25 at 21:50","collateral_return_type":"MECNET","series_ticker":"KXQUICKSETTLE"}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::EventLifecycle>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::EventLifecycle>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 5);
+	EXPECT_EQ(update->seq, 8);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.event_ticker, "KXQUICKSETTLE-26JAN25H2150");
 }
 
 TEST(WsMessages, EventFeeUpdateExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"event_fee_update","sid":5,"seq":9,"msg":{"event_ticker":"KXBTCD-26MAY2018","fee_type_override":"quadratic","fee_multiplier_override":1}})json");
+		R"json({"type":"event_fee_update","sending_ts_ms":1669149841234,"sid":5,"seq":9,"msg":{"event_ticker":"KXBTCD-26MAY2018","fee_type_override":"quadratic","fee_multiplier_override":1}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::EventFeeUpdate>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::EventFeeUpdate>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 5);
+	EXPECT_EQ(update->seq, 9);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.event_ticker, "KXBTCD-26MAY2018");
 }
 
 TEST(WsMessages, EventFeeUpdateExample1) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"event_fee_update","sid":5,"seq":10,"msg":{"event_ticker":"KXBTCD-26MAY2018","fee_type_override":null,"fee_multiplier_override":null}})json");
+		R"json({"type":"event_fee_update","sending_ts_ms":1669149841234,"sid":5,"seq":10,"msg":{"event_ticker":"KXBTCD-26MAY2018","fee_type_override":null,"fee_multiplier_override":null}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::EventFeeUpdate>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::EventFeeUpdate>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 5);
+	EXPECT_EQ(update->seq, 10);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.event_ticker, "KXBTCD-26MAY2018");
 }
 
 TEST(WsMessages, MultivariateMarketLifecycleExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"multivariate_market_lifecycle","sid":14,"seq":7,"msg":{"market_ticker":"KXMVE-TEST-EVENT-M1","exchange_index":0,"open_ts":1773936000,"close_ts":1774022400,"additional_metadata":{"name":"MVE One","title":"Market 1","yes_sub_title":"YES 1","no_sub_title":"NO 1","rules_primary":"Rule 1","rules_secondary":"Rule 2","can_close_early":true,"event_ticker":"KXMVE-TEST-EVENT","expected_expiration_ts":1774029600},"event_type":"created"}})json");
+		R"json({"type":"multivariate_market_lifecycle","sending_ts_ms":1669149841234,"sid":14,"seq":7,"msg":{"market_ticker":"KXMVE-TEST-EVENT-M1","exchange_index":0,"open_ts":1773936000,"close_ts":1774022400,"additional_metadata":{"name":"MVE One","title":"Market 1","yes_sub_title":"YES 1","no_sub_title":"NO 1","rules_primary":"Rule 1","rules_secondary":"Rule 2","can_close_early":true,"event_ticker":"KXMVE-TEST-EVENT","expected_expiration_ts":1774029600},"event_type":"created"}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::MultivariateMarketLifecycle>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::MultivariateMarketLifecycle>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 14);
+	EXPECT_EQ(update->seq, 7);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.market_ticker, "KXMVE-TEST-EVENT-M1");
 }
 
 TEST(WsMessages, RfqCreatedExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"rfq_created","sid":15,"seq":11,"msg":{"id":"rfq_123","creator_id":"43fc3733603f4830a8c3b2986011a5f78d67b03b473dbfd3a3847abd85b63a51","market_ticker":"FED-23DEC-T3.00","event_ticker":"FED-23DEC","contracts_fp":"100.00","created_ts":"2024-12-01T10:00:00Z"}})json");
+		R"json({"type":"rfq_created","sending_ts_ms":1669149841234,"sid":15,"seq":11,"msg":{"id":"rfq_123","creator_id":"43fc3733603f4830a8c3b2986011a5f78d67b03b473dbfd3a3847abd85b63a51","market_ticker":"FED-23DEC-T3.00","event_ticker":"FED-23DEC","contracts_fp":"100.00","created_ts":"2024-12-01T10:00:00Z"}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::RfqCreated>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::RfqCreated>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 15);
+	EXPECT_EQ(update->seq, 11);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.id, "rfq_123");
 }
 
 TEST(WsMessages, RfqCreatedExample1) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"rfq_created","sid":15,"seq":11,"msg":{"id":"rfq_456","creator_id":"43fc3733603f4830a8c3b2986011a5f78d67b03b473dbfd3a3847abd85b63a51","market_ticker":"KXMVE-24DEC-COMBO","event_ticker":"KXMVE-24DEC-EVENT","target_cost_dollars":"100.0000","created_ts":"2024-12-01T10:00:00Z","mve_collection_ticker":"KXMVE-24DEC","mve_selected_legs":[{"event_ticker":"KXEVENTA-24DEC","market_ticker":"KXEVENTA-24DEC-YES","side":"yes","yes_settlement_value_dollars":"1.0000"},{"event_ticker":"KXEVENTB-24DEC","market_ticker":"KXEVENTB-24DEC-YES","side":"no"}]}})json");
+		R"json({"type":"rfq_created","sending_ts_ms":1669149841234,"sid":15,"seq":11,"msg":{"id":"rfq_456","creator_id":"43fc3733603f4830a8c3b2986011a5f78d67b03b473dbfd3a3847abd85b63a51","market_ticker":"KXMVE-24DEC-COMBO","event_ticker":"KXMVE-24DEC-EVENT","target_cost_dollars":"100.0000","created_ts":"2024-12-01T10:00:00Z","mve_collection_ticker":"KXMVE-24DEC","mve_selected_legs":[{"event_ticker":"KXEVENTA-24DEC","market_ticker":"KXEVENTA-24DEC-YES","side":"yes","yes_settlement_value_dollars":"1.0000"},{"event_ticker":"KXEVENTB-24DEC","market_ticker":"KXEVENTB-24DEC-YES","side":"no"}]}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::RfqCreated>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::RfqCreated>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 15);
+	EXPECT_EQ(update->seq, 11);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.id, "rfq_456");
 }
 
 TEST(WsMessages, RfqDeletedExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"rfq_deleted","sid":15,"seq":12,"msg":{"id":"rfq_123","creator_id":"comm_abc123","market_ticker":"FED-23DEC-T3.00","event_ticker":"FED-23DEC","contracts_fp":"100.00","target_cost_dollars":"0.3500","deleted_ts":"2024-12-01T10:05:00Z"}})json");
+		R"json({"type":"rfq_deleted","sending_ts_ms":1669149841234,"sid":15,"seq":12,"msg":{"id":"rfq_123","creator_id":"comm_abc123","market_ticker":"FED-23DEC-T3.00","event_ticker":"FED-23DEC","contracts_fp":"100.00","target_cost_dollars":"0.3500","deleted_ts":"2024-12-01T10:05:00Z"}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::RfqDeleted>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::RfqDeleted>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 15);
+	EXPECT_EQ(update->seq, 12);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.id, "rfq_123");
 }
 
 TEST(WsMessages, QuoteCreatedExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"quote_created","sid":15,"seq":13,"msg":{"quote_id":"quote_456","rfq_id":"rfq_123","quote_creator_id":"comm_def456","rfq_creator_id":"comm_abc123","market_ticker":"FED-23DEC-T3.00","event_ticker":"FED-23DEC","yes_bid_dollars":"0.3500","no_bid_dollars":"0.6500","yes_contracts_offered_fp":"100.00","no_contracts_offered_fp":"200.00","rfq_target_cost_dollars":"0.3500","created_ts":"2024-12-01T10:02:00Z","subaccount":3}})json");
+		R"json({"type":"quote_created","sending_ts_ms":1669149841234,"sid":15,"seq":13,"msg":{"quote_id":"quote_456","rfq_id":"rfq_123","quote_creator_id":"comm_def456","rfq_creator_id":"comm_abc123","market_ticker":"FED-23DEC-T3.00","event_ticker":"FED-23DEC","yes_bid_dollars":"0.3500","no_bid_dollars":"0.6500","yes_contracts_offered_fp":"100.00","no_contracts_offered_fp":"200.00","rfq_target_cost_dollars":"0.3500","created_ts":"2024-12-01T10:02:00Z","subaccount":3}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::QuoteCreated>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::QuoteCreated>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 15);
+	EXPECT_EQ(update->seq, 13);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.quote_id, "quote_456");
 }
 
 TEST(WsMessages, QuoteAcceptedExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"quote_accepted","sid":15,"seq":14,"msg":{"quote_id":"quote_456","rfq_id":"rfq_123","quote_creator_id":"comm_def456","rfq_creator_id":"comm_abc123","market_ticker":"FED-23DEC-T3.00","event_ticker":"FED-23DEC","yes_bid_dollars":"0.3500","no_bid_dollars":"0.6500","accepted_side":"yes","contracts_accepted_fp":"50.00","yes_contracts_offered_fp":"100.00","no_contracts_offered_fp":"200.00","rfq_target_cost_dollars":"0.3500","subaccount":3}})json");
+		R"json({"type":"quote_accepted","sending_ts_ms":1669149841234,"sid":15,"seq":14,"msg":{"quote_id":"quote_456","rfq_id":"rfq_123","quote_creator_id":"comm_def456","rfq_creator_id":"comm_abc123","market_ticker":"FED-23DEC-T3.00","event_ticker":"FED-23DEC","yes_bid_dollars":"0.3500","no_bid_dollars":"0.6500","accepted_side":"yes","contracts_accepted_fp":"50.00","yes_contracts_offered_fp":"100.00","no_contracts_offered_fp":"200.00","rfq_target_cost_dollars":"0.3500","subaccount":3}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::QuoteAccepted>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::QuoteAccepted>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 15);
+	EXPECT_EQ(update->seq, 14);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.quote_id, "quote_456");
 }
 
 TEST(WsMessages, QuoteExecutedExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"quote_executed","sid":15,"seq":15,"msg":{"quote_id":"quote_456","rfq_id":"rfq_123","quote_creator_id":"a1b2c3d4e5f6...","rfq_creator_id":"f6e5d4c3b2a1...","order_id":"order_789","client_order_id":"my_client_order_123","market_ticker":"FED-23DEC-T3.00","executed_ts":"2024-12-01T10:05:00Z","subaccount":3}})json");
+		R"json({"type":"quote_executed","sending_ts_ms":1669149841234,"sid":15,"seq":15,"msg":{"quote_id":"quote_456","rfq_id":"rfq_123","quote_creator_id":"a1b2c3d4e5f6...","rfq_creator_id":"f6e5d4c3b2a1...","order_id":"order_789","client_order_id":"my_client_order_123","market_ticker":"FED-23DEC-T3.00","executed_ts":"2024-12-01T10:05:00Z","subaccount":3}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::QuoteExecuted>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::QuoteExecuted>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 15);
+	EXPECT_EQ(update->seq, 15);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.quote_id, "quote_456");
+}
+
+TEST(WsMessages, RfqBatchCreatedExample0) {
+	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
+		R"json({"type":"rfq_batch_created","sending_ts_ms":1669149841234,"sid":15,"seq":16,"msg":{"id":"rfq_batch_123","creator_id":"43fc3733603f4830a8c3b2986011a5f78d67b03b473dbfd3a3847abd85b63a51","created_ts":"2024-12-01T10:00:00Z","legs":[{"event_ticker":"KXEVENTA-24DEC","market_ticker":"KXEVENTA-24DEC-YES","side":"yes"},{"event_ticker":"KXEVENTB-24DEC","market_ticker":"KXEVENTB-24DEC-YES","side":"yes"},{"event_ticker":"KXEVENTC-24DEC","market_ticker":"KXEVENTC-24DEC-YES","side":"no"}],"rfqs":[{"id":"rfq_456","market_ticker":"KXMVE-24DEC-COMBO-AB","event_ticker":"KXMVE-24DEC-EVENT-AB","target_cost_dollars":"5.0000","mve_collection_ticker":"KXMVE-24DEC","leg_indices":[0,1]},{"id":"rfq_457","market_ticker":"KXMVE-24DEC-COMBO-AC","event_ticker":"KXMVE-24DEC-EVENT-AC","target_cost_dollars":"5.0000","mve_collection_ticker":"KXMVE-24DEC","leg_indices":[0,2]}]}})json");
+	ASSERT_TRUE(message.has_value());
+	const kalshi::ws::Update<kalshi::ws::RfqBatchCreated>* update =
+		std::get_if<kalshi::ws::Update<kalshi::ws::RfqBatchCreated>>(&*message);
+	ASSERT_NE(update, nullptr);
+	EXPECT_EQ(update->sid, 15);
+	EXPECT_EQ(update->seq, 16);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
+	EXPECT_EQ(update->msg.id, "rfq_batch_123");
+}
+
+TEST(WsMessages, RfqBatchDeletedExample0) {
+	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
+		R"json({"type":"rfq_batch_deleted","sending_ts_ms":1669149841234,"sid":15,"seq":17,"msg":{"id":"rfq_batch_123","creator_id":"43fc3733603f4830a8c3b2986011a5f78d67b03b473dbfd3a3847abd85b63a51","rfq_ids":["rfq_456","rfq_457"],"deleted_ts":"2024-12-01T10:05:00Z"}})json");
+	ASSERT_TRUE(message.has_value());
+	const kalshi::ws::Update<kalshi::ws::RfqBatchDeleted>* update =
+		std::get_if<kalshi::ws::Update<kalshi::ws::RfqBatchDeleted>>(&*message);
+	ASSERT_NE(update, nullptr);
+	EXPECT_EQ(update->sid, 15);
+	EXPECT_EQ(update->seq, 17);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
+	EXPECT_EQ(update->msg.id, "rfq_batch_123");
+}
+
+TEST(WsMessages, BatchQuoteCreatedExample0) {
+	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
+		R"json({"type":"batch_quote_created","sending_ts_ms":1669149841234,"sid":15,"seq":18,"msg":{"batch_quote_id":"batch_quote_789","rfq_batch_id":"rfq_batch_123","quote_creator_id":"comm_def456","created_ts":"2024-12-01T10:02:00Z","quotes":[{"quote_id":"quote_1","rfq_id":"rfq_456","market_ticker":"KXMVE-24DEC-COMBO-AB","event_ticker":"KXMVE-24DEC-EVENT-AB","yes_bid_dollars":"0.0000","no_bid_dollars":"0.7500","no_contracts_offered_fp":"20.00","rfq_target_cost_dollars":"5.0000"},{"quote_id":"quote_2","rfq_id":"rfq_457","market_ticker":"KXMVE-24DEC-COMBO-AC","event_ticker":"KXMVE-24DEC-EVENT-AC","yes_bid_dollars":"0.0000","no_bid_dollars":"0.8000","no_contracts_offered_fp":"25.00","rfq_target_cost_dollars":"5.0000"}],"subaccount":2}})json");
+	ASSERT_TRUE(message.has_value());
+	const kalshi::ws::Update<kalshi::ws::BatchQuoteCreated>* update =
+		std::get_if<kalshi::ws::Update<kalshi::ws::BatchQuoteCreated>>(&*message);
+	ASSERT_NE(update, nullptr);
+	EXPECT_EQ(update->sid, 15);
+	EXPECT_EQ(update->seq, 18);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
+	EXPECT_EQ(update->msg.batch_quote_id, "batch_quote_789");
+}
+
+TEST(WsMessages, RfqBatchBestQuotesExample0) {
+	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
+		R"json({"type":"rfq_batch_best_quotes","sending_ts_ms":1669149841234,"sid":15,"seq":20,"msg":{"rfq_batch_id":"rfq_batch_123","client_batch_id":"my_round_robin_1","version":7,"updated_ts":"2024-12-01T10:02:30Z","yes_complete":false,"no_complete":true,"rfqs":[{"rfq_id":"rfq_456","market_ticker":"KXMVE-24DEC-COMBO-AB","event_ticker":"KXMVE-24DEC-EVENT-AB","yes_bid_dollars":"0.2000","no_bid_dollars":"0.7500","yes_contracts_offered_fp":"6.25","no_contracts_offered_fp":"20.00","rfq_target_cost_dollars":"5.0000"},{"rfq_id":"rfq_457","market_ticker":"KXMVE-24DEC-COMBO-AC","event_ticker":"KXMVE-24DEC-EVENT-AC","no_bid_dollars":"0.8000","no_contracts_offered_fp":"25.00","rfq_target_cost_dollars":"5.0000"}]}})json");
+	ASSERT_TRUE(message.has_value());
+	const kalshi::ws::Update<kalshi::ws::RfqBatchBestQuotes>* update =
+		std::get_if<kalshi::ws::Update<kalshi::ws::RfqBatchBestQuotes>>(&*message);
+	ASSERT_NE(update, nullptr);
+	EXPECT_EQ(update->sid, 15);
+	EXPECT_EQ(update->seq, 20);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
+	EXPECT_EQ(update->msg.rfq_batch_id, "rfq_batch_123");
+}
+
+TEST(WsMessages, BatchQuoteAcceptedExample0) {
+	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
+		R"json({"type":"batch_quote_accepted","sending_ts_ms":1669149841234,"sid":15,"seq":19,"msg":{"batch_quote_id":"batch_quote_789","rfq_batch_id":"rfq_batch_123","quote_creator_id":"comm_def456","rfq_creator_id":"e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855","accepted_side":"no","accepted_ts":"2024-12-01T10:03:00Z","quotes":[{"quote_id":"quote_2","rfq_id":"rfq_457","market_ticker":"KXMVE-24DEC-COMBO-AC","yes_bid_dollars":"0.0000","no_bid_dollars":"0.8000","no_contracts_offered_fp":"25.00","rfq_target_cost_dollars":"5.0000"}],"subaccount":2}})json");
+	ASSERT_TRUE(message.has_value());
+	const kalshi::ws::Update<kalshi::ws::BatchQuoteAccepted>* update =
+		std::get_if<kalshi::ws::Update<kalshi::ws::BatchQuoteAccepted>>(&*message);
+	ASSERT_NE(update, nullptr);
+	EXPECT_EQ(update->sid, 15);
+	EXPECT_EQ(update->seq, 19);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
+	EXPECT_EQ(update->msg.batch_quote_id, "batch_quote_789");
+}
+
+TEST(WsMessages, RfqBatchExecutedExample0) {
+	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
+		R"json({"type":"rfq_batch_executed","sending_ts_ms":1669149841234,"sid":15,"seq":22,"msg":{"rfq_batch_id":"rfq_batch_123","client_batch_id":"my_round_robin_1","rfq_creator_id":"43fc3733603f4830a8c3b2986011a5f78d67b03b473dbfd3a3847abd85b63a51","executed_rfq_ids":["rfq_456","rfq_457"],"failed_rfq_ids":[],"executed_ts":"2024-12-01T10:03:05Z","close_reason":"executed"}})json");
+	ASSERT_TRUE(message.has_value());
+	const kalshi::ws::Update<kalshi::ws::RfqBatchExecuted>* update =
+		std::get_if<kalshi::ws::Update<kalshi::ws::RfqBatchExecuted>>(&*message);
+	ASSERT_NE(update, nullptr);
+	EXPECT_EQ(update->sid, 15);
+	EXPECT_EQ(update->seq, 22);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
+	EXPECT_EQ(update->msg.rfq_batch_id, "rfq_batch_123");
+}
+
+TEST(WsMessages, BatchQuoteExecutedExample0) {
+	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
+		R"json({"type":"batch_quote_executed","sending_ts_ms":1669149841234,"sid":15,"seq":23,"msg":{"batch_quote_id":"batch_quote_789","rfq_batch_id":"rfq_batch_123","rfq_creator_id":"43fc3733603f4830a8c3b2986011a5f78d67b03b473dbfd3a3847abd85b63a51","executed_rfq_ids":["rfq_457"],"failed_rfq_ids":[],"executed_ts":"2024-12-01T10:03:05Z","close_reason":"executed","subaccount":2}})json");
+	ASSERT_TRUE(message.has_value());
+	const kalshi::ws::Update<kalshi::ws::BatchQuoteExecuted>* update =
+		std::get_if<kalshi::ws::Update<kalshi::ws::BatchQuoteExecuted>>(&*message);
+	ASSERT_NE(update, nullptr);
+	EXPECT_EQ(update->sid, 15);
+	EXPECT_EQ(update->seq, 23);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
+	EXPECT_EQ(update->msg.batch_quote_id, "batch_quote_789");
 }
 
 TEST(WsMessages, OrderGroupUpdatesExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"order_group_updates","sid":21,"seq":7,"msg":{"event_type":"limit_updated","order_group_id":"og_123","contracts_limit_fp":"150.00","ts_ms":1733047200000}})json");
+		R"json({"type":"order_group_updates","sending_ts_ms":1733047200123,"sid":21,"seq":7,"msg":{"event_type":"limit_updated","order_group_id":"og_123","contracts_limit_fp":"150.00","ts_ms":1733047200000}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::OrderGroupUpdates>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::OrderGroupUpdates>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 21);
+	EXPECT_EQ(update->seq, 7);
+	EXPECT_EQ(update->sending_ts_ms, 1733047200123);
 	EXPECT_EQ(update->msg.order_group_id, "og_123");
 }
 
 TEST(WsMessages, UserOrderExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"user_order","sid":22,"msg":{"order_id":"ee587a1c-8b87-4dcf-b721-9f6f790619fa","user_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","ticker":"FED-23DEC-T3.00","exchange_index":2,"status":"resting","side":"yes","is_yes":true,"outcome_side":"yes","book_side":"bid","yes_price_dollars":"0.3500","fill_count_fp":"0.00","remaining_count_fp":"10.00","initial_count_fp":"10.00","taker_fill_cost_dollars":"0.000000","maker_fill_cost_dollars":"0.000000","taker_fees_dollars":"0.000000","maker_fees_dollars":"0.000000","client_order_id":"my-order-1","order_group_id":"og_123","self_trade_prevention_type":"taker_at_cross","created_time":"2024-12-01T10:00:00Z","created_ts_ms":1733047200000,"expiration_time":"2024-12-01T11:00:00Z","expiration_ts_ms":1733050800000,"subaccount_number":0}})json");
+		R"json({"type":"user_order","sending_ts_ms":1669149841234,"sid":22,"msg":{"order_id":"ee587a1c-8b87-4dcf-b721-9f6f790619fa","user_id":"a1b2c3d4-e5f6-7890-abcd-ef1234567890","ticker":"FED-23DEC-T3.00","exchange_index":2,"status":"resting","side":"yes","is_yes":true,"outcome_side":"yes","book_side":"bid","yes_price_dollars":"0.3500","fill_count_fp":"0.00","remaining_count_fp":"10.00","initial_count_fp":"10.00","taker_fill_cost_dollars":"0.000000","maker_fill_cost_dollars":"0.000000","taker_fees_dollars":"0.000000","maker_fees_dollars":"0.000000","client_order_id":"my-order-1","order_group_id":"og_123","self_trade_prevention_type":"taker_at_cross","created_time":"2024-12-01T10:00:00Z","created_ts_ms":1733047200000,"expiration_time":"2024-12-01T11:00:00Z","expiration_ts_ms":1733050800000,"subaccount_number":0}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::UserOrder>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::UserOrder>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 22);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.order_id, "ee587a1c-8b87-4dcf-b721-9f6f790619fa");
 }
 
 TEST(WsMessages, CfbenchmarksValueExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"cfbenchmarks_value","sid":1,"seq":42,"msg":{"index_id":"BRTI","received_at":1710000000123,"data":"{\"type\":\"value\",\"id\":\"BRTI\",\"time\":1710000000123,\"value\":\"68000.12\"}","avg_60s_data":{"value":"68000.12000000","window_size":3,"window_start_ts_ms":1709999940123,"window_end_ts_exclusive":1710000000123},"last_60s_windowed_average_15min":{"value":"68000.23000000","window_size":14,"window_start_ts_ms":1709999980000,"window_end_ts_exclusive":1710000000123}}})json");
+		R"json({"type":"cfbenchmarks_value","sending_ts_ms":1669149841234,"sid":1,"seq":42,"msg":{"index_id":"BRTI","received_at":1710000000123,"data":"{\"type\":\"value\",\"id\":\"BRTI\",\"time\":1710000000123,\"value\":\"68000.12\"}","avg_60s_data":{"value":"68000.12000000","window_size":3,"window_start_ts_ms":1709999940123,"window_end_ts_exclusive":1710000000123},"last_60s_windowed_average_15min":{"value":"68000.23000000","window_size":14,"window_start_ts_ms":1709999980000,"window_end_ts_exclusive":1710000000123}}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::CfbenchmarksValue>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::CfbenchmarksValue>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 1);
+	EXPECT_EQ(update->seq, 42);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.index_id, "BRTI");
 }
 
 TEST(WsMessages, CfbenchmarksIndexListExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"cfbenchmarks_value_indexlist","id":2,"sid":1,"seq":1,"msg":{"index_ids":["BRTI","ETHUSD_RTI"]}})json");
+		R"json({"type":"cfbenchmarks_value_indexlist","sending_ts_ms":1669149841234,"id":2,"sid":1,"seq":1,"msg":{"index_ids":["BRTI","ETHUSD_RTI"]}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::CfbenchmarksIndexList>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::CfbenchmarksIndexList>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 1);
+	EXPECT_EQ(update->seq, 1);
+	EXPECT_EQ(update->id, 2);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 }
 
 TEST(WsMessages, CfbenchmarksValue5HzExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"cfbenchmarks_value_5hz","sid":1,"seq":42,"msg":{"index_id":"BRTI","value_usd":"68000.12000000","source_ts_ms":1710000000323,"received_at":1710000000341,"data":"{\"type\":\"value\",\"id\":\"BRTI\",\"time\":1710000000323,\"value\":\"68000.12\"}"}})json");
+		R"json({"type":"cfbenchmarks_value_5hz","sending_ts_ms":1669149841234,"sid":1,"seq":42,"msg":{"index_id":"BRTI","value_usd":"68000.12000000","source_ts_ms":1710000000323,"received_at":1710000000341,"data":"{\"type\":\"value\",\"id\":\"BRTI\",\"time\":1710000000323,\"value\":\"68000.12\"}"}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::CfbenchmarksValue5Hz>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::CfbenchmarksValue5Hz>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 1);
+	EXPECT_EQ(update->seq, 42);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.index_id, "BRTI");
 }
 
 TEST(WsMessages, Cfbenchmarks5HzIndexListExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"cfbenchmarks_value_5hz_indexlist","id":2,"sid":1,"seq":1,"msg":{"index_ids":["BRTI","ETHUSD_RTI"]}})json");
+		R"json({"type":"cfbenchmarks_value_5hz_indexlist","sending_ts_ms":1669149841234,"id":2,"sid":1,"seq":1,"msg":{"index_ids":["BRTI","ETHUSD_RTI"]}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::Cfbenchmarks5HzIndexList>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::Cfbenchmarks5HzIndexList>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 1);
+	EXPECT_EQ(update->seq, 1);
+	EXPECT_EQ(update->id, 2);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 }
 
 TEST(WsMessages, PythValueExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"pyth_value","sid":1,"seq":42,"msg":{"underlying_ticker":"Commodities.Index.PYTHOIL/USD","value_usd":"82.12345000","source_ts_ms":1710000000100,"received_at":1710000000123}})json");
+		R"json({"type":"pyth_value","sending_ts_ms":1669149841234,"sid":1,"seq":42,"msg":{"underlying_ticker":"Commodities.Index.PYTHOIL/USD","value_usd":"82.12345000","source_ts_ms":1710000000100,"received_at":1710000000123}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::PythValue>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::PythValue>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 1);
+	EXPECT_EQ(update->seq, 42);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.underlying_ticker, "Commodities.Index.PYTHOIL/USD");
+}
+
+TEST(WsMessages, PythValueExample1) {
+	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
+		R"json({"type":"pyth_value","sending_ts_ms":1710000000124,"sid":1,"seq":43,"msg":{"underlying_ticker":"InterestRate.US2Y","value_usd":"4.25000000","source_ts_ms":1710000000100,"received_at":1710000000123}})json");
+	ASSERT_TRUE(message.has_value());
+	const kalshi::ws::Update<kalshi::ws::PythValue>* update =
+		std::get_if<kalshi::ws::Update<kalshi::ws::PythValue>>(&*message);
+	ASSERT_NE(update, nullptr);
+	EXPECT_EQ(update->sid, 1);
+	EXPECT_EQ(update->seq, 43);
+	EXPECT_EQ(update->sending_ts_ms, 1710000000124);
+	EXPECT_EQ(update->msg.underlying_ticker, "InterestRate.US2Y");
 }
 
 TEST(WsMessages, PythUnderlyingListExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"pyth_value_underlying_list","id":2,"sid":1,"seq":1,"msg":{"underlying_tickers":["Commodities.Index.NATGAS/USD","Commodities.Index.PYTHOIL/USD","Metal.XAG/USD","Metal.XAU/USD"]}})json");
+		R"json({"type":"pyth_value_underlying_list","sending_ts_ms":1669149841234,"id":2,"sid":1,"seq":1,"msg":{"underlying_tickers":["Commodities.Index.NATGAS/USD","Commodities.Index.PYTHOIL/USD","Metal.XAG/USD","Metal.XAU/USD"]}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::PythUnderlyingList>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::PythUnderlyingList>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 1);
+	EXPECT_EQ(update->seq, 1);
+	EXPECT_EQ(update->id, 2);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 }
 
 TEST(WsMessages, MarketMetadataUpdatedExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"market_lifecycle_v2","sid":13,"seq":5,"msg":{"event_type":"metadata_updated","market_ticker":"KXBTC-25APR30-T0915-B95000","strike_type":"between","floor_strike":95000,"cap_strike":95250}})json");
+		R"json({"type":"market_lifecycle_v2","sending_ts_ms":1669149841234,"sid":13,"seq":5,"msg":{"event_type":"metadata_updated","market_ticker":"KXBTC-25APR30-T0915-B95000","strike_type":"between","floor_strike":95000,"cap_strike":95250}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::MarketMetadataUpdated>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::MarketMetadataUpdated>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 13);
+	EXPECT_EQ(update->seq, 5);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.market_ticker, "KXBTC-25APR30-T0915-B95000");
 }
 
 TEST(WsMessages, MarketMetadataUpdatedExample1) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"market_lifecycle_v2","sid":13,"seq":6,"msg":{"event_type":"metadata_updated","market_ticker":"KXBTC15M-26APR160100-00","yes_sub_title":"above $95,000"}})json");
+		R"json({"type":"market_lifecycle_v2","sending_ts_ms":1669149841234,"sid":13,"seq":6,"msg":{"event_type":"metadata_updated","market_ticker":"KXBTC15M-26APR160100-00","yes_sub_title":"above $95,000"}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::MarketMetadataUpdated>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::MarketMetadataUpdated>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 13);
+	EXPECT_EQ(update->seq, 6);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.market_ticker, "KXBTC15M-26APR160100-00");
 }
 
 TEST(WsMessages, MarketLifecycleV2Example0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"market_lifecycle_v2","sid":13,"seq":3,"msg":{"market_ticker":"INXD-23SEP14-B4487","exchange_index":0,"open_ts":1694635200,"close_ts":1694721600,"additional_metadata":{"name":"S&P 500 daily return on Sep 14","title":"S&P 500 closes up by 0.02% or more","yes_sub_title":"S&P 500 closes up 0.02%+","no_sub_title":"S&P 500 closes up <0.02%","rules_primary":"The S&P 500 index level at 4:00 PM ET...","rules_secondary":"","can_close_early":true,"event_ticker":"INXD-23SEP14","expected_expiration_ts":1694721600,"strike_type":"greater","floor_strike":4487},"event_type":"created","price_level_structure":"linear_cent"}})json");
+		R"json({"type":"market_lifecycle_v2","sending_ts_ms":1669149841234,"sid":13,"seq":3,"msg":{"market_ticker":"INXD-23SEP14-B4487","exchange_index":0,"open_ts":1694635200,"close_ts":1694721600,"additional_metadata":{"name":"S&P 500 daily return on Sep 14","title":"S&P 500 closes up by 0.02% or more","yes_sub_title":"S&P 500 closes up 0.02%+","no_sub_title":"S&P 500 closes up <0.02%","rules_primary":"The S&P 500 index level at 4:00 PM ET...","rules_secondary":"","can_close_early":true,"event_ticker":"INXD-23SEP14","expected_expiration_ts":1694721600,"strike_type":"greater","floor_strike":4487},"event_type":"created","price_level_structure":"linear_cent"}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::MarketLifecycleV2>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::MarketLifecycleV2>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 13);
+	EXPECT_EQ(update->seq, 3);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.market_ticker, "INXD-23SEP14-B4487");
 }
 
 TEST(WsMessages, MarketLifecycleV2Example1) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"market_lifecycle_v2","sid":13,"seq":4,"msg":{"market_ticker":"INXD-23SEP14-B4487","event_type":"price_level_structure_updated","price_level_structure":"deci_cent","price_ranges":[{"start":"0.0000","end":"1.0000","step":"0.0010"}]}})json");
+		R"json({"type":"market_lifecycle_v2","sending_ts_ms":1669149841234,"sid":13,"seq":4,"msg":{"market_ticker":"INXD-23SEP14-B4487","event_type":"price_level_structure_updated","price_level_structure":"deci_cent","price_ranges":[{"start":"0.0000","end":"1.0000","step":"0.0010"}]}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::MarketLifecycleV2>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::MarketLifecycleV2>>(&*message);
 	ASSERT_NE(update, nullptr);
 	EXPECT_EQ(update->sid, 13);
+	EXPECT_EQ(update->seq, 4);
+	EXPECT_EQ(update->sending_ts_ms, 1669149841234);
 	EXPECT_EQ(update->msg.market_ticker, "INXD-23SEP14-B4487");
 }

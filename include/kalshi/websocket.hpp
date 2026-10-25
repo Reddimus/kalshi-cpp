@@ -6,6 +6,7 @@
 #include "kalshi/ws_models.hpp"
 
 #include <chrono>
+#include <cstddef>
 #include <cstdint>
 #include <functional>
 #include <memory>
@@ -31,6 +32,7 @@ struct WsError {
 	std::optional<std::int64_t> seq;
 	/// The subscription the error concerns, when known.
 	std::optional<ws::Subscription> subscription;
+	std::optional<std::int64_t> sending_ts_ms;
 };
 
 enum class WsState : std::uint8_t { Disconnected, Connecting, Connected, Reconnecting };
@@ -69,6 +71,8 @@ struct WsConfig {
 	/// Request fresh order book snapshots when an orderbook_delta sequence
 	/// number is skipped. The gap is reported to `on_error` either way.
 	bool resync_on_gap{true};
+	/// Maximum received message size; zero disables the limit.
+	std::size_t max_message_bytes{std::size_t{64} * 1024 * 1024};
 
 	[[nodiscard]] static WsConfig for_environment(Environment environment) {
 		WsConfig config;
@@ -79,6 +83,7 @@ struct WsConfig {
 
 /// Streams Kalshi's WebSocket channels.
 ///
+/// Internal failures stop the session and clear subscriptions.
 /// Subscriptions survive reconnects: the client resubscribes with the same
 /// parameters and keeps each `ws::Subscription` handle, while the server's
 /// `sid` changes. Callbacks run on the client's network thread, which blocks

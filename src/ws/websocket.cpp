@@ -22,6 +22,7 @@
 
 #include "callback_slot.hpp"
 #include "frames.hpp"
+#include "reconnect.hpp"
 #include "subscriptions.hpp"
 #include "ws_endpoint.hpp"
 
@@ -325,6 +326,16 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 		return was_up;
 	}
 
+	// Internal failures may be allocation failures. Discard subscriptions rather
+	// than replaying pending updates, which can allocate during normal stop().
+	void fail_session() noexcept {
+		try {
+			stop(true);
+			report(WsState::Disconnected);
+		} catch (...) { // NOLINT(bugprone-empty-catch): never unwind through a C callback
+		}
+	}
+
 	/// Joins a stopped service thread. Never called on that thread.
 	void reap() {
 		std::thread worker;
@@ -401,10 +412,14 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 			const std::lock_guard lock(mutex);
 			active = context;
 		}
-		while (!stopping) {
-			if (lws_service(active, 0) < 0 && stop()) {
-				report(WsState::Disconnected);
+		try {
+			while (!stopping) {
+				if (lws_service(active, 0) < 0 && stop()) {
+					report(WsState::Disconnected);
+				}
 			}
+		} catch (...) {
+			fail_session();
 		}
 		{
 			const std::lock_guard lock(mutex);
@@ -454,14 +469,8 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 	}
 
 	std::chrono::milliseconds backoff() {
-		const double doubled =
-			static_cast<double>(config.reconnect_delay.count()) *
-			std::pow(2.0, static_cast<double>(std::min<std::uint32_t>(failures, 20)));
-		const double capped =
-			std::min(doubled, static_cast<double>(config.max_reconnect_delay.count()));
 		std::uniform_real_distribution<double> jitter(0.5, 1.0);
-		return std::chrono::milliseconds{
-			static_cast<std::chrono::milliseconds::rep>(std::llround(capped * jitter(rng)))};
+		return detail::reconnect_delay(config, failures, jitter(rng));
 	}
 
 	void schedule_reconnect() {
@@ -490,17 +499,21 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 						 std::chrono::duration_cast<std::chrono::microseconds>(delay).count());
 	}
 
-	static void on_timer(lws_sorted_usec_list_t* sul) {
+	static void on_timer(lws_sorted_usec_list_t* sul) noexcept {
 		Impl* self = reinterpret_cast<Timer*>(sul)->owner;
-		if (self->stopping) {
-			return;
-		}
-		// A synchronous failure may already have gone through on_failed(), which
-		// reported it and scheduled the next attempt or gave up.
-		if (Result<void> started = self->attempt(); !started && !self->failure_handled) {
-			self->deliver(WsError{0, started.error().message, std::nullopt, std::nullopt,
-								  std::nullopt, std::nullopt});
-			self->schedule_reconnect();
+		try {
+			if (self->stopping) {
+				return;
+			}
+			// A synchronous failure may already have gone through on_failed(), which
+			// reported it and scheduled the next attempt or gave up.
+			if (Result<void> started = self->attempt(); !started && !self->failure_handled) {
+				self->deliver(WsError{0, started.error().message, std::nullopt, std::nullopt,
+									  std::nullopt, std::nullopt});
+				self->schedule_reconnect();
+			}
+		} catch (...) {
+			self->fail_session();
 		}
 	}
 
@@ -509,10 +522,17 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 	// libwebsockets fixes this callback ABI, including the adjacent opaque pointers.
 	// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 	static int callback(lws* connection, lws_callback_reasons reason, void* /*user*/, void* in,
-						std::size_t len) {
+						std::size_t len) noexcept {
 		lws_context* owner = lws_get_context(connection);
 		Impl* self = owner == nullptr ? nullptr : static_cast<Impl*>(lws_context_user(owner));
-		return self == nullptr ? 0 : self->on_event(connection, reason, in, len);
+		try {
+			return self == nullptr ? 0 : self->on_event(connection, reason, in, len);
+		} catch (...) {
+			if (self != nullptr) {
+				self->fail_session();
+			}
+			return -1;
+		}
 	}
 
 	int on_event(lws* connection, lws_callback_reasons reason, void* in, std::size_t len) {
@@ -534,6 +554,11 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 			case LWS_CALLBACK_CLIENT_RECEIVE:
 				if (connection != wsi || stopping) {
 					return stopping ? -1 : 0;
+				}
+				if (config.max_message_bytes != 0 && len > config.max_message_bytes - rx.size()) {
+					rx.clear();
+					deliver(WsError{0, "WebSocket message exceeds max_message_bytes"});
+					return -1;
 				}
 				rx.append(static_cast<const char*>(in), len);
 				if (lws_is_final_fragment(connection) != 0 &&

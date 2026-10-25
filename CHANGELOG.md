@@ -6,6 +6,28 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.0] - 2026-10-25
+
+### Changed
+
+- Refresh Predictions OpenAPI to 3.34.0: 128 operations, including ten
+  prelaunch RFQ-batch operations. AsyncAPI adds batch communications and
+  optional server-send timestamps on data and control messages.
+
+### Fixed
+
+- Reject malformed JSON, trailing data, and invalid JSON hidden by null fallback.
+- Pace balance requests independently and classify RFQ-batch writes correctly.
+- Bound HTTP response bodies, contain callback exceptions, preserve headers on
+  allocation failure, and reject non-HTTP protocols.
+- Keep retry jitter effective at its cap and bound extreme retry, rate-limit,
+  and WebSocket reconnect durations.
+- Bound WebSocket messages, contain callback exceptions, and prevent sequence
+  counter overflow.
+- Reject control bytes in WebSocket URLs and invalid API-key identifiers.
+- Use the default HTTP client when a null transport is supplied.
+- Deploy API documentation only from its matching release tag.
+
 ### Added
 
 - vcpkg has a `kalshi-cpp` port. Add it to `vcpkg.json` and use
@@ -829,7 +851,8 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.2...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.5.2...v0.6.0
