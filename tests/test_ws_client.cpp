@@ -12,6 +12,7 @@
 #include <memory>
 #include <mutex>
 #include <optional>
+#include <stdexcept>
 #include <string>
 #include <string_view>
 #include <variant>
@@ -581,4 +582,37 @@ TEST_F(WsClient, ExactMessageLimitAndUnlimitedMessagesParse) {
 		ASSERT_TRUE(error);
 		EXPECT_EQ(error->message, "test");
 	}
+}
+
+TEST_F(WsClient, ThrowingUserCallbacksAreContainedWithoutInterruptingTheSession) {
+	std::promise<void> connected;
+	std::promise<void> message;
+	std::promise<void> error;
+	kalshi::WebSocketClient ws(kalshi::test::make_signer(), local(server));
+	ws.on_state_change([&](kalshi::WsState state) {
+		if (state == kalshi::WsState::Connected) {
+			connected.set_value();
+		}
+		throw std::runtime_error("state callback");
+	});
+	ws.on_message([&](const kalshi::WsMessage&) {
+		message.set_value();
+		throw std::runtime_error("message callback");
+	});
+	ws.on_error([&](const kalshi::WsError&) {
+		error.set_value();
+		throw std::runtime_error("error callback");
+	});
+	ASSERT_TRUE(ws.connect());
+	ASSERT_EQ(connected.get_future().wait_for(5s), std::future_status::ready);
+	ASSERT_TRUE(ws.subscribe(kalshi::ws::Channel::Trade));
+	const std::optional<std::string> command = server.next_command();
+	ASSERT_TRUE(command);
+	server.send(subscribed(id_of(*command), "trade", 7));
+	ASSERT_EQ(message.get_future().wait_for(5s), std::future_status::ready);
+	server.send(R"({"type":"error","msg":{"code":1,"msg":"test"}})");
+	ASSERT_EQ(error.get_future().wait_for(5s), std::future_status::ready);
+	EXPECT_TRUE(ws.is_connected());
+	ws.disconnect();
+	EXPECT_EQ(ws.state(), kalshi::WsState::Disconnected);
 }
