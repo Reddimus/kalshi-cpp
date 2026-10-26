@@ -227,3 +227,24 @@ TEST(WsReconnect, PositiveMillisecondDelayNeverRoundsDownToZero) {
 	config.max_reconnect_delay = std::chrono::milliseconds{1};
 	EXPECT_EQ(kalshi::detail::reconnect_delay(config, 0, 0.5), std::chrono::milliseconds{1});
 }
+
+TEST(CallbackSlot, ReplacedCapturesCanReenterRegistration) {
+	kalshi::detail::CallbackSlot<void()> slot;
+	bool released = false;
+	struct Reenter {
+		kalshi::detail::CallbackSlot<void()>* slot;
+		bool* released;
+		~Reenter() {
+			slot->set({});
+			*released = true;
+		}
+	};
+	std::shared_ptr<Reenter> capture = std::make_shared<Reenter>();
+	capture->slot = &slot;
+	capture->released = &released;
+	slot.set([capture] {});
+	capture.reset();
+	slot.set({});
+	EXPECT_TRUE(released);
+	slot.invoke();
+}

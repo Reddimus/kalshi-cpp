@@ -20,8 +20,10 @@ public:
 		std::shared_ptr<const std::function<Return(Args...)>> next =
 			callback ? std::make_shared<std::function<Return(Args...)>>(std::move(callback))
 					 : nullptr;
-		const std::lock_guard lock(mutex_);
-		callback_ = std::move(next);
+		{
+			const std::lock_guard lock(mutex_);
+			callback_.swap(next);
+		} // Release the previous callable after unlocking; captures can reenter.
 	}
 
 	void invoke(Args... args) const noexcept {

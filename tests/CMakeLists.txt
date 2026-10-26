@@ -34,7 +34,8 @@ set_source_files_properties(test_operation_routes.cpp PROPERTIES COMPILE_OPTIONS
 
 include(GoogleTest)
 # Instrumented binaries can take several seconds to list tests on macOS runners.
-gtest_discover_tests(kalshi_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30)
+gtest_discover_tests(kalshi_tests DISCOVERY_MODE PRE_TEST DISCOVERY_TIMEOUT 30
+    PROPERTIES TIMEOUT 30)
 
 # Its own binary, because it replaces operator new for the whole process.
 if(TARGET kalshi_allocation_counter)
