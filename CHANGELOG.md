@@ -6,6 +6,13 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.7.1] - 2026-10-25
+
+### Fixed
+
+- Release replaced WebSocket callback captures outside the registration mutex,
+  so captured-object cleanup can safely register another callback.
+
 ## [0.7.0] - 2026-10-25
 
 ### Changed
@@ -851,7 +858,7 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.7.1...HEAD
 [0.7.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.0...v0.6.1
@@ -882,3 +889,5 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 [0.0.4]: https://github.com/Reddimus/kalshi-cpp/compare/v0.0.3...v0.0.4
 [0.0.3]: https://github.com/Reddimus/kalshi-cpp/compare/v0.0.2...v0.0.3
 [0.0.2]: https://github.com/Reddimus/kalshi-cpp/releases/tag/v0.0.2
+
+[0.7.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.7.0...v0.7.1
