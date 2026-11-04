@@ -171,8 +171,9 @@ overages are enabled by this workflow.
 
 Test the helper with `node --test .github/scripts/review-fallback.test.cjs`.
 
-Greptile status comments must stay enabled: the fallback listens for its
-credit refusal. This repository enables them through `statusCommentsEnabled`.
+`statusCommentsEnabled` enables Greptile review summaries.
+Enable **Post Status Comments** in Greptile's dashboard for error notices.
+The fallback needs summary footers and authenticated credit refusals.
 
 If Greptile shows exhausted credits only in its dashboard, no GitHub event can
 start the fallback. After verifying that refusal, comment `@coderabbitai full review`
