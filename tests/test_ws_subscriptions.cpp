@@ -459,3 +459,69 @@ TEST(WsSubscriptions, UpdatesRejectClosingHandlesAndCanRetryAfterUnsubscribeReje
 			R"({"id":4,"cmd":"update_subscription","params":{"sids":[9],"market_ticker":"B","action":"add_markets"}})");
 	}
 }
+
+TEST(WsSubscriptions, TerminalChannelErrorsAllowOrderbookReplacement) {
+	for (const std::int64_t code : {10, 25}) {
+		for (const int command_kind : {0, 1, 2}) {
+			SCOPED_TRACE(code);
+			SCOPED_TRACE(command_kind);
+			SubscriptionRegistry registry;
+			std::vector<std::string> frames;
+			const kalshi::ws::Subscription book =
+				registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames)
+					.value();
+			registry.on_subscribed({2, "orderbook_delta", 9});
+			ASSERT_TRUE(registry.update(
+				book, {.market_ticker = "B", .action = kalshi::ws::UpdateAction::AddMarkets}, true,
+				frames));
+			std::optional<std::int64_t> command;
+			if (command_kind == 1) {
+				command = 3;
+			} else if (command_kind == 2) {
+				ASSERT_TRUE(registry.unsubscribe(book, frames));
+				command = 4;
+			}
+			frames.clear();
+			const Reaction failed = registry.on_error({command, 9, std::nullopt, code, ""});
+			ASSERT_TRUE(failed.error);
+			EXPECT_EQ(failed.error->subscription, book);
+			EXPECT_TRUE(registry.subscriptions().empty());
+			EXPECT_FALSE(registry.update(
+				book, {.market_ticker = "B", .action = kalshi::ws::UpdateAction::AddMarkets}, true,
+				frames));
+			EXPECT_FALSE(registry.on_ok({3, 9, 1}).message);
+			kalshi::WsMessage stale = delta(9, 2);
+			registry.on_data(stale, false);
+			EXPECT_EQ(std::get<kalshi::ws::Update<kalshi::ws::OrderbookDelta>>(stale).subscription,
+					  0);
+			registry.on_connected(frames);
+			EXPECT_TRUE(frames.empty());
+			EXPECT_TRUE(
+				registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "C"}, true, frames));
+			EXPECT_EQ(frames.size(), 1U);
+		}
+	}
+}
+
+TEST(WsSubscriptions, NonterminalChannelErrorsKeepTheActiveHandle) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription book =
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames).value();
+	registry.on_subscribed({2, "orderbook_delta", 9});
+	const kalshi::ws::Subscription ticker =
+		registry.subscribe(Channel::Ticker, {}, true, frames).value();
+	registry.on_subscribed({4, "ticker", 10});
+	const Reaction failed =
+		registry.on_error({std::nullopt, 9, std::nullopt, 11, "invalid parameter"});
+	ASSERT_TRUE(failed.error);
+	EXPECT_EQ(failed.error->subscription, book);
+	EXPECT_EQ(registry.subscriptions(), (std::vector<kalshi::ws::Subscription>{book, ticker}));
+	registry.on_error({std::nullopt, 9, std::nullopt, 10, "channel stopped"});
+	EXPECT_EQ(registry.subscriptions(), (std::vector<kalshi::ws::Subscription>{ticker}));
+	kalshi::ws::Update<kalshi::ws::Ticker> update;
+	update.sid = 10;
+	kalshi::WsMessage message = update;
+	registry.on_data(message, false);
+	EXPECT_EQ(std::get<kalshi::ws::Update<kalshi::ws::Ticker>>(message).subscription, ticker.id);
+}

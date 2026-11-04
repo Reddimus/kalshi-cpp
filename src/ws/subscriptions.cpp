@@ -327,7 +327,7 @@ Reaction SubscriptionRegistry::on_error(const ErrorFrame& frame) {
 	}
 	if (Entry* entry = find(subscription)) {
 		error.subscription = entry->handle;
-		if (command && command->kind == Kind::Subscribe) {
+		if (frame.code == 10 || frame.code == 25 || (command && command->kind == Kind::Subscribe)) {
 			erase(subscription);
 		} else if (command && command->kind == Kind::Unsubscribe) {
 			entry->state = State::Active; // rejection does not confirm removal
@@ -418,6 +418,9 @@ void SubscriptionRegistry::erase(std::int64_t subscription) {
 		by_sid_.erase(found->second.sid);
 	}
 	entries_.erase(found);
+	std::erase_if(commands_, [subscription](const std::pair<const std::int64_t, InFlight>& item) {
+		return item.second.subscription == subscription;
+	});
 }
 
 void SubscriptionRegistry::note_seq(std::optional<std::int64_t> sid,

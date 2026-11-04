@@ -439,6 +439,8 @@ class WsGenerator:
                "subscribe also removes its handle. Otherwise, wait for `Unsubscribed` or\n"
                "disconnect before replacing it. Updates are rejected while unsubscribe is\n"
                "pending; if the server rejects unsubscribe, retry the update on the same handle.\n"
+               "Terminal channel errors 10 and 25 also remove the handle; subscribe again\n"
+               "from `on_error` when ready to resume.\n"
                "Set `update_interval_ms` to `V0`, `V100`, or `V1000`, or omit it for zero milliseconds.\n\n",
                "| Channel | `ws::Channel` | Messages |\n| --- | --- | --- |\n"]
         from common import enumerator

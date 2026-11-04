@@ -10,6 +10,8 @@ registered. Unsubscribing removes an unsent handle immediately; a rejected
 subscribe also removes its handle. Otherwise, wait for `Unsubscribed` or
 disconnect before replacing it. Updates are rejected while unsubscribe is
 pending; if the server rejects unsubscribe, retry the update on the same handle.
+Terminal channel errors 10 and 25 also remove the handle; subscribe again
+from `on_error` when ready to resume.
 Set `update_interval_ms` to `V0`, `V100`, or `V1000`, or omit it for zero milliseconds.
 
 | Channel | `ws::Channel` | Messages |

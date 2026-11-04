@@ -34,6 +34,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - Keep emptied market filters from broadening subscriptions after reconnect.
 - Preserve subscription handles when the server rejects an unsubscribe.
+- Remove stopped subscriptions after terminal channel errors so callers can resubscribe.
 
 ## [0.7.1] - 2026-10-25
 
