@@ -28,13 +28,21 @@ import re
 CPP_SUFFIXES = {".cpp", ".hpp", ".cc", ".cxx", ".hh", ".hxx"}
 DEFAULT_ALLOWLIST = "tools/cpp_auto_allowlist.txt"
 WORD_AUTO = re.compile(r"\bauto\b")
-STRUCTURED_BINDING = re.compile(r"\bauto(?:\s*[\*&])?\s*\[")
+DECL_SPECIFIERS = {
+    "const", "constexpr", "static", "volatile", "mutable",
+    "constinit", "thread_local", "extern", "inline",
+}
+DECL_SPECIFIER = "(?:" + "|".join(sorted(DECL_SPECIFIERS)) + ")"
+AUTO_DECLARATOR = rf"\bauto\b(?:\s*(?:[\*&]|{DECL_SPECIFIER}\b))*\s*"
+STRUCTURED_BINDING = re.compile(AUTO_DECLARATOR + r"\[")
 DECLARATION_AUTO = re.compile(
-    r"^\s*(?:}\s*)?(?:(?:else\s+)?if(?:\s+constexpr)?\s*\(\s*|(?:for|while|switch)\s*\(\s*)?(?:const\s+|constexpr\s+|static\s+|volatile\s+|mutable\s+)*"
-    r"auto(?:\s*[\*&])?\s*(?:\w+|\[)"
+    r"^\s*(?:}\s*)?(?:(?:else\s+)?if(?:\s+constexpr)?\s*\(\s*|(?:for|while|switch)\s*\(\s*)?"
+    + rf"(?:{DECL_SPECIFIER}\s+)*"
+    + AUTO_DECLARATOR
+    + rf"(?:(?!{DECL_SPECIFIER}\b)\w+\b(?!\s*[,)])|\[)"
 )
 
-ITERATOR_NAME = re.compile(r"\bauto\s*&?\s*(?:\w+_)?(?:it|iter|iterator)\b")
+ITERATOR_NAME = re.compile(AUTO_DECLARATOR + r"(?:\w+_)?(?:it|iter|iterator)\b")
 
 ITERATOR_HINTS = (
     ".begin(",
@@ -119,10 +127,65 @@ def read_allowlist(path: Path) -> list[AllowRule]:
 # together so digit separators cannot be mistaken for character literals.
 CPP_TOKEN = re.compile(
     r'(?P<skip>(?:u8|u|U|L)?R"(?P<raw>[^\s()\\]{0,16})\(.*?\)(?P=raw)"'
-    r'|"(?:\\.|[^"\\])*"|\b\d[\w\'.]*|\'(?:\\.|[^\'\\])*\''
+    r'|"(?:\\.|[^"\\\r\n])*"|\b\d[\w\'.]*|\'(?:\\.|[^\'\\\r\n])*\''
     r'|/\*.*?\*/|//[^\n]*)|[A-Za-z_]\w*|<<|[^\s]',
     re.DOTALL,
 )
+
+
+def declaration_code(line: str) -> str:
+    """Hide declaration groups while preserving initializer character offsets."""
+    tokens = list(CPP_TOKEN.finditer(line))
+    code = list(line)
+
+    def hide_group(start: int, opener: str, closer: str) -> int:
+        depth = 0
+        for end in range(start, len(tokens)):
+            text = tokens[end][0]
+            if text == opener:
+                depth += 1
+            elif text == closer:
+                depth -= 1
+                if depth == 0:
+                    code[tokens[start].start():tokens[end].end()] = " " * (
+                        tokens[end].end() - tokens[start].start()
+                    )
+                    return end + 1
+        return len(tokens)
+
+    index = 0
+    while index < len(tokens):
+        text = tokens[index][0]
+        if text == "[" and index + 1 < len(tokens) and tokens[index + 1][0] == "[":
+            index = hide_group(index, "[", "]")
+        elif text == "alignas" and index + 1 < len(tokens) and tokens[index + 1][0] == "(":
+            code[tokens[index].start():tokens[index].end()] = " " * len(text)
+            index = hide_group(index + 1, "(", ")")
+        elif text == "auto":
+            index += 1
+            break
+        else:
+            index += 1
+    parentheses = 0
+    while index < len(tokens):
+        text = tokens[index][0]
+        if text in {"*", "&"} or text in DECL_SPECIFIERS:
+            index += 1
+        elif text == "(":
+            code[tokens[index].start()] = " "
+            parentheses += 1
+            index += 1
+        else:
+            break
+    if index < len(tokens) and re.fullmatch(r"[A-Za-z_]\w*", tokens[index][0]):
+        index += 1
+        while index < len(tokens) and tokens[index][0] == ")" and parentheses:
+            code[tokens[index].start()] = " "
+            parentheses -= 1
+            index += 1
+        while index + 1 < len(tokens) and tokens[index][0] == tokens[index + 1][0] == "[":
+            index = hide_group(index, "[", "]")
+    return "".join(code)
 
 
 def lexical_context(source: str) -> tuple[str, set[int]]:
@@ -285,6 +348,7 @@ def is_iterator_like(line: str) -> bool:
 def is_allowed_auto(
     line: str, source: str | None = None, offset: int = 0, *, auto_ok: bool = False
 ) -> bool:
+    line = declaration_code(line)
     stripped = line.strip()
     if auto_ok:
         return True

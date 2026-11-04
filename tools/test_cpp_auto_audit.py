@@ -211,6 +211,119 @@ class AutoAuditTests(unittest.TestCase):
             "offset.cpp:4: auto value =\n",
         )
 
+    def test_scalar_reference_and_pointer_declarations_require_types(self):
+        declarations = [
+            "auto&& value = 42;",
+            "auto** value = pointers;",
+            "auto*** value = &pointers;",
+            "const auto&& value = 42;",
+            "[[maybe_unused]] auto value = 42;",
+            "alignas(8) auto value = 42;",
+            "alignas(alignof(int)) auto value = 42;",
+            "alignas(alignof(int) == 4 ? 8 : 16) auto value = [] { return 42; }();",
+            "auto ((value)) = 42;",
+            "auto (value) = [] { return 42; }();",
+            "thread_local auto value = 42;",
+            "static constinit auto value = 42;",
+            "extern auto value = 42;",
+            "auto extern value = 42;",
+            "inline auto value = 42;",
+            "auto*& value = pointer;",
+            "auto* const* value = pointers;",
+            "auto const* const* value = pointers;",
+            "auto volatile* value = pointer;",
+            "auto&& value = [] { return 42; }();",
+            "auto** value = [] { return pointers; }();",
+        ]
+        for declaration in declarations:
+            with self.subTest(declaration=declaration):
+                (self.root / "prefix.cpp").write_text(declaration + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("prefix.cpp:1", result.stderr)
+
+    def test_reference_and_pointer_exceptions_remain_allowed(self):
+        declarations = [
+            "auto&& fn = [] { return 42; };",
+            "auto const& fn = [] { return 42; };",
+            "[[maybe_unused]] auto&& fn = [] { return 42; };",
+            "alignas(8) auto fn = [] { return 42; };",
+            "alignas(alignof(int) == 4 ? 8 : 16) auto fn = [] { return 42; };",
+            "static constinit auto fn = [] { return 42; };",
+            "thread_local auto fn = [] { return 42; };",
+            "auto constinit static fn = [] { return 42; };",
+            "auto extern fn = [] { return 42; };",
+            "auto inline fn = [] { return 42; };",
+            "extern auto fn = [] { return 42; };",
+            "inline auto fn = [] { return 42; };",
+            "auto&& [a, b] = pair;",
+            "auto const& [a, b] = pair;",
+            "auto&& it = values.begin();",
+            "auto* it = std::begin(pair);",
+            "auto* const it = std::begin(pair);",
+            "auto** it = std::begin(pointer_array);",
+            "auto* volatile it = std::begin(pair);",
+            "auto&& it = table.find(0);",
+            "auto static it = table.find(0);",
+            "auto thread_local it = table.find(0);",
+            "auto const& it = table.find(0);",
+            "auto (it) = table.find(0);",
+            "auto ((it)) = table.find(0);",
+        ]
+        for declaration in declarations:
+            with self.subTest(declaration=declaration):
+                (self.root / "prefix.cpp").write_text(declaration + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_generic_parameters_are_not_local_declarations(self):
+        sources = [
+            "auto fn = [](\n    auto&& end) { return end; };",
+            "auto fn = [](\n    auto const& end,\n    auto&& other) { return end; };",
+            "auto fn = [](\n    auto&& end [[maybe_unused]]) { return end; };",
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                (self.root / "generic.cpp").write_text(source + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_qualified_find_names_still_need_iterator_intent(self):
+        for declaration in [
+            "auto&& position = table.find(0);",
+            "auto const& position = table.find(0);",
+        ]:
+            with self.subTest(declaration=declaration):
+                (self.root / "prefix.cpp").write_text(declaration + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("prefix.cpp:1", result.stderr)
+
+    def test_stray_quotes_in_skipped_text_do_not_hide_declarations(self):
+        for message in ["this isn't code", '"unfinished message', "#error compiler's diagnostic"]:
+            source = (
+                "#if 0\n" + message + "\n#endif\nauto value = 42;\n"
+                "char marker = 'x';\nconst char* text = \"ok\";\n"
+            )
+            (self.root / "quotes.cpp").write_text(source)
+            result = self.audit()
+            self.assertEqual(result.returncode, 1, result.stdout)
+            self.assertEqual(
+                result.stderr,
+                "cpp_auto_audit: disallowed local auto usage found\n"
+                "quotes.cpp:4: auto value = 42;\n",
+            )
+
+    def test_escaped_literal_continuations_remain_literals(self):
+        source = (
+            'const char* text = "\\\nauto ignored = 42;";\n'
+            "char letter = '\\\nX';\n"
+            'auto fn = [] { return 42; };\n'
+        )
+        (self.root / "quotes.cpp").write_text(source)
+        result = self.audit()
+        self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_allowlist_regeneration_is_idempotent(self):
         (self.root / "value.cpp").write_text("auto value = 42;\n")
         self.assertEqual(self.audit("--write-allowlist").returncode, 0)
