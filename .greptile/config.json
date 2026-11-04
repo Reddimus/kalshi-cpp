@@ -7,7 +7,9 @@
     "style"
   ],
   "autoReview": [
-    "open"
+    "open",
+    "push",
+    "rebase"
   ],
   "statusCheck": true,
   "shouldUpdateDescription": false,
