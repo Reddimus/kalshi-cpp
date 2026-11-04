@@ -5,7 +5,7 @@ Policy:
 - allow ``auto`` for structured bindings
 - allow ``auto`` for lambda closure objects
 - allow ``auto`` for iterator-like values
-- allow explicit one-off exceptions marked with ``auto-ok``
+- allow explicit one-off comments marked with ``auto-ok``
 
 Everything else is expected to spell out the type directly. The optional
 allowlist takes one rule per line:
@@ -28,13 +28,21 @@ import re
 CPP_SUFFIXES = {".cpp", ".hpp", ".cc", ".cxx", ".hh", ".hxx"}
 DEFAULT_ALLOWLIST = "tools/cpp_auto_allowlist.txt"
 WORD_AUTO = re.compile(r"\bauto\b")
-STRUCTURED_BINDING = re.compile(r"\bauto(?:\s*[\*&])?\s*\[")
+DECL_SPECIFIERS = {
+    "const", "constexpr", "static", "volatile", "mutable",
+    "constinit", "thread_local", "extern", "inline",
+}
+DECL_SPECIFIER = "(?:" + "|".join(sorted(DECL_SPECIFIERS)) + ")"
+AUTO_DECLARATOR = rf"\bauto\b(?:\s*(?:[\*&]|{DECL_SPECIFIER}\b))*\s*"
+STRUCTURED_BINDING = re.compile(AUTO_DECLARATOR + r"\[")
 DECLARATION_AUTO = re.compile(
-    r"^\s*(?:}\s*)?(?:(?:else\s+)?if(?:\s+constexpr)?\s*\(\s*|(?:for|while|switch)\s*\(\s*)?(?:const\s+|constexpr\s+|static\s+|volatile\s+|mutable\s+)*"
-    r"auto(?:\s*[\*&])?\s*(?:\w+|\[)"
+    r"^\s*(?:}\s*)?(?:(?:else\s+)?if(?:\s+constexpr)?\s*\(\s*|(?:for|while|switch)\s*\(\s*)?"
+    + rf"(?:{DECL_SPECIFIER}\s+)*"
+    + AUTO_DECLARATOR
+    + rf"(?:(?!{DECL_SPECIFIER}\b)\w+\b(?!\s*[,)])|\[)"
 )
 
-ITERATOR_NAME = re.compile(r"\bauto\s*&?\s*(?:\w+_)?(?:it|iter|iterator)\b")
+ITERATOR_NAME = re.compile(AUTO_DECLARATOR + r"(?:\w+_)?(?:it|iter|iterator)\b")
 
 ITERATOR_HINTS = (
     ".begin(",
@@ -115,20 +123,217 @@ def read_allowlist(path: Path) -> list[AllowRule]:
     return rules
 
 
-def is_lambda_closure(line: str) -> bool:
-    initializer = line.partition("=")[2].lstrip()
-    if not initializer.startswith("["):
+# Skip literals and comments before inspecting C++ delimiters. Keep numbers
+# together so digit separators cannot be mistaken for character literals.
+CPP_TOKEN = re.compile(
+    r'(?P<skip>(?:u8|u|U|L)?R"(?P<raw>[^\s()\\]{0,16})\(.*?\)(?P=raw)"'
+    r'|"(?:\\.|[^"\\\r\n])*"|\b\d[\w\'.]*|\'(?:\\.|[^\'\\\r\n])*\''
+    r'|/\*.*?\*/|//[^\n]*)|[A-Za-z_]\w*|<<|[^\s]',
+    re.DOTALL,
+)
+
+
+def declaration_code(line: str) -> str:
+    """Hide declaration groups while preserving initializer character offsets."""
+    tokens = list(CPP_TOKEN.finditer(line))
+    code = list(line)
+
+    def hide_group(start: int, opener: str, closer: str) -> int:
+        depth = 0
+        for end in range(start, len(tokens)):
+            text = tokens[end][0]
+            if text == opener:
+                depth += 1
+            elif text == closer:
+                depth -= 1
+                if depth == 0:
+                    code[tokens[start].start():tokens[end].end()] = " " * (
+                        tokens[end].end() - tokens[start].start()
+                    )
+                    return end + 1
+        return len(tokens)
+
+    index = 0
+    while index < len(tokens):
+        text = tokens[index][0]
+        if text == "[" and index + 1 < len(tokens) and tokens[index + 1][0] == "[":
+            index = hide_group(index, "[", "]")
+        elif text == "alignas" and index + 1 < len(tokens) and tokens[index + 1][0] == "(":
+            code[tokens[index].start():tokens[index].end()] = " " * len(text)
+            index = hide_group(index + 1, "(", ")")
+        elif text == "auto":
+            index += 1
+            break
+        else:
+            index += 1
+    parentheses = 0
+    while index < len(tokens):
+        text = tokens[index][0]
+        if text in {"*", "&"} or text in DECL_SPECIFIERS:
+            index += 1
+        elif text == "(":
+            code[tokens[index].start()] = " "
+            parentheses += 1
+            index += 1
+        else:
+            break
+    if index < len(tokens) and re.fullmatch(r"[A-Za-z_]\w*", tokens[index][0]):
+        index += 1
+        while index < len(tokens) and tokens[index][0] == ")" and parentheses:
+            code[tokens[index].start()] = " "
+            parentheses -= 1
+            index += 1
+        while index + 1 < len(tokens) and tokens[index][0] == tokens[index + 1][0] == "[":
+            index = hide_group(index, "[", "]")
+    return "".join(code)
+
+
+def lexical_context(source: str) -> tuple[str, set[int]]:
+    """Mask literals/comments without moving code, and locate comment opt-outs."""
+    pieces: list[str] = []
+    opt_out_lines: set[int] = set()
+    position = 0
+    line_number = 1
+    for token in CPP_TOKEN.finditer(source):
+        gap = source[position:token.start()]
+        pieces.append(gap)
+        line_number += gap.count("\n")
+        text = token[0]
+        if token.lastgroup == "skip":
+            if text.startswith(("//", "/*")):
+                for number, comment_line in enumerate(text.split("\n"), start=line_number):
+                    if "auto-ok" in comment_line:
+                        opt_out_lines.add(number)
+            pieces.append(re.sub(r"[^\n\r]", " ", text))
+        else:
+            pieces.append(text)
+        line_number += text.count("\n")
+        position = token.end()
+    pieces.append(source[position:])
+    return "".join(pieces), opt_out_lines
+
+
+def direct_iterator_return(body: list[str], declaration: str) -> bool:
+    # Recognize a single returned iterator call, not incidental calls elsewhere
+    # in a body or an iterator comparison whose result is a bool.
+    if not body or body[0] != "return" or body[-1] != ";":
         return False
-    # Captures can contain subscripts, strings and nested lambdas.
-    tokens = re.finditer('(?:u8|u|U|L)?R"(?P<raw>[^\\s()\\\\]{0,16})\\(.*?\\)(?P=raw)"|"(?:\\\\.|[^"\\\\])*"|\\b\\d[\\w\'.]*|\'(?:\\\\.|[^\'\\\\])*\'|/\\*.*?\\*/|//.*|\\[|\\]', initializer)
-    depth = 0
+    expression = body[1:-1]
+
+    def closing_paren(tokens: list[str], start: int) -> int | None:
+        depth = 0
+        for index in range(start, len(tokens)):
+            if tokens[index] == "(":
+                depth += 1
+            elif tokens[index] == ")":
+                depth -= 1
+                if depth == 0:
+                    return index
+        return None
+
+    while (
+        expression
+        and expression[0] == "("
+        and closing_paren(expression, 0) == len(expression) - 1
+    ):
+        expression = expression[1:-1]
+    if "(" not in expression:
+        return False
+    opening = expression.index("(")
+    callee = "".join(expression[:opening])
+    if not re.fullmatch(r"(?:[A-Za-z_]\w*(?:::|\.|->))*[A-Za-z_]\w*", callee):
+        return False
+    return (
+        closing_paren(expression, opening) == len(expression) - 1
+        and is_iterator_like(f"{declaration} = {callee}(")
+    )
+
+
+def lambda_initializer_allowed(
+    line: str, source: str | None = None, offset: int = 0
+) -> bool | None:
+    """Return None for another initializer, otherwise apply lambda/iterator rules."""
+    equals = line.find("=")
+    if equals < 0:
+        return None
+    tokens = (
+        token[0]
+        for token in CPP_TOKEN.finditer(source if source is not None else line, offset + equals + 1)
+        if token.lastgroup != "skip"
+    )
+    first = next(tokens, None)
+    parentheses = 0
+    while first == "(":
+        parentheses += 1
+        first = next(tokens, None)
+    if first != "[":
+        return None
+
+    pairs = {"[": "]", "(": ")", "{": "}"}
+
+    def consume_group(opener: str, contents: list[str] | None = None) -> bool:
+        stack = [">" if opener == "<" else pairs[opener]]
+        for token in tokens:
+            if token in pairs:
+                stack.append(pairs[token])
+            elif token == "<" and stack[-1] == ">":
+                stack.append(">")
+            elif token == ">" and stack[-1] == ">":
+                stack.pop()
+                if not stack:
+                    return True
+            elif token in pairs.values():
+                if token != stack.pop():
+                    return False
+                if not stack:
+                    return True
+            if contents is not None:
+                contents.append(token)
+        return False
+
+    if not consume_group("["):
+        return False
+    # Parameter lists, attributes and noexcept/decltype expressions may contain
+    # braces. The closure body starts at the next ungrouped opening brace.
+    first_header_token = True
+    requires_expression = False
+    previous = None
     for token in tokens:
-        if token[0] == "[":
-            depth += 1
-        elif token[0] == "]":
-            depth -= 1
-            if depth == 0:
-                return re.match(r"\s*(?:\(|\{|<|\[\[|static\b|constexpr\b|consteval\b|mutable\b|noexcept\b|->|$)", initializer[token.end():]) is not None
+        if token == "requires" and previous in {"requires", "&", "|", "!", "?", ":"}:
+            requires_expression = True
+        if token == "{":
+            if requires_expression:
+                if not consume_group("{"):
+                    return False
+                requires_expression = False
+                previous = token
+                continue
+            body: list[str] = []
+            if not consume_group("{", body):
+                return False
+            following = next(tokens, None)
+            invoked = False
+            while True:
+                if following == ")" and parentheses:
+                    parentheses -= 1
+                    following = next(tokens, None)
+                elif following == "(" and not invoked:
+                    if not consume_group("("):
+                        return False
+                    invoked = True
+                    following = next(tokens, None)
+                else:
+                    break
+            if parentheses or following not in {None, ";", ",", ")", "}"}:
+                return False
+            return not invoked or direct_iterator_return(body, line.partition("=")[0])
+        if token in {"(", "["} or (first_header_token and token == "<"):
+            if not consume_group(token):
+                return False
+        elif token in {";", "}", "]", ")"}:
+            return False
+        first_header_token = False
+        previous = token
     return False
 
 
@@ -140,16 +345,20 @@ def is_iterator_like(line: str) -> bool:
     return any(hint in line for hint in ITERATOR_HINTS)
 
 
-def is_allowed_auto(line: str) -> bool:
+def is_allowed_auto(
+    line: str, source: str | None = None, offset: int = 0, *, auto_ok: bool = False
+) -> bool:
+    line = declaration_code(line)
     stripped = line.strip()
-    if "auto-ok" in stripped:
+    if auto_ok:
         return True
     if not DECLARATION_AUTO.search(stripped):
         return True
-    if STRUCTURED_BINDING.search(stripped):
+    if STRUCTURED_BINDING.search(stripped.partition("=")[0]):
         return True
-    if is_lambda_closure(stripped):
-        return True
+    lambda_allowed = lambda_initializer_allowed(line, source, offset)
+    if lambda_allowed is not None:
+        return lambda_allowed
     if is_iterator_like(stripped):
         return True
     return False
@@ -167,10 +376,16 @@ def collect_violations(repo_root: Path, allowlist: list[AllowRule]) -> list[Viol
     violations: list[Violation] = []
     for path in tracked_cpp_files(repo_root):
         relative_path = path.relative_to(repo_root).as_posix()
-        for line_number, line in enumerate(path.read_text().splitlines(), start=1):
-            if not WORD_AUTO.search(line):
+        source = path.read_text()
+        code, opt_out_lines = lexical_context(source)
+        offset = 0
+        for line_number, line in enumerate(source.split("\n"), start=1):
+            line_offset = offset
+            offset += len(line) + 1
+            code_line = code[line_offset:line_offset + len(line)]
+            if not WORD_AUTO.search(code_line):
                 continue
-            if is_allowed_auto(line):
+            if is_allowed_auto(code_line, source, line_offset, auto_ok=line_number in opt_out_lines):
                 continue
             if matches_allowlist(relative_path, line, allowlist):
                 continue
