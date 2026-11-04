@@ -434,10 +434,12 @@ class WsGenerator:
                "Subscribe with `WebSocketClient::subscribe(ws::Channel::..., params)`; each message\n"
                "arrives in `on_message` as `ws::Update<T>`.\n\n"
                "Keep one `OrderbookDelta` handle per client. Use `add_markets` to extend it.\n"
-               "A second `subscribe` returns `InvalidRequest` until the server confirms\n"
-               "`Unsubscribed` or the client disconnects. This keeps every orderbook update\n"
-               "routed to the original handle. Set `update_interval_ms` to `V0`, `V100`, or\n"
-               "`V1000`, or omit it for the server default of zero milliseconds.\n\n",
+               "A second `subscribe` returns `InvalidRequest` while an orderbook handle remains\n"
+               "registered. Unsubscribing removes an unsent handle immediately; a rejected\n"
+               "subscribe also removes its handle. Otherwise, wait for `Unsubscribed` or\n"
+               "disconnect before replacing it. Updates are rejected while unsubscribe is\n"
+               "pending; if the server rejects unsubscribe, retry the update on the same handle.\n"
+               "Set `update_interval_ms` to `V0`, `V100`, or `V1000`, or omit it for zero milliseconds.\n\n",
                "| Channel | `ws::Channel` | Messages |\n| --- | --- | --- |\n"]
         from common import enumerator
         for channel in self.channels:

@@ -4,10 +4,12 @@
 #include "kalshi/api.hpp"
 
 #include <gtest/gtest.h>
+#include <memory>
 #include <string>
 #include <vector>
 
 #include "support.hpp"
+#include "support/recording_transport.hpp"
 #include "validate.hpp"
 
 namespace {
@@ -238,4 +240,40 @@ TEST(ApiSupport, ExitTriggerRequiresAtLeastOneLeg) {
 	request.stop_loss_price.reset();
 	request.take_profit_price = "0.80";
 	EXPECT_TRUE(kalshi::detail::validate(request));
+}
+
+TEST(ApiSupport, ValidExitTriggerUpdateUsesPutAndEncodesTicker) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const kalshi::Result<kalshi::EventContractExitTrigger> result =
+		client.set_event_contract_exit_trigger("A/B", {.stop_loss_price = "0.20"},
+											   {.subaccount = 1});
+	ASSERT_TRUE(result);
+	EXPECT_EQ(transport->calls, 1);
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::PUT);
+	EXPECT_EQ(transport->target, "/portfolio/positions/A%2FB/exit_trigger?subaccount=1");
+	EXPECT_EQ(transport->body, R"({"stop_loss_price":"0.20"})");
+}
+
+TEST(ApiSupport, ValidOrderWithExitTriggerUsesPost) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	kalshi::CreateOrderWithExitTriggerRequest request;
+	request.ticker = "A";
+	request.side = kalshi::BookSide::Bid;
+	request.count = "1.00";
+	request.price = "0.50";
+	request.time_in_force = kalshi::TimeInForce::GoodTillCanceled;
+	request.self_trade_prevention_type = kalshi::SelfTradePreventionType::TakerAtCross;
+	request.exit_trigger.stop_loss_price = "0.20";
+	const kalshi::Result<kalshi::CreateOrderV2Response> result =
+		client.create_order_with_exit_trigger(request);
+	ASSERT_TRUE(result);
+	EXPECT_EQ(transport->calls, 1);
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::POST);
+	EXPECT_EQ(transport->target, "/portfolio/events/orders/with_exit_trigger");
+	EXPECT_NE(transport->body.find(R"("exit_trigger":{"stop_loss_price":"0.20"})"),
+			  std::string::npos);
 }

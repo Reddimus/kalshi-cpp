@@ -424,3 +424,38 @@ TEST(WsSubscriptions, RejectedOrderbookSubscribeCanBeRetried) {
 	EXPECT_TRUE(registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "B"}, true, frames));
 	ASSERT_EQ(frames.size(), 1U);
 }
+
+TEST(WsSubscriptions, UpdatesRejectClosingHandlesAndCanRetryAfterUnsubscribeRejection) {
+	for (const bool acknowledged : {false, true}) {
+		SCOPED_TRACE(acknowledged);
+		SubscriptionRegistry registry;
+		std::vector<std::string> frames;
+		const kalshi::ws::Subscription book =
+			registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames)
+				.value();
+		if (acknowledged) {
+			registry.on_subscribed({2, "orderbook_delta", 9});
+		}
+		ASSERT_TRUE(registry.unsubscribe(book, frames));
+		frames.clear();
+		const kalshi::Result<void> update = registry.update(
+			book, {.market_ticker = "B", .action = kalshi::ws::UpdateAction::AddMarkets}, true,
+			frames);
+		ASSERT_FALSE(update);
+		EXPECT_EQ(update.error().code, kalshi::ErrorCode::InvalidRequest);
+		EXPECT_TRUE(frames.empty());
+		if (!acknowledged) {
+			const Reaction ack = registry.on_subscribed({2, "orderbook_delta", 9});
+			ASSERT_EQ(ack.frames.size(), 1U);
+		}
+		const Reaction failed = registry.on_error({3, 9, std::nullopt, 2, "invalid parameters"});
+		EXPECT_TRUE(failed.frames.empty());
+		ASSERT_TRUE(registry.update(
+			book, {.market_ticker = "B", .action = kalshi::ws::UpdateAction::AddMarkets}, true,
+			frames));
+		ASSERT_EQ(frames.size(), 1U);
+		EXPECT_EQ(
+			frames[0],
+			R"({"id":4,"cmd":"update_subscription","params":{"sids":[9],"market_ticker":"B","action":"add_markets"}})");
+	}
+}

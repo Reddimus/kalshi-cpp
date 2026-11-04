@@ -152,6 +152,10 @@ Result<void> SubscriptionRegistry::update(ws::Subscription subscription,
 	if (entry == nullptr) {
 		return std::unexpected(unknown_subscription(subscription));
 	}
+	if (entry->unsubscribe_held || entry->state == State::Unsubscribing) {
+		return std::unexpected(Error{
+			ErrorCode::InvalidRequest, "Subscription is awaiting unsubscribe confirmation", 0, {}});
+	}
 	switch (entry->state) {
 		case State::Unsent:
 			// No server subscription to change; the next subscribe carries it. A

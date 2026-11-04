@@ -19,7 +19,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Reject invalid update intervals and duplicate orderbook handles; use `add_markets` to extend a handle.
+- Reject invalid update intervals, duplicate orderbook handles, and updates during unsubscribe.
+  Use `add_markets` to extend an open handle.
 - Request fresh snapshots after invalid data in the orderbook example; reject exit triggers without a leg.
 
 - Follow `next_cursor` when collecting incentive-program pages and stop cursor cycles.

@@ -5,10 +5,12 @@ Subscribe with `WebSocketClient::subscribe(ws::Channel::..., params)`; each mess
 arrives in `on_message` as `ws::Update<T>`.
 
 Keep one `OrderbookDelta` handle per client. Use `add_markets` to extend it.
-A second `subscribe` returns `InvalidRequest` until the server confirms
-`Unsubscribed` or the client disconnects. This keeps every orderbook update
-routed to the original handle. Set `update_interval_ms` to `V0`, `V100`, or
-`V1000`, or omit it for the server default of zero milliseconds.
+A second `subscribe` returns `InvalidRequest` while an orderbook handle remains
+registered. Unsubscribing removes an unsent handle immediately; a rejected
+subscribe also removes its handle. Otherwise, wait for `Unsubscribed` or
+disconnect before replacing it. Updates are rejected while unsubscribe is
+pending; if the server rejects unsubscribe, retry the update on the same handle.
+Set `update_interval_ms` to `V0`, `V100`, or `V1000`, or omit it for zero milliseconds.
 
 | Channel | `ws::Channel` | Messages |
 | --- | --- | --- |
