@@ -56,9 +56,6 @@ inline ws::Channel parse_ws_channel(std::string_view text) noexcept {
 	if (text == "pyth_value") {
 		return ws::Channel::PythValue;
 	}
-	if (text == "batch_communications") {
-		return ws::Channel::BatchCommunications;
-	}
 	return ws::Channel::Unknown;
 }
 
@@ -297,6 +294,19 @@ inline ws::UpdateAction parse_ws_update_action(std::string_view text) noexcept {
 	return ws::UpdateAction::Unknown;
 }
 
+inline ws::UpdateIntervalMs parse_ws_update_interval_ms(std::int64_t text) noexcept {
+	if (text == 0) {
+		return ws::UpdateIntervalMs::V0;
+	}
+	if (text == 100) {
+		return ws::UpdateIntervalMs::V100;
+	}
+	if (text == 1000) {
+		return ws::UpdateIntervalMs::V1000;
+	}
+	return ws::UpdateIntervalMs::Unknown;
+}
+
 inline ws::UserFilter parse_ws_user_filter(std::string_view text) noexcept {
 	if (text.empty()) {
 		return ws::UserFilter::Unset;
@@ -317,6 +327,7 @@ struct SubscribeWire {
 	std::optional<bool> send_initial_snapshot;
 	std::optional<bool> skip_ticker_ack;
 	std::optional<bool> use_yes_price;
+	std::optional<ws::UpdateIntervalMs> update_interval_ms;
 	std::optional<ws::UserFilter> user_filter;
 	std::optional<std::int64_t> shard_factor;
 	std::optional<std::int64_t> shard_key;
@@ -338,6 +349,7 @@ inline SubscribeWire to_wire(std::vector<ws::Channel> channels, const ws::Subscr
 	wire.send_initial_snapshot = params.send_initial_snapshot;
 	wire.skip_ticker_ack = params.skip_ticker_ack;
 	wire.use_yes_price = params.use_yes_price;
+	wire.update_interval_ms = params.update_interval_ms;
 	wire.user_filter = params.user_filter;
 	wire.shard_factor = params.shard_factor;
 	wire.shard_key = params.shard_key;
@@ -509,7 +521,7 @@ template <>
 struct from<JSON, kalshi::ws::Channel> {
 	template <auto Opts>
 	static void op(kalshi::ws::Channel& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_ws_channel(text);
 	}
@@ -528,7 +540,7 @@ template <>
 struct from<JSON, kalshi::ws::CollateralReturnType> {
 	template <auto Opts>
 	static void op(kalshi::ws::CollateralReturnType& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_ws_collateral_return_type(text);
 	}
@@ -547,7 +559,7 @@ template <>
 struct from<JSON, kalshi::ws::FeeTypeOverride> {
 	template <auto Opts>
 	static void op(kalshi::ws::FeeTypeOverride& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_ws_fee_type_override(text);
 	}
@@ -566,7 +578,7 @@ template <>
 struct from<JSON, kalshi::ws::LastUpdateReason> {
 	template <auto Opts>
 	static void op(kalshi::ws::LastUpdateReason& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_ws_last_update_reason(text);
 	}
@@ -586,7 +598,7 @@ struct from<JSON, kalshi::ws::LifecyclePriceLevelStructure> {
 	template <auto Opts>
 	static void op(kalshi::ws::LifecyclePriceLevelStructure& value, auto&& ctx, auto&& it,
 				   auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_ws_lifecycle_price_level_structure(text);
 	}
@@ -607,7 +619,7 @@ struct from<JSON, kalshi::ws::MarketLifecycleV2EventType> {
 	template <auto Opts>
 	static void op(kalshi::ws::MarketLifecycleV2EventType& value, auto&& ctx, auto&& it,
 				   auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_ws_market_lifecycle_v2_event_type(text);
 	}
@@ -628,7 +640,7 @@ struct from<JSON, kalshi::ws::MultivariateMarketLifecycleEventType> {
 	template <auto Opts>
 	static void op(kalshi::ws::MultivariateMarketLifecycleEventType& value, auto&& ctx, auto&& it,
 				   auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_ws_multivariate_market_lifecycle_event_type(text);
 	}
@@ -648,7 +660,7 @@ template <>
 struct from<JSON, kalshi::ws::OrderAction> {
 	template <auto Opts>
 	static void op(kalshi::ws::OrderAction& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_ws_order_action(text);
 	}
@@ -668,7 +680,7 @@ struct from<JSON, kalshi::ws::OrderGroupUpdatesEventType> {
 	template <auto Opts>
 	static void op(kalshi::ws::OrderGroupUpdatesEventType& value, auto&& ctx, auto&& it,
 				   auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_ws_order_group_updates_event_type(text);
 	}
@@ -688,7 +700,7 @@ template <>
 struct from<JSON, kalshi::ws::UpdateAction> {
 	template <auto Opts>
 	static void op(kalshi::ws::UpdateAction& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_ws_update_action(text);
 	}
@@ -704,10 +716,29 @@ struct to<JSON, kalshi::ws::UpdateAction> {
 };
 
 template <>
+struct from<JSON, kalshi::ws::UpdateIntervalMs> {
+	template <auto Opts>
+	static void op(kalshi::ws::UpdateIntervalMs& value, auto&& ctx, auto&& it, auto&& end) {
+		std::int64_t text{};
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_ws_update_interval_ms(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::ws::UpdateIntervalMs> {
+	template <auto Opts>
+	static void op(const kalshi::ws::UpdateIntervalMs& value, auto&& ctx, auto&&... args) {
+		const std::int64_t text = static_cast<std::int64_t>(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
 struct from<JSON, kalshi::ws::UserFilter> {
 	template <auto Opts>
 	static void op(kalshi::ws::UserFilter& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_ws_user_filter(text);
 	}

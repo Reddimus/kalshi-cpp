@@ -67,6 +67,7 @@ class WsGenerator:
         self.rest_enums = rest_enums
         self.enums: dict[str, EnumType] = {}
         self.structs: dict[str, StructType] = {}
+        self.struct_schemas: dict[str, dict] = {}
         self.messages: list[DataMessage] = []
         self.channels: list[str] = []
         self.channel_docs: dict[str, str] = {}
@@ -212,9 +213,9 @@ class WsGenerator:
             raise SystemExit(f"{context}: type {kind!r} is not supported")
         return "std::string", "string", "", nullable
 
-    def enum_for(self, values: list[str], schema_name: str | None, context: str, prop: str, doc: str) -> str:
-        if not all(isinstance(v, str) for v in values):
-            raise SystemExit(f"{context}: only string enums are supported; found {values}")
+    def enum_for(self, values: list[str | int], schema_name: str | None, context: str, prop: str, doc: str) -> str:
+        if not (all(isinstance(v, str) for v in values) or all(type(v) is int and 0 <= v <= 9223372036854775807 for v in values)):
+            raise SystemExit(f"{context}: enums must contain strings or nonnegative int64 values; found {values}")
         known = frozenset(v for v in values if v != UNKNOWN_VALUE)
         # `context` is the owner plus the property (TradeTakerSide), so a generic
         # property such as `status` still gets a specific name.
@@ -253,9 +254,13 @@ class WsGenerator:
                       required=plain, base_kind=kind, element=element)
 
     def struct_for(self, name: str, schema: dict, doc: str | None = None) -> StructType:
-        if name in self.structs:
-            return self.structs[name]
         _, schema = self.resolve(schema, name)
+        if name in self.structs:
+            shape = lambda value: {k: v for k, v in value.items() if k not in PARAM_NOTES}
+            if shape(self.struct_schemas.get(name, {})) != shape(schema):
+                raise SystemExit(f"{name}: different schemas share a struct name")
+            return self.structs[name]
+        self.struct_schemas[name] = schema
         check_schema(schema, name, max_all_of=0)
         if schema.get("additionalProperties", False) is not False and schema.get("properties"):
             raise SystemExit(f"{name}: properties with additionalProperties are not supported; "
@@ -283,8 +288,12 @@ class WsGenerator:
             for key, prop in schema["properties"].items():
                 if key in skip:
                     continue
-                if key in props and "enum" in prop:  # e.g. every update_subscription action
-                    merged = props[key].get("enum", []) + [v for v in prop["enum"] if v not in props[key].get("enum", [])]
+                if key in props and "enum" in prop and "enum" in props[key]:
+                    shape = {k: v for k, v in prop.items() if k not in PARAM_NOTES | {"enum"}}
+                    previous = {k: v for k, v in props[key].items() if k not in PARAM_NOTES | {"enum"}}
+                    if shape != previous:
+                        raise SystemExit(f"{name}.{key} has different schemas across commands")
+                    merged = props[key]["enum"] + [v for v in prop["enum"] if v not in props[key]["enum"]]
                     props[key] = dict(props[key], enum=merged)
                 elif key in props:
                     shape = {k: v for k, v in prop.items() if k not in PARAM_NOTES}
@@ -423,7 +432,16 @@ class WsGenerator:
         out = ["# WebSocket channels\n\n",
                f"Covers Kalshi's AsyncAPI {version} document (`spec/asyncapi.yaml`).\n",
                "Subscribe with `WebSocketClient::subscribe(ws::Channel::..., params)`; each message\n"
-               "arrives in `on_message` as `ws::Update<T>`.\n\n",
+               "arrives in `on_message` as `ws::Update<T>`.\n\n"
+               "Keep one `OrderbookDelta` handle per client. Use `add_markets` to extend it.\n"
+               "A second `subscribe` returns `InvalidRequest` while an orderbook handle remains\n"
+               "registered. Unsubscribing removes an unsent handle immediately; a rejected\n"
+               "subscribe also removes its handle. Otherwise, wait for `Unsubscribed` or\n"
+               "disconnect before replacing it. Updates are rejected while unsubscribe is\n"
+               "pending; if the server rejects unsubscribe, retry the update on the same handle.\n"
+               "Terminal channel errors 10 and 25 also remove the handle; subscribe again\n"
+               "from `on_error` when ready to resume.\n"
+               "Set `update_interval_ms` to `V0`, `V100`, or `V1000`, or omit it for zero milliseconds.\n\n",
                "| Channel | `ws::Channel` | Messages |\n| --- | --- | --- |\n"]
         from common import enumerator
         for channel in self.channels:

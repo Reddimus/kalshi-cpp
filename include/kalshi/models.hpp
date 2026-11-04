@@ -125,6 +125,28 @@ enum class BookSide : std::uint8_t {
 	return "";
 }
 
+/// Credit processing status.
+enum class CreditHistoryStatus : std::uint8_t {
+	Unknown, ///< `unknown`, or a value this SDK version does not know.
+	Pending, ///< `pending`
+	Failed,	 ///< `failed`
+	Applied, ///< `applied`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(CreditHistoryStatus value) noexcept {
+	switch (value) {
+		case CreditHistoryStatus::Pending:
+			return "pending";
+		case CreditHistoryStatus::Failed:
+			return "failed";
+		case CreditHistoryStatus::Applied:
+			return "applied";
+		case CreditHistoryStatus::Unknown:
+			return "unknown";
+	}
+	return "";
+}
+
 /// Current status of the deposit.
 enum class DepositStatus : std::uint8_t {
 	Unknown,  ///< A value this SDK version does not know.
@@ -174,6 +196,33 @@ enum class DepositType : std::uint8_t {
 			return "apm";
 		case DepositType::Unknown:
 			break;
+	}
+	return "";
+}
+
+enum class EventContractExitTriggerStatus : std::uint8_t {
+	Unknown,		///< `unknown`, or a value this SDK version does not know.
+	PendingOnEntry, ///< `pending_on_entry`
+	Active,			///< `active`
+	Filled,			///< `filled`
+	Canceled,		///< `canceled`
+	Failed,			///< `failed`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(EventContractExitTriggerStatus value) noexcept {
+	switch (value) {
+		case EventContractExitTriggerStatus::PendingOnEntry:
+			return "pending_on_entry";
+		case EventContractExitTriggerStatus::Active:
+			return "active";
+		case EventContractExitTriggerStatus::Filled:
+			return "filled";
+		case EventContractExitTriggerStatus::Canceled:
+			return "canceled";
+		case EventContractExitTriggerStatus::Failed:
+			return "failed";
+		case EventContractExitTriggerStatus::Unknown:
+			return "unknown";
 	}
 	return "";
 }
@@ -429,6 +478,43 @@ to_string(IntraExchangeInstanceTransferStatus value) noexcept {
 		case IntraExchangeInstanceTransferStatus::Complete:
 			return "complete";
 		case IntraExchangeInstanceTransferStatus::Unknown:
+			break;
+	}
+	return "";
+}
+
+enum class Kind : std::uint8_t {
+	Unknown, ///< A value this SDK version does not know.
+	Bracket, ///< `bracket`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(Kind value) noexcept {
+	switch (value) {
+		case Kind::Bracket:
+			return "bracket";
+		case Kind::Unknown:
+			break;
+	}
+	return "";
+}
+
+/// `open`: in session with a current value.
+enum class MarketIndexStatus : std::uint8_t {
+	Unknown, ///< A value this SDK version does not know.
+	Open,	 ///< `open`
+	Closed,	 ///< `closed`
+	Stale,	 ///< `stale`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(MarketIndexStatus value) noexcept {
+	switch (value) {
+		case MarketIndexStatus::Open:
+			return "open";
+		case MarketIndexStatus::Closed:
+			return "closed";
+		case MarketIndexStatus::Stale:
+			return "stale";
+		case MarketIndexStatus::Unknown:
 			break;
 	}
 	return "";
@@ -778,7 +864,6 @@ enum class SettlementStatus : std::uint8_t {
 	return "";
 }
 
-/// Deprecated.
 enum class Side : std::uint8_t {
 	Unknown, ///< A value this SDK version does not know.
 	Yes,	 ///< `yes`
@@ -851,6 +936,42 @@ enum class TimeInForce : std::uint8_t {
 		case TimeInForce::ImmediateOrCancel:
 			return "immediate_or_cancel";
 		case TimeInForce::Unknown:
+			break;
+	}
+	return "";
+}
+
+enum class TriggeredLeg : std::uint8_t {
+	Unknown,	///< A value this SDK version does not know.
+	StopLoss,	///< `stop_loss`
+	TakeProfit, ///< `take_profit`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(TriggeredLeg value) noexcept {
+	switch (value) {
+		case TriggeredLeg::StopLoss:
+			return "stop_loss";
+		case TriggeredLeg::TakeProfit:
+			return "take_profit";
+		case TriggeredLeg::Unknown:
+			break;
+	}
+	return "";
+}
+
+enum class Unit : std::uint8_t {
+	Unknown, ///< A value this SDK version does not know.
+	Bps,	 ///< `bps`
+	Cents,	 ///< `cents`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(Unit value) noexcept {
+	switch (value) {
+		case Unit::Bps:
+			return "bps";
+		case Unit::Cents:
+			return "cents";
+		case Unit::Unknown:
 			break;
 	}
 	return "";
@@ -1165,6 +1286,20 @@ struct AssociatedEvent {
 	std::optional<std::int64_t> size_min;
 	/// List of active quoters for this event.
 	std::vector<std::string> active_quoters;
+};
+
+/// Execution allowance below the trigger price, shared by TP and SL.
+struct EventContractExitSlippage {
+	Unit unit{};
+	std::int64_t value{};
+};
+
+/// Prices are YES prices, like the order's `price`, so for an ask the stop loss is above the
+/// entry price and the take profit is below it.
+struct AttachedEventContractExitTrigger {
+	std::optional<EventContractExitSlippage> slippage;
+	std::optional<FixedPointDollars> stop_loss_price;
+	std::optional<FixedPointDollars> take_profit_price;
 };
 
 struct ErrorResponse {
@@ -1607,7 +1742,7 @@ struct Market {
 	std::optional<std::string> subtitle;
 	/// Shortened title for the yes side of this market
 	std::string yes_sub_title;
-	/// Shortened title for the no side of this market
+	/// Deprecated.
 	std::string no_sub_title;
 	std::string created_time;
 	/// Time of the last non-trading metadata update.
@@ -1747,6 +1882,34 @@ struct CreateOrderV2Response {
 	std::int64_t ts_ms{};
 };
 
+struct CreateOrderWithExitTriggerRequest {
+	std::string ticker;
+	std::optional<std::string> client_order_id;
+	BookSide side{};
+	/// String representation of the order quantity in contracts.
+	FixedPointCount count;
+	/// Price for the order in fixed-point dollars.
+	FixedPointDollars price;
+	/// Optional Unix timestamp in seconds for when the order expires.
+	std::optional<std::int64_t> expiration_time;
+	/// Specifies how long the order remains active.
+	TimeInForce time_in_force{};
+	std::optional<bool> post_only;
+	SelfTradePreventionType self_trade_prevention_type{};
+	/// If this flag is set to true, the order will be canceled if the order is open and trading on
+	/// the exchange is paused for any reason.
+	std::optional<bool> cancel_order_on_pause;
+	/// Specifies whether the order place count should be capped by the member's current position.
+	std::optional<bool> reduce_only;
+	/// The subaccount number to use for this order.
+	std::optional<std::int64_t> subaccount;
+	/// The order group this order is part of
+	std::optional<std::string> order_group_id;
+	/// Exchange shard index.
+	std::optional<ExchangeIndex> exchange_index;
+	AttachedEventContractExitTrigger exit_trigger;
+};
+
 struct CreateQuoteRequest {
 	/// The UUID of the RFQ to quote on.
 	std::string rfq_id;
@@ -1870,6 +2033,8 @@ struct RFQ {
 	std::optional<std::string> cancelled_ts;
 	/// Timestamp when the RFQ was last updated
 	std::optional<std::string> updated_ts;
+	/// Identifier of the RFQ batch this RFQ is a child of.
+	std::optional<std::string> rfq_batch_id;
 };
 
 struct RFQBatch {
@@ -1946,6 +2111,21 @@ struct CreateSubaccountResponse {
 	std::int64_t subaccount_number{};
 };
 
+struct CreditHistory {
+	/// Unique credit identifier.
+	std::string credit_id;
+	/// Credit category.
+	std::string type;
+	/// Credit processing status.
+	CreditHistoryStatus status{};
+	/// Credit amount in dollars.
+	FixedPointDollars amount_dollars;
+	/// Credit description, which may include a market or event ticker.
+	std::string reason;
+	/// Time the credit was created.
+	std::string created_time;
+};
+
 struct DailySchedule {
 	/// Opening time in ET (Eastern Time) format HH:MM.
 	std::string open_time;
@@ -1977,6 +2157,13 @@ struct DecreaseOrderV2Response {
 	FixedPointCount remaining_count;
 	/// Matching engine timestamp at which the decrease was processed, as Unix epoch milliseconds.
 	std::int64_t ts_ms{};
+};
+
+/// Query parameters for `delete_event_contract_exit_trigger`.
+struct DeleteEventContractExitTriggerParams {
+	/// Subaccount number (0 for primary, 1-63 for subaccounts).
+	std::optional<std::int64_t> subaccount;
+	std::optional<Kind> kind;
 };
 
 /// Query parameters for `delete_fcm_event_contract_daily_cap`.
@@ -2017,6 +2204,24 @@ struct EndpointTokenCost {
 	std::string path;
 	/// Configured token cost for an endpoint whose cost differs from the default cost.
 	std::int64_t cost{};
+};
+
+/// `side` is the outcome the position holds.
+struct EventContractExitTrigger {
+	std::optional<EventContractExitSlippage> slippage;
+	std::string id;
+	std::string ticker;
+	Side side{};
+	std::int64_t subaccount_number{};
+	Kind kind{};
+	std::optional<FixedPointDollars> stop_loss_price;
+	std::optional<FixedPointDollars> take_profit_price;
+	EventContractExitTriggerStatus status{};
+	std::optional<std::string> status_reason;
+	std::optional<std::string> triggered_order_id;
+	std::optional<TriggeredLeg> triggered_leg;
+	std::string created_time;
+	std::string updated_time;
 };
 
 struct SettlementSource {
@@ -2348,6 +2553,24 @@ struct GetCommunicationsIDResponse {
 	std::string communications_id;
 };
 
+/// Query parameters for `get_credit_history`.
+struct GetCreditHistoryParams {
+	/// Number of results per page.
+	std::optional<std::int64_t> limit;
+	/// Pagination cursor.
+	std::optional<std::string> cursor;
+	/// Filter items after this Unix timestamp
+	std::optional<std::int64_t> min_ts;
+	/// Filter items before this Unix timestamp
+	std::optional<std::int64_t> max_ts;
+};
+
+struct GetCreditHistoryResponse {
+	std::vector<CreditHistory> credits;
+	/// Pagination cursor; empty when there are no more results.
+	std::string cursor;
+};
+
 /// Query parameters for `get_deposits`.
 struct GetDepositsParams {
 	/// Number of results per page.
@@ -2369,6 +2592,18 @@ struct GetEventCandlesticksResponse {
 	/// Adjusted end timestamp if the requested candlesticks would be larger than
 	/// maxAggregateCandidates.
 	std::int64_t adjusted_end_ts{};
+};
+
+/// Query parameters for `get_event_contract_exit_triggers`.
+struct GetEventContractExitTriggersParams {
+	/// Subaccount number (0 for primary, 1-63 for subaccounts).
+	std::optional<std::int64_t> subaccount;
+	std::optional<Kind> kind;
+};
+
+struct GetEventContractExitTriggersResponse {
+	std::optional<EventContractExitTrigger> exit_trigger;
+	std::vector<EventContractExitTrigger> exit_triggers;
 };
 
 /// Query parameters for `get_event_fee_changes`.
@@ -2968,6 +3203,98 @@ struct GetMarketCandlesticksResponse {
 	std::vector<MarketCandlestick> candlesticks;
 };
 
+struct MarketIndexTimeseriesPoint {
+	/// Unix milliseconds.
+	std::int64_t t{};
+	/// Index value.
+	double v{};
+};
+
+struct GetMarketIndexHistoryResponse {
+	/// Market index ID.
+	std::string id;
+	/// Data source of `timeseries`.
+	std::string source;
+	MarketIndexStatus status{};
+	/// Time of the index's latest value, unix milliseconds.
+	std::optional<std::int64_t> last_tick_ms;
+	/// Point spacing of `timeseries` (`1s` or `1m`).
+	std::string interval;
+	/// Window start, unix milliseconds.
+	std::int64_t start_ms{};
+	/// Window end, unix milliseconds.
+	std::int64_t end_ms{};
+	std::vector<MarketIndexTimeseriesPoint> timeseries;
+};
+
+/// The index's regular publication session.
+struct MarketIndexSession {
+	/// IANA time zone of `open` and `close`, e.g.
+	std::string timezone;
+	/// Session open, `HH:MM` local time.
+	std::string open;
+	/// Session close, `HH:MM` local time.
+	std::string close;
+	/// Weekdays the session runs, e.g.
+	std::vector<std::string> days;
+	/// Holiday calendar applied on top of `days`: `us_equity` (US stock market holidays and 1:00
+	/// PM early closes).
+	std::optional<std::string> calendar;
+};
+
+struct MarketIndexLatest {
+	/// Data source of the value, e.g.
+	std::string source;
+	MarketIndexStatus status{};
+	/// Latest index value.
+	std::optional<double> value;
+	/// Time of `value`, unix milliseconds.
+	std::optional<std::int64_t> last_tick_ms;
+};
+
+struct MarketIndex {
+	/// Stable index ID, e.g.
+	std::string id;
+	/// Index name, e.g.
+	std::string name;
+	/// Index family, e.g.
+	std::string family;
+	/// GICS sector code, for sector indexes only.
+	std::optional<std::string> gics_code;
+	/// GICS sector name, for sector indexes only.
+	std::optional<std::string> sector;
+	/// ISO 4217 currency of the index, e.g.
+	std::string currency;
+	/// Unit of index values; always `index_points`.
+	std::string units;
+	MarketIndexSession session;
+	/// False while the index has no data source; such an index serves no values.
+	bool available{};
+	std::optional<MarketIndexLatest> latest;
+};
+
+struct GetMarketIndexResponse {
+	MarketIndex index;
+	/// Data source of `timeseries`.
+	std::string source;
+	MarketIndexStatus status{};
+	/// Latest index value.
+	std::optional<double> value;
+	/// Time of `value`, unix milliseconds.
+	std::optional<std::int64_t> last_tick_ms;
+	/// Point spacing of `timeseries` (`1m`).
+	std::string interval;
+	/// Window start, unix milliseconds.
+	std::int64_t start_ms{};
+	/// Window end, unix milliseconds.
+	std::int64_t end_ms{};
+	std::vector<MarketIndexTimeseriesPoint> timeseries;
+};
+
+struct GetMarketIndexesResponse {
+	std::vector<MarketIndex> indexes;
+};
+
 /// Query parameters for `get_market_orderbook`.
 struct GetMarketOrderbookParams {
 	/// Depth of the orderbook to retrieve (0 or negative means all levels, 1-100 for specific
@@ -3312,6 +3639,8 @@ struct MarketPosition {
 	FixedPointDollars fees_paid_dollars;
 	/// Last time the position is updated
 	std::string last_updated_ts;
+	/// Whether netting applies to this position's event.
+	bool netting_enabled{};
 };
 
 struct GetPositionsResponse {
@@ -4015,6 +4344,20 @@ struct ResetOrderGroupParams {
 	std::optional<std::int64_t> subaccount;
 	/// Identifier for an exchange shard.
 	std::optional<ExchangeIndex> exchange_index;
+};
+
+/// Query parameters for `set_event_contract_exit_trigger`.
+struct SetEventContractExitTriggerParams {
+	/// Subaccount number (0 for primary, 1-63 for subaccounts).
+	std::optional<std::int64_t> subaccount;
+};
+
+/// Replaces both legs, so a leg you omit is cleared.
+struct SetEventContractExitTriggerRequest {
+	std::optional<EventContractExitSlippage> slippage;
+	std::optional<Kind> kind;
+	std::optional<FixedPointDollars> stop_loss_price;
+	std::optional<FixedPointDollars> take_profit_price;
 };
 
 struct TargetBalanceAllocationInput {

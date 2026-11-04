@@ -6,6 +6,36 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-03
+
+### Added
+
+- Follow Predictions OpenAPI 3.35.0: credit history and event-contract exit triggers.
+- Support WebSocket order-book update intervals and the refreshed message fields.
+
+### Changed
+
+- Remove `kalshi::ws::Channel::BatchCommunications`, which the upstream contract no longer lists.
+
+### Fixed
+
+- Reject invalid update intervals, duplicate orderbook handles, and updates during unsubscribe.
+  Use `add_markets` to extend an open handle.
+- Request fresh snapshots after invalid data in the orderbook example; reject exit triggers without a leg.
+
+- Follow `next_cursor` when collecting incentive-program pages and stop cursor cycles.
+- Keep public headers compatible with Windows `min` and `max` macros.
+- Reject leap-second timestamps instead of silently returning another instant.
+
+- Accept case-insensitive WebSocket URL schemes.
+- Read all portfolio pages and reject malformed or overflowing order-book updates in examples.
+
+- Dispatch missing CI runs before release and leave time for publication.
+
+- Keep emptied market filters from broadening subscriptions after reconnect.
+- Preserve subscription handles when the server rejects an unsubscribe.
+- Remove stopped subscriptions after terminal channel errors so callers can resubscribe.
+
 ## [0.7.1] - 2026-10-25
 
 ### Fixed
@@ -858,7 +888,7 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.8.0...HEAD
 [0.7.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.0...v0.6.1
@@ -891,3 +921,5 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 [0.0.2]: https://github.com/Reddimus/kalshi-cpp/releases/tag/v0.0.2
 
 [0.7.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.7.0...v0.7.1
+
+[0.8.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.7.1...v0.8.0

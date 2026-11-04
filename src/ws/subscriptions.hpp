@@ -29,9 +29,10 @@ struct Reaction {
 /// WebSocketClient guards it with its mutex.
 class SubscriptionRegistry {
 public:
-	/// Adds a subscription. Frames to send are appended only when connected.
-	ws::Subscription subscribe(ws::Channel channel, ws::SubscribeParams params, bool connected,
-							   std::vector<std::string>& frames);
+	/// Adds a subscription, rejecting invalid intervals and duplicate orderbook handles.
+	/// Frames to send are appended only when connected.
+	Result<ws::Subscription> subscribe(ws::Channel channel, ws::SubscribeParams params,
+									   bool connected, std::vector<std::string>& frames);
 	Result<void> unsubscribe(ws::Subscription subscription, std::vector<std::string>& frames);
 	/// Changes a subscription. The change reaches the parameters used to
 	/// resubscribe once the server confirms it, so a rejected change is dropped.
@@ -72,7 +73,7 @@ private:
 		/// update_subscription calls made before the server confirmed.
 		std::vector<ws::UpdateSubscriptionParams> held;
 		bool unsubscribe_held{false};
-		/// Subscribed with a market filter. Once every market is removed, it is
+		/// Has used a market filter. Once every market is removed, it is
 		/// not resubscribed, which would stream every market instead.
 		bool filtered{false};
 	};
@@ -87,6 +88,7 @@ private:
 	std::int64_t next_id() { return next_id_++; }
 	Entry* find(std::int64_t subscription);
 	void erase(std::int64_t subscription);
+	static void record_update(Entry& entry, const ws::UpdateSubscriptionParams& params);
 	std::optional<InFlight> take(std::optional<std::int64_t> command);
 	/// Frames such as `ok` also take a sequence number on sequenced channels.
 	void note_seq(std::optional<std::int64_t> sid, std::optional<std::int64_t> seq);

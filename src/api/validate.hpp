@@ -20,6 +20,8 @@ inline Result<void> validate(const RFQBatchAcceptLimit& value);
 inline Result<void> validate(const AcceptRFQBatchRequest& value);
 inline Result<void> validate(const AmendOrderV2Request& value);
 inline Result<void> validate(const ApplySubaccountTransferRequest& value);
+inline Result<void> validate(const EventContractExitSlippage& value);
+inline Result<void> validate(const AttachedEventContractExitTrigger& value);
 inline Result<void> validate(const BatchCancelOrdersV2RequestOrdersItem& value);
 inline Result<void> validate(const BatchCancelOrdersV2Request& value);
 inline Result<void> validate(const CreateOrderV2Request& value);
@@ -30,6 +32,7 @@ inline Result<void> validate(const CreateFCMSubtraderRequest& value);
 inline Result<void> validate(const TickerPair& value);
 inline Result<void> validate(const CreateMarketInMultivariateEventCollectionRequest& value);
 inline Result<void> validate(const CreateOrderGroupRequest& value);
+inline Result<void> validate(const CreateOrderWithExitTriggerRequest& value);
 inline Result<void> validate(const CreateQuoteRequest& value);
 inline Result<void> validate(const CreateRFQBatchChild& value);
 inline Result<void> validate(const RFQBatchQuoteEntry& value);
@@ -40,6 +43,7 @@ inline Result<void> validate(const DecreaseOrderV2Request& value);
 inline Result<void> validate(const GenerateApiKeyRequest& value);
 inline Result<void> validate(const IntraExchangeInstanceTransferRequest& value);
 inline Result<void> validate(const ProposeBlockTradeRequest& value);
+inline Result<void> validate(const SetEventContractExitTriggerRequest& value);
 inline Result<void> validate(const UpdateFCMEventContractDailyCapRequest& value);
 inline Result<void> validate(const UpdateFCMSubtraderBlockedCategoriesRequest& value);
 inline Result<void> validate(const UpdateOrderGroupLimitRequest& value);
@@ -92,6 +96,36 @@ inline Result<void> validate(const AmendOrderV2Request& value) {
 inline Result<void> validate(const ApplySubaccountTransferRequest& value) {
 	if (value.client_transfer_id.empty()) {
 		return invalid("ApplySubaccountTransferRequest", "client_transfer_id", "is required");
+	}
+	return {};
+}
+
+inline Result<void> validate(const EventContractExitSlippage& value) {
+	if (value.unit == Unit::Unknown) {
+		return invalid("EventContractExitSlippage", "unit", "is required");
+	}
+	if (value.value < 0 || value.value > 9999) {
+		return invalid("EventContractExitSlippage", "value", "is outside its allowed range");
+	}
+	if ((value.unit == Unit::Cents) && value.value >= 100) {
+		return invalid("EventContractExitSlippage", "fields", "have a forbidden combination");
+	}
+	return {};
+}
+
+inline Result<void> validate(const AttachedEventContractExitTrigger& value) {
+	if (value.slippage) {
+		if (Result<void> valid = validate(*value.slippage); !valid) {
+			return valid;
+		}
+	}
+	if ((value.stop_loss_price && !FixedPoint::parse(*value.stop_loss_price))) {
+		return invalid("AttachedEventContractExitTrigger", "stop_loss_price",
+					   "is not a fixed-point decimal");
+	}
+	if ((value.take_profit_price && !FixedPoint::parse(*value.take_profit_price))) {
+		return invalid("AttachedEventContractExitTrigger", "take_profit_price",
+					   "is not a fixed-point decimal");
 	}
 	return {};
 }
@@ -199,6 +233,34 @@ inline Result<void> validate(const CreateOrderGroupRequest& value) {
 	if ((value.contracts_limit_fp && !FixedPoint::parse(*value.contracts_limit_fp))) {
 		return invalid("CreateOrderGroupRequest", "contracts_limit_fp",
 					   "is not a fixed-point decimal");
+	}
+	return {};
+}
+
+inline Result<void> validate(const CreateOrderWithExitTriggerRequest& value) {
+	if (value.ticker.empty()) {
+		return invalid("CreateOrderWithExitTriggerRequest", "ticker", "is required");
+	}
+	if (value.side == BookSide::Unknown) {
+		return invalid("CreateOrderWithExitTriggerRequest", "side", "is required");
+	}
+	if (!FixedPoint::parse(value.count)) {
+		return invalid("CreateOrderWithExitTriggerRequest", "count",
+					   "is not a fixed-point decimal");
+	}
+	if (!FixedPoint::parse(value.price)) {
+		return invalid("CreateOrderWithExitTriggerRequest", "price",
+					   "is not a fixed-point decimal");
+	}
+	if (value.time_in_force == TimeInForce::Unknown) {
+		return invalid("CreateOrderWithExitTriggerRequest", "time_in_force", "is required");
+	}
+	if (value.self_trade_prevention_type == SelfTradePreventionType::Unknown) {
+		return invalid("CreateOrderWithExitTriggerRequest", "self_trade_prevention_type",
+					   "is required");
+	}
+	if (Result<void> valid = validate(value.exit_trigger); !valid) {
+		return valid;
 	}
 	return {};
 }
@@ -327,6 +389,27 @@ inline Result<void> validate(const ProposeBlockTradeRequest& value) {
 	}
 	if (value.expiration_ts.empty()) {
 		return invalid("ProposeBlockTradeRequest", "expiration_ts", "is required");
+	}
+	return {};
+}
+
+inline Result<void> validate(const SetEventContractExitTriggerRequest& value) {
+	if (value.slippage) {
+		if (Result<void> valid = validate(*value.slippage); !valid) {
+			return valid;
+		}
+	}
+	if ((value.stop_loss_price && !FixedPoint::parse(*value.stop_loss_price))) {
+		return invalid("SetEventContractExitTriggerRequest", "stop_loss_price",
+					   "is not a fixed-point decimal");
+	}
+	if ((value.take_profit_price && !FixedPoint::parse(*value.take_profit_price))) {
+		return invalid("SetEventContractExitTriggerRequest", "take_profit_price",
+					   "is not a fixed-point decimal");
+	}
+	if (!value.stop_loss_price && !value.take_profit_price) {
+		return invalid("SetEventContractExitTriggerRequest", "fields",
+					   "requires at least one of stop_loss_price or take_profit_price");
 	}
 	return {};
 }

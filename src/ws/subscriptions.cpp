@@ -83,8 +83,30 @@ Error unknown_subscription(ws::Subscription subscription) {
 
 } // namespace
 
-ws::Subscription SubscriptionRegistry::subscribe(ws::Channel channel, ws::SubscribeParams params,
-												 bool connected, std::vector<std::string>& frames) {
+Result<ws::Subscription> SubscriptionRegistry::subscribe(ws::Channel channel,
+														 ws::SubscribeParams params, bool connected,
+														 std::vector<std::string>& frames) {
+	if (ws::to_string(channel).empty()) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest, "A known channel is required", 0, {}});
+	}
+	if (params.update_interval_ms && ws::to_string(*params.update_interval_ms).empty()) {
+		return std::unexpected(Error{ErrorCode::InvalidRequest,
+									 "SubscribeParams.update_interval_ms must be 0, 100, or 1000",
+									 0,
+									 {}});
+	}
+	if (channel == ws::Channel::OrderbookDelta &&
+		std::any_of(entries_.begin(), entries_.end(),
+					[](const std::pair<const std::int64_t, Entry>& item) {
+						return item.second.handle.channel == ws::Channel::OrderbookDelta;
+					})) {
+		return std::unexpected(Error{ErrorCode::InvalidRequest,
+									 "An orderbook subscription already exists; use add_markets, "
+									 "or wait for unsubscribe confirmation",
+									 0,
+									 {}});
+	}
 	const ws::Subscription handle{next_id(), channel};
 	Entry& entry = entries_[handle.id];
 	entry.handle = handle;
@@ -130,11 +152,15 @@ Result<void> SubscriptionRegistry::update(ws::Subscription subscription,
 	if (entry == nullptr) {
 		return std::unexpected(unknown_subscription(subscription));
 	}
+	if (entry->unsubscribe_held || entry->state == State::Unsubscribing) {
+		return std::unexpected(Error{
+			ErrorCode::InvalidRequest, "Subscription is awaiting unsubscribe confirmation", 0, {}});
+	}
 	switch (entry->state) {
 		case State::Unsent:
 			// No server subscription to change; the next subscribe carries it. A
 			// subscription left out for having no markets starts again here.
-			apply(entry->params, params);
+			record_update(*entry, params);
 			if (connected && (!entry->filtered || has_markets(entry->params))) {
 				frames.push_back(subscribe_frame(*entry));
 			}
@@ -174,7 +200,7 @@ void SubscriptionRegistry::on_disconnected() {
 	for (const std::pair<const std::int64_t, InFlight>& item : commands_) {
 		if (item.second.update) {
 			if (Entry* entry = find(item.second.subscription)) {
-				apply(entry->params, *item.second.update);
+				record_update(*entry, *item.second.update);
 			}
 		}
 	}
@@ -189,7 +215,7 @@ void SubscriptionRegistry::on_disconnected() {
 		entry.sid = 0;
 		entry.last_seq.reset();
 		for (const ws::UpdateSubscriptionParams& params : entry.held) {
-			apply(entry.params, params); // never sent; the next subscribe carries them
+			record_update(entry, params); // never sent; the next subscribe carries them
 		}
 		entry.held.clear();
 	}
@@ -265,7 +291,7 @@ Reaction SubscriptionRegistry::on_ok(const OkFrame& frame) {
 	}
 	note_seq(frame.sid, frame.seq);
 	if (command->update) {
-		apply(entry->params, *command->update);
+		record_update(*entry, *command->update);
 	}
 	ws::Updated updated = parse_updated(frame.msg);
 	updated.subscription = entry->handle;
@@ -279,6 +305,7 @@ Reaction SubscriptionRegistry::on_ok(const OkFrame& frame) {
 		entry->params.market_id.reset();
 		entry->params.market_ids = updated.market_ids;
 	}
+	entry->filtered = entry->filtered || has_markets(entry->params);
 	reaction.message = std::move(updated);
 	return reaction;
 }
@@ -298,10 +325,12 @@ Reaction SubscriptionRegistry::on_error(const ErrorFrame& frame) {
 			by_sid_.find(*frame.sid);
 		subscription = found == by_sid_.end() ? 0 : found->second;
 	}
-	if (const Entry* entry = find(subscription)) {
+	if (Entry* entry = find(subscription)) {
 		error.subscription = entry->handle;
-		if (command && (command->kind == Kind::Subscribe || command->kind == Kind::Unsubscribe)) {
-			erase(subscription); // the server holds no such subscription
+		if (frame.code == 10 || frame.code == 25 || (command && command->kind == Kind::Subscribe)) {
+			erase(subscription);
+		} else if (command && command->kind == Kind::Unsubscribe) {
+			entry->state = State::Active; // rejection does not confirm removal
 		}
 	}
 	reaction.error = std::move(error);
@@ -375,6 +404,11 @@ SubscriptionRegistry::Entry* SubscriptionRegistry::find(std::int64_t subscriptio
 	return found == entries_.end() ? nullptr : &found->second;
 }
 
+void SubscriptionRegistry::record_update(Entry& entry, const ws::UpdateSubscriptionParams& params) {
+	apply(entry.params, params);
+	entry.filtered = entry.filtered || has_markets(entry.params);
+}
+
 void SubscriptionRegistry::erase(std::int64_t subscription) {
 	const std::map<std::int64_t, Entry>::iterator found = entries_.find(subscription);
 	if (found == entries_.end()) {
@@ -384,6 +418,9 @@ void SubscriptionRegistry::erase(std::int64_t subscription) {
 		by_sid_.erase(found->second.sid);
 	}
 	entries_.erase(found);
+	std::erase_if(commands_, [subscription](const std::pair<const std::int64_t, InFlight>& item) {
+		return item.second.subscription == subscription;
+	});
 }
 
 void SubscriptionRegistry::note_seq(std::optional<std::int64_t> sid,

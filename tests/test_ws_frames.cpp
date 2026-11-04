@@ -10,6 +10,7 @@
 #include <vector>
 
 #include "frames.hpp"
+#include "wire.hpp"
 
 namespace {
 
@@ -159,4 +160,19 @@ TEST(WsFrames, ControlFramesKeepServerTimestamps) {
 		kalshi::detail::parse_frame(R"({"type":"unsubscribed","sending_ts_ms":1237,"sid":1})");
 	ASSERT_TRUE(std::holds_alternative<kalshi::detail::UnsubscribedFrame>(unsubscribed));
 	EXPECT_EQ(std::get<kalshi::detail::UnsubscribedFrame>(unsubscribed).sending_ts_ms, 1237);
+}
+
+TEST(WsFrames, NumericSubscriptionIntervalsStayJsonNumbers) {
+	kalshi::ws::SubscribeParams params;
+	params.update_interval_ms = kalshi::ws::UpdateIntervalMs::V100;
+	std::string json;
+	ASSERT_FALSE(glz::write_json(
+		kalshi::detail::to_wire({kalshi::ws::Channel::OrderbookDelta}, params), json));
+	EXPECT_NE(json.find("\"update_interval_ms\":100"), std::string::npos) << json;
+	kalshi::ws::UpdateIntervalMs interval{};
+	EXPECT_FALSE(glz::read_json(interval, "1000"));
+	EXPECT_EQ(interval, kalshi::ws::UpdateIntervalMs::V1000);
+	EXPECT_FALSE(glz::read_json(interval, "123"));
+	EXPECT_EQ(interval, kalshi::ws::UpdateIntervalMs::Unknown);
+	EXPECT_TRUE(glz::read_json(interval, "\"100\""));
 }

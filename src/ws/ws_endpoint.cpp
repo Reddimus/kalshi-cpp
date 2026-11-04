@@ -15,10 +15,12 @@ Result<WsEndpoint> parse_ws_endpoint(std::string_view url) {
 
 	bool use_ssl = false;
 	std::string_view remainder;
-	if (url.starts_with("wss://")) {
+	if (url.size() >= 6 && (url[0] == 'w' || url[0] == 'W') && (url[1] == 's' || url[1] == 'S') &&
+		(url[2] == 's' || url[2] == 'S') && url.substr(3, 3) == "://") {
 		use_ssl = true;
 		remainder = url.substr(6);
-	} else if (url.starts_with("ws://")) {
+	} else if (url.size() >= 5 && (url[0] == 'w' || url[0] == 'W') &&
+			   (url[1] == 's' || url[1] == 'S') && url.substr(2, 3) == "://") {
 		remainder = url.substr(5);
 	} else {
 		return std::unexpected(

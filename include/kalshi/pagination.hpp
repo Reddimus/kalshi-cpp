@@ -3,22 +3,36 @@
 #include "kalshi/error.hpp"
 
 #include <cstddef>
+#include <iterator>
 #include <limits>
 #include <optional>
 #include <string>
 #include <string_view>
-#include <type_traits>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
 namespace kalshi {
 
+namespace detail {
+
+inline std::string take_page_cursor(std::string& cursor) {
+	return std::move(cursor);
+}
+
+inline std::string take_page_cursor(std::optional<std::string>& cursor) {
+	return std::move(cursor).value_or("");
+}
+
+} // namespace detail
+
 /// Follows cursors through a list operation and collects every page's items.
 ///
 /// `fetch` takes the cursor to request (empty for the first page) and returns
 /// the response; `items` names the response member that holds each page.
+/// Responses may name their continuation `cursor` or `next_cursor`.
 /// Collection stops after `max_pages` pages even if more remain, and fails with
-/// `ParseError` if the server returns the cursor it was just given.
+/// `ParseError` if the server repeats a continuation cursor.
 ///
 ///     kalshi::GetMarketsParams params{.limit = 1000, .series_ticker = "KXHIGHNY"};
 ///     kalshi::Result<std::vector<kalshi::Market>> markets = kalshi::collect_pages(
@@ -30,9 +44,10 @@ namespace kalshi {
 template <class Fetch, class Response, class Items>
 [[nodiscard]] Result<std::vector<typename Items::value_type>>
 collect_pages(Fetch&& fetch, Items Response::*items,
-			  std::size_t max_pages = std::numeric_limits<std::size_t>::max()) {
+			  std::size_t max_pages = (std::numeric_limits<std::size_t>::max)()) {
 	std::vector<typename Items::value_type> all;
 	std::string cursor;
+	std::unordered_set<std::string> seen;
 	for (std::size_t page = 0; page < max_pages; ++page) {
 		Result<Response> response = fetch(std::string_view{cursor});
 		if (!response) {
@@ -42,17 +57,17 @@ collect_pages(Fetch&& fetch, Items Response::*items,
 		all.insert(all.end(), std::make_move_iterator(batch.begin()),
 				   std::make_move_iterator(batch.end()));
 		std::string next;
-		if constexpr (std::is_same_v<decltype(response->cursor), std::optional<std::string>>) {
-			next = response->cursor.value_or("");
+		if constexpr (requires { response->cursor; }) {
+			next = detail::take_page_cursor(response->cursor);
 		} else {
-			next = std::move(response->cursor);
+			next = detail::take_page_cursor(response->next_cursor);
 		}
 		if (next.empty()) {
 			break;
 		}
-		if (next == cursor) {
+		if (!seen.insert(next).second) {
 			return std::unexpected(
-				Error{ErrorCode::ParseError, "Pagination cursor did not advance: " + next, 0, {}});
+				Error{ErrorCode::ParseError, "Pagination cursor repeated: " + next, 0, {}});
 		}
 		cursor = std::move(next);
 	}

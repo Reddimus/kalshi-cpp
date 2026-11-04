@@ -67,6 +67,17 @@ TEST(WsLifecycle, UrlParserPreservesConnectionPathAndCustomPort) {
 	EXPECT_TRUE(result->use_ssl);
 }
 
+TEST(WsLifecycle, UrlSchemesIgnoreAsciiCase) {
+	for (const std::string& scheme :
+		 {std::string{"WS"}, std::string{"wS"}, std::string{"WSS"}, std::string{"wSs"}}) {
+		const kalshi::Result<kalshi::detail::WsEndpoint> result =
+			kalshi::detail::parse_ws_endpoint(scheme + "://example.test/ws");
+		ASSERT_TRUE(result) << scheme;
+		EXPECT_EQ(result->use_ssl, scheme.size() == 3);
+		EXPECT_EQ(result->port, scheme.size() == 3 ? 443 : 80);
+	}
+}
+
 TEST(WsLifecycle, UrlParserSupportsBracketedIpv6AndQueryOnlyPath) {
 	const kalshi::Result<kalshi::detail::WsEndpoint> result =
 		kalshi::detail::parse_ws_endpoint("ws://[::1]?token=value");
@@ -182,6 +193,45 @@ TEST(WsLifecycle, SubscriptionsWaitForAConnection) {
 	EXPECT_TRUE(ws.unsubscribe(*ticker).has_value());
 	EXPECT_TRUE(ws.subscriptions().empty());
 	EXPECT_FALSE(ws.unsubscribe(*ticker).has_value());
+}
+
+TEST(WsLifecycle, InvalidOrderbookIntervalsDoNotCreateSubscriptions) {
+	kalshi::Signer signer = make_test_signer();
+	kalshi::WebSocketClient ws(signer);
+	for (const kalshi::ws::UpdateIntervalMs interval :
+		 {kalshi::ws::UpdateIntervalMs::Unknown, static_cast<kalshi::ws::UpdateIntervalMs>(1)}) {
+		const kalshi::Result<kalshi::ws::Subscription> result =
+			ws.subscribe(kalshi::ws::Channel::OrderbookDelta,
+						 {.market_ticker = "A", .update_interval_ms = interval});
+		ASSERT_FALSE(result);
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+		EXPECT_TRUE(ws.subscriptions().empty());
+	}
+	for (const kalshi::ws::UpdateIntervalMs interval :
+		 {kalshi::ws::UpdateIntervalMs::V0, kalshi::ws::UpdateIntervalMs::V100,
+		  kalshi::ws::UpdateIntervalMs::V1000}) {
+		const kalshi::Result<kalshi::ws::Subscription> result =
+			ws.subscribe(kalshi::ws::Channel::OrderbookDelta,
+						 {.market_ticker = "A", .update_interval_ms = interval});
+		ASSERT_TRUE(result);
+		ASSERT_TRUE(ws.unsubscribe(*result));
+	}
+}
+
+TEST(WsLifecycle, RepeatedOrderbookSubscribeKeepsTheOriginalHandle) {
+	kalshi::Signer signer = make_test_signer();
+	kalshi::WebSocketClient ws(signer);
+	const kalshi::Result<kalshi::ws::Subscription> first =
+		ws.subscribe(kalshi::ws::Channel::OrderbookDelta, {.market_ticker = "A"});
+	ASSERT_TRUE(first);
+	const kalshi::Result<kalshi::ws::Subscription> second =
+		ws.subscribe(kalshi::ws::Channel::OrderbookDelta, {.market_ticker = "B"});
+	ASSERT_FALSE(second);
+	EXPECT_EQ(second.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(ws.subscriptions(), (std::vector<kalshi::ws::Subscription>{*first}));
+	EXPECT_TRUE(ws.add_markets(*first, {"B"}));
+	ASSERT_TRUE(ws.unsubscribe(*first));
+	EXPECT_TRUE(ws.subscribe(kalshi::ws::Channel::OrderbookDelta, {.market_ticker = "C"}));
 }
 
 TEST(WsLifecycle, CallbackMayReplaceItselfWithoutDeadlocking) {

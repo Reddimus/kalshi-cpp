@@ -27,7 +27,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential ninja-build \
-            pkg-config clang-format-18 python3-yaml libcurl4-openssl-dev libssl-dev \
+            pkg-config clang-format-18 python3-yaml jq libcurl4-openssl-dev libssl-dev \
             libwebsockets-dev
       - name: Lint
         run: make lint CLANG_FORMAT=clang-format-18

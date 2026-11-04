@@ -551,6 +551,11 @@ public:
 	[[nodiscard]] Result<std::vector<BatchCancelOrdersV2ResponseOrdersItem>>
 	batch_cancel_orders(const BatchCancelOrdersV2Request& body);
 
+	/// Create Order With TP/SL
+	/// `POST /portfolio/events/orders/with_exit_trigger`
+	[[nodiscard]] Result<CreateOrderV2Response>
+	create_order_with_exit_trigger(const CreateOrderWithExitTriggerRequest& body);
+
 	/// Cancel Order
 	/// `DELETE /portfolio/events/orders/{order_id}`
 	[[nodiscard]] Result<CancelOrderV2Response> cancel_order(std::string_view order_id,
@@ -569,6 +574,25 @@ public:
 				   const DecreaseOrderParams& params = {});
 
 	// ----- portfolio ---------------------------------------------------------
+
+	/// Get Position Exit Triggers
+	/// `GET /portfolio/positions/{ticker}/exit_trigger`
+	[[nodiscard]] Result<GetEventContractExitTriggersResponse>
+	get_event_contract_exit_triggers(std::string_view ticker,
+									 const GetEventContractExitTriggersParams& params = {});
+
+	/// Set Position Exit Trigger
+	/// `PUT /portfolio/positions/{ticker}/exit_trigger`
+	[[nodiscard]] Result<EventContractExitTrigger>
+	set_event_contract_exit_trigger(std::string_view ticker,
+									const SetEventContractExitTriggerRequest& body,
+									const SetEventContractExitTriggerParams& params = {});
+
+	/// Cancel Position Exit Trigger
+	/// `DELETE /portfolio/positions/{ticker}/exit_trigger`
+	[[nodiscard]] Result<void>
+	delete_event_contract_exit_trigger(std::string_view ticker,
+									   const DeleteEventContractExitTriggerParams& params = {});
 
 	/// Get Balance
 	/// `GET /portfolio/balance`
@@ -625,6 +649,11 @@ public:
 	/// `GET /portfolio/settlements`
 	[[nodiscard]] Result<GetSettlementsResponse>
 	get_settlements(const GetSettlementsParams& params = {});
+
+	/// Get Credit History
+	/// `GET /portfolio/credit_history`
+	[[nodiscard]] Result<GetCreditHistoryResponse>
+	get_credit_history(const GetCreditHistoryParams& params = {});
 
 	/// Get Deposits
 	/// `GET /portfolio/deposits`

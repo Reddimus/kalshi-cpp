@@ -70,6 +70,19 @@ inline BookSide parse_book_side(std::string_view text) noexcept {
 	return BookSide::Unknown;
 }
 
+inline CreditHistoryStatus parse_credit_history_status(std::string_view text) noexcept {
+	if (text == "pending") {
+		return CreditHistoryStatus::Pending;
+	}
+	if (text == "failed") {
+		return CreditHistoryStatus::Failed;
+	}
+	if (text == "applied") {
+		return CreditHistoryStatus::Applied;
+	}
+	return CreditHistoryStatus::Unknown;
+}
+
 inline DepositStatus parse_deposit_status(std::string_view text) noexcept {
 	if (text == "pending") {
 		return DepositStatus::Pending;
@@ -103,6 +116,26 @@ inline DepositType parse_deposit_type(std::string_view text) noexcept {
 		return DepositType::Apm;
 	}
 	return DepositType::Unknown;
+}
+
+inline EventContractExitTriggerStatus
+parse_event_contract_exit_trigger_status(std::string_view text) noexcept {
+	if (text == "pending_on_entry") {
+		return EventContractExitTriggerStatus::PendingOnEntry;
+	}
+	if (text == "active") {
+		return EventContractExitTriggerStatus::Active;
+	}
+	if (text == "filled") {
+		return EventContractExitTriggerStatus::Filled;
+	}
+	if (text == "canceled") {
+		return EventContractExitTriggerStatus::Canceled;
+	}
+	if (text == "failed") {
+		return EventContractExitTriggerStatus::Failed;
+	}
+	return EventContractExitTriggerStatus::Unknown;
 }
 
 inline ExchangeInstance parse_exchange_instance(std::string_view text) noexcept {
@@ -263,6 +296,26 @@ parse_intra_exchange_instance_transfer_status(std::string_view text) noexcept {
 		return IntraExchangeInstanceTransferStatus::Complete;
 	}
 	return IntraExchangeInstanceTransferStatus::Unknown;
+}
+
+inline Kind parse_kind(std::string_view text) noexcept {
+	if (text == "bracket") {
+		return Kind::Bracket;
+	}
+	return Kind::Unknown;
+}
+
+inline MarketIndexStatus parse_market_index_status(std::string_view text) noexcept {
+	if (text == "open") {
+		return MarketIndexStatus::Open;
+	}
+	if (text == "closed") {
+		return MarketIndexStatus::Closed;
+	}
+	if (text == "stale") {
+		return MarketIndexStatus::Stale;
+	}
+	return MarketIndexStatus::Unknown;
 }
 
 inline MarketResult parse_market_result(std::string_view text) noexcept {
@@ -526,6 +579,26 @@ inline TimeInForce parse_time_in_force(std::string_view text) noexcept {
 	return TimeInForce::Unknown;
 }
 
+inline TriggeredLeg parse_triggered_leg(std::string_view text) noexcept {
+	if (text == "stop_loss") {
+		return TriggeredLeg::StopLoss;
+	}
+	if (text == "take_profit") {
+		return TriggeredLeg::TakeProfit;
+	}
+	return TriggeredLeg::Unknown;
+}
+
+inline Unit parse_unit(std::string_view text) noexcept {
+	if (text == "bps") {
+		return Unit::Bps;
+	}
+	if (text == "cents") {
+		return Unit::Cents;
+	}
+	return Unit::Unknown;
+}
+
 inline UserFilter parse_user_filter(std::string_view text) noexcept {
 	if (text == "self") {
 		return UserFilter::Self;
@@ -541,7 +614,7 @@ template <>
 struct from<JSON, kalshi::Action> {
 	template <auto Opts>
 	static void op(kalshi::Action& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_action(text);
 	}
@@ -560,7 +633,7 @@ template <>
 struct from<JSON, kalshi::ApiKeyScope> {
 	template <auto Opts>
 	static void op(kalshi::ApiKeyScope& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_api_key_scope(text);
 	}
@@ -579,7 +652,7 @@ template <>
 struct from<JSON, kalshi::ApiKeyType> {
 	template <auto Opts>
 	static void op(kalshi::ApiKeyType& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_api_key_type(text);
 	}
@@ -598,7 +671,7 @@ template <>
 struct from<JSON, kalshi::BookSide> {
 	template <auto Opts>
 	static void op(kalshi::BookSide& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_book_side(text);
 	}
@@ -614,10 +687,29 @@ struct to<JSON, kalshi::BookSide> {
 };
 
 template <>
+struct from<JSON, kalshi::CreditHistoryStatus> {
+	template <auto Opts>
+	static void op(kalshi::CreditHistoryStatus& value, auto&& ctx, auto&& it, auto&& end) {
+		std::string text{};
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_credit_history_status(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::CreditHistoryStatus> {
+	template <auto Opts>
+	static void op(const kalshi::CreditHistoryStatus& value, auto&& ctx, auto&&... args) {
+		const std::string_view text = kalshi::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
 struct from<JSON, kalshi::DepositStatus> {
 	template <auto Opts>
 	static void op(kalshi::DepositStatus& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_deposit_status(text);
 	}
@@ -636,7 +728,7 @@ template <>
 struct from<JSON, kalshi::DepositType> {
 	template <auto Opts>
 	static void op(kalshi::DepositType& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_deposit_type(text);
 	}
@@ -652,10 +744,31 @@ struct to<JSON, kalshi::DepositType> {
 };
 
 template <>
+struct from<JSON, kalshi::EventContractExitTriggerStatus> {
+	template <auto Opts>
+	static void op(kalshi::EventContractExitTriggerStatus& value, auto&& ctx, auto&& it,
+				   auto&& end) {
+		std::string text{};
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_event_contract_exit_trigger_status(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::EventContractExitTriggerStatus> {
+	template <auto Opts>
+	static void op(const kalshi::EventContractExitTriggerStatus& value, auto&& ctx,
+				   auto&&... args) {
+		const std::string_view text = kalshi::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
 struct from<JSON, kalshi::ExchangeInstance> {
 	template <auto Opts>
 	static void op(kalshi::ExchangeInstance& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_exchange_instance(text);
 	}
@@ -674,7 +787,7 @@ template <>
 struct from<JSON, kalshi::FeeType> {
 	template <auto Opts>
 	static void op(kalshi::FeeType& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_fee_type(text);
 	}
@@ -693,7 +806,7 @@ template <>
 struct from<JSON, kalshi::GetEventsStatus> {
 	template <auto Opts>
 	static void op(kalshi::GetEventsStatus& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_get_events_status(text);
 	}
@@ -713,7 +826,7 @@ struct from<JSON, kalshi::GetHistoricalMarketsMveFilter> {
 	template <auto Opts>
 	static void op(kalshi::GetHistoricalMarketsMveFilter& value, auto&& ctx, auto&& it,
 				   auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_get_historical_markets_mve_filter(text);
 	}
@@ -732,7 +845,7 @@ template <>
 struct from<JSON, kalshi::GetIncentiveProgramsStatus> {
 	template <auto Opts>
 	static void op(kalshi::GetIncentiveProgramsStatus& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_get_incentive_programs_status(text);
 	}
@@ -751,7 +864,7 @@ template <>
 struct from<JSON, kalshi::GetIncentiveProgramsType> {
 	template <auto Opts>
 	static void op(kalshi::GetIncentiveProgramsType& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_get_incentive_programs_type(text);
 	}
@@ -770,7 +883,7 @@ template <>
 struct from<JSON, kalshi::GetMarketsMveFilter> {
 	template <auto Opts>
 	static void op(kalshi::GetMarketsMveFilter& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_get_markets_mve_filter(text);
 	}
@@ -789,7 +902,7 @@ template <>
 struct from<JSON, kalshi::GetMarketsStatus> {
 	template <auto Opts>
 	static void op(kalshi::GetMarketsStatus& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_get_markets_status(text);
 	}
@@ -809,7 +922,7 @@ struct from<JSON, kalshi::GetMultivariateEventCollectionsStatus> {
 	template <auto Opts>
 	static void op(kalshi::GetMultivariateEventCollectionsStatus& value, auto&& ctx, auto&& it,
 				   auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_get_multivariate_event_collections_status(text);
 	}
@@ -830,7 +943,7 @@ struct from<JSON, kalshi::IncentiveProgramIncentiveType> {
 	template <auto Opts>
 	static void op(kalshi::IncentiveProgramIncentiveType& value, auto&& ctx, auto&& it,
 				   auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_incentive_program_incentive_type(text);
 	}
@@ -850,7 +963,7 @@ struct from<JSON, kalshi::IntraExchangeInstanceTransferStatus> {
 	template <auto Opts>
 	static void op(kalshi::IntraExchangeInstanceTransferStatus& value, auto&& ctx, auto&& it,
 				   auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_intra_exchange_instance_transfer_status(text);
 	}
@@ -867,10 +980,48 @@ struct to<JSON, kalshi::IntraExchangeInstanceTransferStatus> {
 };
 
 template <>
+struct from<JSON, kalshi::Kind> {
+	template <auto Opts>
+	static void op(kalshi::Kind& value, auto&& ctx, auto&& it, auto&& end) {
+		std::string text{};
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_kind(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::Kind> {
+	template <auto Opts>
+	static void op(const kalshi::Kind& value, auto&& ctx, auto&&... args) {
+		const std::string_view text = kalshi::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
+struct from<JSON, kalshi::MarketIndexStatus> {
+	template <auto Opts>
+	static void op(kalshi::MarketIndexStatus& value, auto&& ctx, auto&& it, auto&& end) {
+		std::string text{};
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_market_index_status(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::MarketIndexStatus> {
+	template <auto Opts>
+	static void op(const kalshi::MarketIndexStatus& value, auto&& ctx, auto&&... args) {
+		const std::string_view text = kalshi::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
 struct from<JSON, kalshi::MarketResult> {
 	template <auto Opts>
 	static void op(kalshi::MarketResult& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_market_result(text);
 	}
@@ -889,7 +1040,7 @@ template <>
 struct from<JSON, kalshi::MarketStatus> {
 	template <auto Opts>
 	static void op(kalshi::MarketStatus& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_market_status(text);
 	}
@@ -908,7 +1059,7 @@ template <>
 struct from<JSON, kalshi::MarketType> {
 	template <auto Opts>
 	static void op(kalshi::MarketType& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_market_type(text);
 	}
@@ -927,7 +1078,7 @@ template <>
 struct from<JSON, kalshi::OrderStatus> {
 	template <auto Opts>
 	static void op(kalshi::OrderStatus& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_order_status(text);
 	}
@@ -946,7 +1097,7 @@ template <>
 struct from<JSON, kalshi::OrderType> {
 	template <auto Opts>
 	static void op(kalshi::OrderType& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_order_type(text);
 	}
@@ -965,7 +1116,7 @@ template <>
 struct from<JSON, kalshi::OutcomeSide> {
 	template <auto Opts>
 	static void op(kalshi::OutcomeSide& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_outcome_side(text);
 	}
@@ -984,7 +1135,7 @@ template <>
 struct from<JSON, kalshi::QuoteStatus> {
 	template <auto Opts>
 	static void op(kalshi::QuoteStatus& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_quote_status(text);
 	}
@@ -1003,7 +1154,7 @@ template <>
 struct from<JSON, kalshi::RFQBatchQuoteStatus> {
 	template <auto Opts>
 	static void op(kalshi::RFQBatchQuoteStatus& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_rfq_batch_quote_status(text);
 	}
@@ -1022,7 +1173,7 @@ template <>
 struct from<JSON, kalshi::RFQBatchStatus> {
 	template <auto Opts>
 	static void op(kalshi::RFQBatchStatus& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_rfq_batch_status(text);
 	}
@@ -1041,7 +1192,7 @@ template <>
 struct from<JSON, kalshi::RFQStatus> {
 	template <auto Opts>
 	static void op(kalshi::RFQStatus& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_rfq_status(text);
 	}
@@ -1060,7 +1211,7 @@ template <>
 struct from<JSON, kalshi::RestingMarginReservation> {
 	template <auto Opts>
 	static void op(kalshi::RestingMarginReservation& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_resting_margin_reservation(text);
 	}
@@ -1079,7 +1230,7 @@ template <>
 struct from<JSON, kalshi::SelfTradePreventionType> {
 	template <auto Opts>
 	static void op(kalshi::SelfTradePreventionType& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_self_trade_prevention_type(text);
 	}
@@ -1098,7 +1249,7 @@ template <>
 struct from<JSON, kalshi::SettlementBoundsType> {
 	template <auto Opts>
 	static void op(kalshi::SettlementBoundsType& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_settlement_bounds_type(text);
 	}
@@ -1117,7 +1268,7 @@ template <>
 struct from<JSON, kalshi::SettlementMarketResult> {
 	template <auto Opts>
 	static void op(kalshi::SettlementMarketResult& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_settlement_market_result(text);
 	}
@@ -1136,7 +1287,7 @@ template <>
 struct from<JSON, kalshi::SettlementStatus> {
 	template <auto Opts>
 	static void op(kalshi::SettlementStatus& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_settlement_status(text);
 	}
@@ -1155,7 +1306,7 @@ template <>
 struct from<JSON, kalshi::Side> {
 	template <auto Opts>
 	static void op(kalshi::Side& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_side(text);
 	}
@@ -1174,7 +1325,7 @@ template <>
 struct from<JSON, kalshi::StrikeType> {
 	template <auto Opts>
 	static void op(kalshi::StrikeType& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_strike_type(text);
 	}
@@ -1193,7 +1344,7 @@ template <>
 struct from<JSON, kalshi::TimeInForce> {
 	template <auto Opts>
 	static void op(kalshi::TimeInForce& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_time_in_force(text);
 	}
@@ -1209,10 +1360,48 @@ struct to<JSON, kalshi::TimeInForce> {
 };
 
 template <>
+struct from<JSON, kalshi::TriggeredLeg> {
+	template <auto Opts>
+	static void op(kalshi::TriggeredLeg& value, auto&& ctx, auto&& it, auto&& end) {
+		std::string text{};
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_triggered_leg(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::TriggeredLeg> {
+	template <auto Opts>
+	static void op(const kalshi::TriggeredLeg& value, auto&& ctx, auto&&... args) {
+		const std::string_view text = kalshi::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
+struct from<JSON, kalshi::Unit> {
+	template <auto Opts>
+	static void op(kalshi::Unit& value, auto&& ctx, auto&& it, auto&& end) {
+		std::string text{};
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_unit(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::Unit> {
+	template <auto Opts>
+	static void op(const kalshi::Unit& value, auto&& ctx, auto&&... args) {
+		const std::string_view text = kalshi::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
 struct from<JSON, kalshi::UserFilter> {
 	template <auto Opts>
 	static void op(kalshi::UserFilter& value, auto&& ctx, auto&& it, auto&& end) {
-		std::string text;
+		std::string text{};
 		parse<JSON>::op<Opts>(text, ctx, it, end);
 		value = kalshi::detail::parse_user_filter(text);
 	}

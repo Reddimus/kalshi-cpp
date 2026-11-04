@@ -1,6 +1,6 @@
 # REST operations
 
-Covers Kalshi's Predictions OpenAPI 3.34.0 document (`spec/openapi.yaml`).
+Covers Kalshi's Predictions OpenAPI 3.35.0 document (`spec/openapi.yaml`).
 Each row is a `KalshiClient` method.
 
 ## account
@@ -175,6 +175,7 @@ Each row is a `KalshiClient` method.
 | DELETE | `/portfolio/events/orders` | `cancel_all_orders` |
 | POST | `/portfolio/events/orders/batched` | `batch_create_orders` |
 | DELETE | `/portfolio/events/orders/batched` | `batch_cancel_orders` |
+| POST | `/portfolio/events/orders/with_exit_trigger` | `create_order_with_exit_trigger` |
 | DELETE | `/portfolio/events/orders/{order_id}` | `cancel_order` |
 | POST | `/portfolio/events/orders/{order_id}/amend` | `amend_order` |
 | POST | `/portfolio/events/orders/{order_id}/decrease` | `decrease_order` |
@@ -183,6 +184,9 @@ Each row is a `KalshiClient` method.
 
 | Method | Route | C++ |
 | --- | --- | --- |
+| GET | `/portfolio/positions/{ticker}/exit_trigger` | `get_event_contract_exit_triggers` |
+| PUT | `/portfolio/positions/{ticker}/exit_trigger` | `set_event_contract_exit_trigger` |
+| DELETE | `/portfolio/positions/{ticker}/exit_trigger` | `delete_event_contract_exit_trigger` |
 | GET | `/portfolio/balance` | `get_balance` |
 | POST | `/portfolio/intra_exchange_instance_transfer` | `intra_exchange_instance_transfer` |
 | GET | `/portfolio/intra_exchange_instance_transfers` | `get_intra_exchange_instance_transfers` |
@@ -195,6 +199,7 @@ Each row is a `KalshiClient` method.
 | PUT | `/portfolio/subaccounts/netting` | `update_subaccount_netting` |
 | GET | `/portfolio/positions` | `get_positions` |
 | GET | `/portfolio/settlements` | `get_settlements` |
+| GET | `/portfolio/credit_history` | `get_credit_history` |
 | GET | `/portfolio/deposits` | `get_deposits` |
 | GET | `/portfolio/withdrawals` | `get_withdrawals` |
 | GET | `/portfolio/summary/total_resting_order_value` | `get_portfolio_resting_order_total_value` |

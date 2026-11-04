@@ -30,11 +30,10 @@ DEFAULT_ALLOWLIST = "tools/cpp_auto_allowlist.txt"
 WORD_AUTO = re.compile(r"\bauto\b")
 STRUCTURED_BINDING = re.compile(r"\bauto(?:\s*[\*&])?\s*\[")
 DECLARATION_AUTO = re.compile(
-    r"^\s*(?:for\s*\(\s*)?(?:const\s+|constexpr\s+|static\s+|volatile\s+|mutable\s+)*"
+    r"^\s*(?:}\s*)?(?:(?:else\s+)?if(?:\s+constexpr)?\s*\(\s*|(?:for|while|switch)\s*\(\s*)?(?:const\s+|constexpr\s+|static\s+|volatile\s+|mutable\s+)*"
     r"auto(?:\s*[\*&])?\s*(?:\w+|\[)"
 )
 
-LAMBDA_INITIALIZER = re.compile(r"=\s*\[[^\]]*\]\s*(?:\(|\{|mutable\b|->|$)")
 ITERATOR_NAME = re.compile(r"\bauto\s*&?\s*(?:\w+_)?(?:it|iter|iterator)\b")
 
 ITERATOR_HINTS = (
@@ -82,18 +81,18 @@ def tracked_cpp_files(repo_root: Path) -> list[Path]:
     # Include untracked, non-ignored files so a new test file is audited
     # locally before CI sees it.
     proc = subprocess.run(
-        ["git", "ls-files", "--cached", "--others", "--exclude-standard"],
+        ["git", "ls-files", "-z", "--cached", "--others", "--exclude-standard"],
         cwd=repo_root,
         check=True,
         capture_output=True,
         text=True,
     )
     files: list[Path] = []
-    for raw in sorted(set(proc.stdout.splitlines())):
+    for raw in sorted(set(proc.stdout.split("\0")) - {""}):
         relative = Path(raw)
         if relative.suffix not in CPP_SUFFIXES:
             continue
-        if any(part.startswith("build") or part == "_deps" for part in relative.parts):
+        if any(part == "build" or part.startswith("build-") or part == "_deps" for part in relative.parts[:-1]):
             continue
         if not (repo_root / relative).exists():  # deleted but not yet staged
             continue
@@ -117,7 +116,20 @@ def read_allowlist(path: Path) -> list[AllowRule]:
 
 
 def is_lambda_closure(line: str) -> bool:
-    return LAMBDA_INITIALIZER.search(line) is not None
+    initializer = line.partition("=")[2].lstrip()
+    if not initializer.startswith("["):
+        return False
+    # Captures can contain subscripts, strings and nested lambdas.
+    tokens = re.finditer('(?:u8|u|U|L)?R"(?P<raw>[^\\s()\\\\]{0,16})\\(.*?\\)(?P=raw)"|"(?:\\\\.|[^"\\\\])*"|\\b\\d[\\w\'.]*|\'(?:\\\\.|[^\'\\\\])*\'|/\\*.*?\\*/|//.*|\\[|\\]', initializer)
+    depth = 0
+    for token in tokens:
+        if token[0] == "[":
+            depth += 1
+        elif token[0] == "]":
+            depth -= 1
+            if depth == 0:
+                return re.match(r"\s*(?:\(|\{|<|\[\[|static\b|constexpr\b|consteval\b|mutable\b|noexcept\b|->|$)", initializer[token.end():]) is not None
+    return False
 
 
 def is_iterator_like(line: str) -> bool:
@@ -191,8 +203,8 @@ def main() -> int:
     args = parse_args()
     repo_root = Path(args.repo_root).resolve()
     allowlist_path = repo_root / args.allowlist
-    allowlist = read_allowlist(allowlist_path)
-    violations = collect_violations(repo_root, allowlist)
+    allowlist = [] if args.write_allowlist else read_allowlist(allowlist_path)
+    violations = collect_violations(repo_root, [] if args.write_allowlist else allowlist)
     if args.write_allowlist:
         write_allowlist(allowlist_path, violations)
         return 0
