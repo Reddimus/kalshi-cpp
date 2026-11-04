@@ -7,12 +7,16 @@
     "style"
   ],
   "autoReview": [
-    "open"
+    "open",
+    "push",
+    "rebase"
   ],
   "statusCheck": true,
   "shouldUpdateDescription": false,
   "autoApprove": {
     "enabled": false
   },
-  "triggerOnDrafts": false
+  "triggerOnDrafts": false,
+  "statusCommentsEnabled": true,
+  "hideFooter": false
 }
