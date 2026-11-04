@@ -83,8 +83,30 @@ Error unknown_subscription(ws::Subscription subscription) {
 
 } // namespace
 
-ws::Subscription SubscriptionRegistry::subscribe(ws::Channel channel, ws::SubscribeParams params,
-												 bool connected, std::vector<std::string>& frames) {
+Result<ws::Subscription> SubscriptionRegistry::subscribe(ws::Channel channel,
+														 ws::SubscribeParams params, bool connected,
+														 std::vector<std::string>& frames) {
+	if (ws::to_string(channel).empty()) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest, "A known channel is required", 0, {}});
+	}
+	if (params.update_interval_ms && ws::to_string(*params.update_interval_ms).empty()) {
+		return std::unexpected(Error{ErrorCode::InvalidRequest,
+									 "SubscribeParams.update_interval_ms must be 0, 100, or 1000",
+									 0,
+									 {}});
+	}
+	if (channel == ws::Channel::OrderbookDelta &&
+		std::any_of(entries_.begin(), entries_.end(),
+					[](const std::pair<const std::int64_t, Entry>& item) {
+						return item.second.handle.channel == ws::Channel::OrderbookDelta;
+					})) {
+		return std::unexpected(Error{ErrorCode::InvalidRequest,
+									 "An orderbook subscription already exists; use add_markets, "
+									 "or wait for unsubscribe confirmation",
+									 0,
+									 {}});
+	}
 	const ws::Subscription handle{next_id(), channel};
 	Entry& entry = entries_[handle.id];
 	entry.handle = handle;

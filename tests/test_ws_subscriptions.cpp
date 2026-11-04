@@ -29,8 +29,10 @@ TEST(WsSubscriptions, CommandsKeepKalshisKeyOrderAndOmitUnsetOptions) {
 	SubscriptionRegistry registry;
 	std::vector<std::string> frames;
 	const kalshi::ws::Subscription book =
-		registry.subscribe(Channel::OrderbookDelta,
-						   {.market_tickers = {"A", "B"}, .use_yes_price = true}, true, frames);
+		registry
+			.subscribe(Channel::OrderbookDelta,
+					   {.market_tickers = {"A", "B"}, .use_yes_price = true}, true, frames)
+			.value();
 	ASSERT_EQ(frames.size(), 1U);
 	EXPECT_EQ(
 		frames[0],
@@ -54,7 +56,8 @@ TEST(WsSubscriptions, CommandsKeepKalshisKeyOrderAndOmitUnsetOptions) {
 TEST(WsSubscriptions, NothingIsSentUntilConnected) {
 	SubscriptionRegistry registry;
 	std::vector<std::string> frames;
-	const kalshi::ws::Subscription ticker = registry.subscribe(Channel::Ticker, {}, false, frames);
+	const kalshi::ws::Subscription ticker =
+		registry.subscribe(Channel::Ticker, {}, false, frames).value();
 	ASSERT_TRUE(
 		registry
 			.update(ticker,
@@ -73,7 +76,7 @@ TEST(WsSubscriptions, CommandsBeforeTheAckWaitForTheServersSid) {
 	SubscriptionRegistry registry;
 	std::vector<std::string> frames;
 	const kalshi::ws::Subscription book =
-		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames);
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames).value();
 	frames.clear();
 	ASSERT_TRUE(
 		registry
@@ -92,7 +95,8 @@ TEST(WsSubscriptions, CommandsBeforeTheAckWaitForTheServersSid) {
 TEST(WsSubscriptions, AnUnsubscribeBeforeTheAckIsSentAfterIt) {
 	SubscriptionRegistry registry;
 	std::vector<std::string> frames;
-	const kalshi::ws::Subscription trades = registry.subscribe(Channel::Trade, {}, true, frames);
+	const kalshi::ws::Subscription trades =
+		registry.subscribe(Channel::Trade, {}, true, frames).value();
 	frames.clear();
 	ASSERT_TRUE(registry.unsubscribe(trades, frames).has_value());
 	EXPECT_TRUE(frames.empty());
@@ -112,7 +116,8 @@ TEST(WsSubscriptions, ReconnectingResubscribesWithTheCurrentMarkets) {
 	SubscriptionRegistry registry;
 	std::vector<std::string> frames;
 	const kalshi::ws::Subscription book =
-		registry.subscribe(Channel::OrderbookDelta, {.market_tickers = {"A"}}, true, frames);
+		registry.subscribe(Channel::OrderbookDelta, {.market_tickers = {"A"}}, true, frames)
+			.value();
 	registry.on_subscribed({2, "orderbook_delta", 5});
 	ASSERT_TRUE(
 		registry
@@ -153,7 +158,7 @@ TEST(WsSubscriptions, UpdateRepliesReplaceTheMarketList) {
 	SubscriptionRegistry registry;
 	std::vector<std::string> frames;
 	const kalshi::ws::Subscription ticker =
-		registry.subscribe(Channel::Ticker, {.market_ticker = "A"}, true, frames);
+		registry.subscribe(Channel::Ticker, {.market_ticker = "A"}, true, frames).value();
 	registry.on_subscribed({2, "ticker", 4});
 	ASSERT_TRUE(
 		registry
@@ -179,7 +184,8 @@ TEST(WsSubscriptions, GapsAreReportedAndOrderbookGapsRequestSnapshots) {
 	SubscriptionRegistry registry;
 	std::vector<std::string> frames;
 	const kalshi::ws::Subscription book =
-		registry.subscribe(Channel::OrderbookDelta, {.market_tickers = {"A"}}, true, frames);
+		registry.subscribe(Channel::OrderbookDelta, {.market_tickers = {"A"}}, true, frames)
+			.value();
 	registry.on_subscribed({2, "orderbook_delta", 3});
 
 	kalshi::WsMessage first = delta(3, 1);
@@ -210,7 +216,8 @@ TEST(WsSubscriptions, GapsAreReportedAndOrderbookGapsRequestSnapshots) {
 TEST(WsSubscriptions, ErrorsNameTheirSubscriptionAndEndFailedSubscribes) {
 	SubscriptionRegistry registry;
 	std::vector<std::string> frames;
-	const kalshi::ws::Subscription fills = registry.subscribe(Channel::Fill, {}, true, frames);
+	const kalshi::ws::Subscription fills =
+		registry.subscribe(Channel::Fill, {}, true, frames).value();
 
 	const Reaction failed = registry.on_error({2, std::nullopt, std::nullopt, 9, ""});
 	ASSERT_TRUE(failed.error.has_value());
@@ -245,7 +252,8 @@ TEST(WsSubscriptions, RejectsUnknownHandlesAndMissingActions) {
 		registry.update(stranger, {.action = kalshi::ws::UpdateAction::GetSnapshot}, true, frames)
 			.has_value());
 
-	const kalshi::ws::Subscription ticker = registry.subscribe(Channel::Ticker, {}, false, frames);
+	const kalshi::ws::Subscription ticker =
+		registry.subscribe(Channel::Ticker, {}, false, frames).value();
 	const kalshi::Result<void> missing = registry.update(ticker, {}, true, frames);
 	ASSERT_FALSE(missing.has_value());
 	EXPECT_EQ(missing.error().code, kalshi::ErrorCode::InvalidRequest);
@@ -264,7 +272,7 @@ TEST(WsSubscriptions, RejectedUpdatesAreNotResubscribed) {
 	SubscriptionRegistry registry;
 	std::vector<std::string> frames;
 	const kalshi::ws::Subscription ticker =
-		registry.subscribe(Channel::Ticker, {.market_tickers = {"A"}}, true, frames);
+		registry.subscribe(Channel::Ticker, {.market_tickers = {"A"}}, true, frames).value();
 	registry.on_subscribed({2, "ticker", 4});
 	ASSERT_TRUE(
 		registry
@@ -288,7 +296,7 @@ TEST(WsSubscriptions, EmptiedSubscriptionsWaitForMarketsBeforeResubscribing) {
 	SubscriptionRegistry registry;
 	std::vector<std::string> frames;
 	const kalshi::ws::Subscription ticker =
-		registry.subscribe(Channel::Ticker, {.market_tickers = {"A"}}, true, frames);
+		registry.subscribe(Channel::Ticker, {.market_tickers = {"A"}}, true, frames).value();
 	registry.on_subscribed({2, "ticker", 4});
 	ASSERT_TRUE(
 		registry
@@ -321,7 +329,8 @@ TEST(WsSubscriptions, SequencedRepliesAdvanceTheSequence) {
 	SubscriptionRegistry registry;
 	std::vector<std::string> frames;
 	const kalshi::ws::Subscription book =
-		registry.subscribe(Channel::OrderbookDelta, {.market_tickers = {"A"}}, true, frames);
+		registry.subscribe(Channel::OrderbookDelta, {.market_tickers = {"A"}}, true, frames)
+			.value();
 	registry.on_subscribed({2, "orderbook_delta", 3});
 	kalshi::WsMessage first = delta(3, 5);
 	registry.on_data(first, true);
@@ -339,7 +348,7 @@ TEST(WsSubscriptions, SequencedRepliesAdvanceTheSequence) {
 TEST(WsSubscriptions, MaximumSequenceCannotOverflowGapDetection) {
 	SubscriptionRegistry registry;
 	std::vector<std::string> frames;
-	registry.subscribe(Channel::OrderbookDelta, {}, true, frames);
+	ASSERT_TRUE(registry.subscribe(Channel::OrderbookDelta, {}, true, frames));
 	registry.on_subscribed({2, "orderbook_delta", 9});
 	kalshi::WsMessage first = delta(9, std::numeric_limits<std::int64_t>::max());
 	registry.on_data(first, false);
@@ -352,7 +361,8 @@ TEST(WsSubscriptions, MaximumSequenceCannotOverflowGapDetection) {
 TEST(WsSubscriptions, RemovingAnAddedFilterDoesNotBroadenAfterReconnect) {
 	SubscriptionRegistry registry;
 	std::vector<std::string> frames;
-	const kalshi::ws::Subscription ticker = registry.subscribe(Channel::Ticker, {}, false, frames);
+	const kalshi::ws::Subscription ticker =
+		registry.subscribe(Channel::Ticker, {}, false, frames).value();
 	ASSERT_TRUE(registry.update(
 		ticker, {.market_ticker = "A", .action = kalshi::ws::UpdateAction::AddMarkets}, false,
 		frames));
@@ -367,7 +377,8 @@ TEST(WsSubscriptions, RemovingAnAddedFilterDoesNotBroadenAfterReconnect) {
 TEST(WsSubscriptions, RejectedUnsubscribeKeepsTheSubscriptionRetryable) {
 	SubscriptionRegistry registry;
 	std::vector<std::string> frames;
-	const kalshi::ws::Subscription ticker = registry.subscribe(Channel::Ticker, {}, true, frames);
+	const kalshi::ws::Subscription ticker =
+		registry.subscribe(Channel::Ticker, {}, true, frames).value();
 	registry.on_subscribed({2, "ticker", 7});
 	frames.clear();
 	ASSERT_TRUE(registry.unsubscribe(ticker, frames));
@@ -378,4 +389,38 @@ TEST(WsSubscriptions, RejectedUnsubscribeKeepsTheSubscriptionRetryable) {
 	frames.clear();
 	EXPECT_TRUE(registry.unsubscribe(ticker, frames));
 	EXPECT_EQ(frames.size(), 1U);
+}
+
+TEST(WsSubscriptions, OrderbookHandleStaysReservedUntilUnsubscribeConfirmation) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription book =
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames).value();
+	frames.clear();
+	EXPECT_FALSE(registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "B"}, true, frames));
+	EXPECT_TRUE(frames.empty());
+	registry.on_subscribed({2, "orderbook_delta", 9});
+	EXPECT_FALSE(registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "B"}, true, frames));
+	kalshi::WsMessage update = delta(9, 1);
+	registry.on_data(update, false);
+	EXPECT_EQ(std::get<kalshi::ws::Update<kalshi::ws::OrderbookDelta>>(update).subscription,
+			  book.id);
+	ASSERT_TRUE(registry.unsubscribe(book, frames));
+	frames.clear();
+	EXPECT_FALSE(registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "B"}, true, frames));
+	EXPECT_TRUE(frames.empty());
+	registry.on_unsubscribed({3, 9});
+	EXPECT_TRUE(registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "B"}, true, frames));
+	ASSERT_EQ(frames.size(), 1U);
+	EXPECT_EQ(registry.subscriptions().size(), 1U);
+}
+
+TEST(WsSubscriptions, RejectedOrderbookSubscribeCanBeRetried) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	ASSERT_TRUE(registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames));
+	registry.on_error({.id = 2, .code = 11, .message = "rejected"});
+	frames.clear();
+	EXPECT_TRUE(registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "B"}, true, frames));
+	ASSERT_EQ(frames.size(), 1U);
 }

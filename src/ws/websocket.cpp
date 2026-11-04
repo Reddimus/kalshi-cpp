@@ -828,12 +828,9 @@ Result<ws::Subscription> WebSocketClient::subscribe(ws::Channel channel,
 	if (!impl_) {
 		return std::unexpected(moved_from());
 	}
-	if (channel == ws::Channel::Unknown) {
-		return std::unexpected(Error{ErrorCode::InvalidRequest, "A channel is required", 0, {}});
-	}
 	std::vector<std::string> frames;
 	const std::lock_guard lock(impl_->mutex);
-	const ws::Subscription subscription = impl_->registry.subscribe(
+	Result<ws::Subscription> subscription = impl_->registry.subscribe(
 		channel, std::move(params), impl_->state == WsState::Connected, frames);
 	impl_->queue(frames);
 	return subscription;

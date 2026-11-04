@@ -29,9 +29,10 @@ struct Reaction {
 /// WebSocketClient guards it with its mutex.
 class SubscriptionRegistry {
 public:
-	/// Adds a subscription. Frames to send are appended only when connected.
-	ws::Subscription subscribe(ws::Channel channel, ws::SubscribeParams params, bool connected,
-							   std::vector<std::string>& frames);
+	/// Adds a subscription, rejecting invalid intervals and duplicate orderbook handles.
+	/// Frames to send are appended only when connected.
+	Result<ws::Subscription> subscribe(ws::Channel channel, ws::SubscribeParams params,
+									   bool connected, std::vector<std::string>& frames);
 	Result<void> unsubscribe(ws::Subscription subscription, std::vector<std::string>& frames);
 	/// Changes a subscription. The change reaches the parameters used to
 	/// resubscribe once the server confirms it, so a rejected change is dropped.

@@ -115,6 +115,8 @@ public:
 
 	/// Subscribes to one channel. The handle is usable at once: updates and
 	/// unsubscribes made before the server confirms are sent after it does.
+	/// Keep one OrderbookDelta handle per client; extend it with add_markets.
+	/// To replace it, wait for Unsubscribed or call disconnect() first.
 	[[nodiscard]] Result<ws::Subscription> subscribe(ws::Channel channel,
 													 ws::SubscribeParams params = {});
 	[[nodiscard]] Result<void> unsubscribe(ws::Subscription subscription);

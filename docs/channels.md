@@ -4,6 +4,12 @@ Covers Kalshi's AsyncAPI 2.0.0 document (`spec/asyncapi.yaml`).
 Subscribe with `WebSocketClient::subscribe(ws::Channel::..., params)`; each message
 arrives in `on_message` as `ws::Update<T>`.
 
+Keep one `OrderbookDelta` handle per client. Use `add_markets` to extend it.
+A second `subscribe` returns `InvalidRequest` until the server confirms
+`Unsubscribed` or the client disconnects. This keeps every orderbook update
+routed to the original handle. Set `update_interval_ms` to `V0`, `V100`, or
+`V1000`, or omit it for the server default of zero milliseconds.
+
 | Channel | `ws::Channel` | Messages |
 | --- | --- | --- |
 | `orderbook_delta` | `OrderbookDelta` | `ws::OrderbookSnapshot`, `ws::OrderbookDelta` |
