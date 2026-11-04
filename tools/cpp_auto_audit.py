@@ -5,7 +5,7 @@ Policy:
 - allow ``auto`` for structured bindings
 - allow ``auto`` for lambda closure objects
 - allow ``auto`` for iterator-like values
-- allow explicit one-off exceptions marked with ``auto-ok``
+- allow explicit one-off comments marked with ``auto-ok``
 
 Everything else is expected to spell out the type directly. The optional
 allowlist takes one rule per line:
@@ -125,6 +125,31 @@ CPP_TOKEN = re.compile(
 )
 
 
+def lexical_context(source: str) -> tuple[str, set[int]]:
+    """Mask literals/comments without moving code, and locate comment opt-outs."""
+    pieces: list[str] = []
+    opt_out_lines: set[int] = set()
+    position = 0
+    line_number = 1
+    for token in CPP_TOKEN.finditer(source):
+        gap = source[position:token.start()]
+        pieces.append(gap)
+        line_number += gap.count("\n")
+        text = token[0]
+        if token.lastgroup == "skip":
+            if text.startswith(("//", "/*")):
+                for number, comment_line in enumerate(text.split("\n"), start=line_number):
+                    if "auto-ok" in comment_line:
+                        opt_out_lines.add(number)
+            pieces.append(re.sub(r"[^\n\r]", " ", text))
+        else:
+            pieces.append(text)
+        line_number += text.count("\n")
+        position = token.end()
+    pieces.append(source[position:])
+    return "".join(pieces), opt_out_lines
+
+
 def direct_iterator_return(body: list[str], declaration: str) -> bool:
     # Recognize a single returned iterator call, not incidental calls elsewhere
     # in a body or an iterator comparison whose result is a bool.
@@ -143,7 +168,11 @@ def direct_iterator_return(body: list[str], declaration: str) -> bool:
                     return index
         return None
 
-    while expression and expression[0] == "(" and closing_paren(expression, 0) == len(expression) - 1:
+    while (
+        expression
+        and expression[0] == "("
+        and closing_paren(expression, 0) == len(expression) - 1
+    ):
         expression = expression[1:-1]
     if "(" not in expression:
         return False
@@ -157,7 +186,9 @@ def direct_iterator_return(body: list[str], declaration: str) -> bool:
     )
 
 
-def lambda_initializer_allowed(line: str, source: str | None = None, offset: int = 0) -> bool | None:
+def lambda_initializer_allowed(
+    line: str, source: str | None = None, offset: int = 0
+) -> bool | None:
     """Return None for another initializer, otherwise apply lambda/iterator rules."""
     equals = line.find("=")
     if equals < 0:
@@ -239,13 +270,15 @@ def is_iterator_like(line: str) -> bool:
     return any(hint in line for hint in ITERATOR_HINTS)
 
 
-def is_allowed_auto(line: str, source: str | None = None, offset: int = 0) -> bool:
+def is_allowed_auto(
+    line: str, source: str | None = None, offset: int = 0, *, auto_ok: bool = False
+) -> bool:
     stripped = line.strip()
-    if "auto-ok" in stripped:
+    if auto_ok:
         return True
     if not DECLARATION_AUTO.search(stripped):
         return True
-    if STRUCTURED_BINDING.search(stripped):
+    if STRUCTURED_BINDING.search(stripped.partition("=")[0]):
         return True
     lambda_allowed = lambda_initializer_allowed(line, source, offset)
     if lambda_allowed is not None:
@@ -268,14 +301,15 @@ def collect_violations(repo_root: Path, allowlist: list[AllowRule]) -> list[Viol
     for path in tracked_cpp_files(repo_root):
         relative_path = path.relative_to(repo_root).as_posix()
         source = path.read_text()
+        code, opt_out_lines = lexical_context(source)
         offset = 0
-        for line_number, raw_line in enumerate(source.splitlines(keepends=True), start=1):
-            line = raw_line.rstrip("\r\n")
+        for line_number, line in enumerate(source.split("\n"), start=1):
             line_offset = offset
-            offset += len(raw_line)
-            if not WORD_AUTO.search(line):
+            offset += len(line) + 1
+            code_line = code[line_offset:line_offset + len(line)]
+            if not WORD_AUTO.search(code_line):
                 continue
-            if is_allowed_auto(line, source, line_offset):
+            if is_allowed_auto(code_line, source, line_offset, auto_ok=line_number in opt_out_lines):
                 continue
             if matches_allowlist(relative_path, line, allowlist):
                 continue

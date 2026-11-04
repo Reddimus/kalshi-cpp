@@ -69,6 +69,7 @@ class AutoAuditTests(unittest.TestCase):
         initializers = [
             "[]{ return 42; }()",
             "[] static { return 42; }()",
+            "[] { int pair[2]{1, 2}; auto [a, b] = pair; return a + b; }()",
             "[] { return values.begin() != values.end(); }()",
             "[] { return values.begin(); }() == values.end()",
             "[] { return std::distance(values.begin(), values.end()); }()",
@@ -90,6 +91,7 @@ class AutoAuditTests(unittest.TestCase):
     def test_multiline_lambda_closures_preserve_body_literals_and_specifiers(self):
         initializers = [
             "[] static { return 42; }",
+            "[] { int pair[2]{1, 2}; auto [a, b] = pair; return a + b; }",
             "[]() mutable noexcept { return 42; }",
             "[]() consteval -> int { return 42; }",
             "[]<typename T>(T n) constexpr noexcept -> T { return n; }",
@@ -119,6 +121,66 @@ class AutoAuditTests(unittest.TestCase):
                 )
                 result = self.audit()
                 self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_structured_binding_declarations_remain_allowed(self):
+        declarations = [
+            "auto [a, b] = pair;",
+            "const auto& [a, b] = pair;",
+            "if (auto [a, b] = pair; a) {}",
+        ]
+        for declaration in declarations:
+            with self.subTest(declaration=declaration):
+                (self.root / "binding.cpp").write_text("int pair[2]{1, 2};\n" + declaration + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_exemptions_in_literals_and_comments_do_not_hide_values(self):
+        sources = [
+            'auto value = std::string("values.begin(");',
+            'auto value = std::string("auto-ok");',
+            'auto value = std::string("auto [a, b] = pair;");',
+            'auto value = std::string("[] { return 42; }");',
+            'auto value = 42; // values.begin(',
+            'auto /* declaration */ value = 42;',
+            '/* auto [a, b] = pair; */ auto value = 42;',
+            'auto value = 42; // [] { return 42; }',
+            'auto value = [] {\n    // auto-ok: an inner line only\n    return 42;\n}();',
+            'auto value = 42; /* auto [a, b] = pair; */',
+            'auto value = [] { const char* text = "auto-ok"; return 42; }();',
+            'auto value = [] { const char* text = "auto [a, b] = pair;"; return 42; }();',
+            'auto value = [] { const char* text = R"tag(// auto-ok)tag"; return 42; }();',
+            'auto value = [] { /* auto [a, b] = pair; */ return 42; }();',
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                (self.root / "scope.cpp").write_text(source + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("scope.cpp:1", result.stderr)
+
+    def test_explicit_comment_opt_outs_remain_allowed(self):
+        sources = [
+            'auto value = 42; // auto-ok: generated contract',
+            '/* auto-ok: generated contract */ auto value = 42;',
+            'auto value = 42; /* auto-ok: generated contract */',
+            'auto value = 42; /* auto-ok: generated\ncontract */',
+            'auto value = [] { return 42; }(); // auto-ok: scalar result',
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                (self.root / "scope.cpp").write_text(source + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_multiline_literals_and_comments_are_not_declarations(self):
+        (self.root / "scope.cpp").write_text(
+            'const char* text = R"tag(\nauto ignored = 42;\n\vauto ignored = 42;\f)tag";\n'
+            '/*\nauto ignored = 42;\n*/\n'
+            'auto fn = /* capture follows */ [] { return 42; };\n'
+            'auto it = values.begin();\n'
+        )
+        result = self.audit()
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_allowlist_regeneration_is_idempotent(self):
         (self.root / "value.cpp").write_text("auto value = 42;\n")
