@@ -13,6 +13,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Follow Predictions OpenAPI 3.35.0: credit history and event-contract exit triggers.
 - Support WebSocket order-book update intervals and the refreshed message fields.
 
+### Changed
+
+- Remove `kalshi::ws::Channel::BatchCommunications`, which the upstream contract no longer lists.
+
 ### Fixed
 
 - Request fresh snapshots after invalid data in the orderbook example; reject exit triggers without a leg.
