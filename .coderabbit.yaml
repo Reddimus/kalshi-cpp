@@ -4,6 +4,7 @@ reviews:
   profile: chill
   auto_approvals:
     enabled: false
+  review_status: false
   high_level_summary: false
   poem: false
   sequence_diagrams: false

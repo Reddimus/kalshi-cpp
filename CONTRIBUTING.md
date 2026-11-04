@@ -138,19 +138,34 @@ Contributions are licensed under the repository's MIT license.
 has no trading tools. Codex enables only documentation searches and file reads.
 Start a new trusted client session to load it; keep credentials outside git.
 
-`.greptile/config.json` requests Apex reviews when a PR opens, preserves its
-description, and disables automatic approval. Each Apex review costs 10 credits.
+`.greptile/config.json` requests Apex reviews on ready PRs and new pushes, leaves the PR
+description unchanged, and disables automatic approval. Each Apex review costs 10 credits.
 
 ## Review fallback
 
-Greptile reviews ready PRs and new pushes first. When its App posts a credit
-refusal, the Review fallback workflow requests CodeRabbit using
-`review:greptile-quota-fallback`. CodeRabbit does not automatically review
-subsequent pushes; each needs another Greptile credit refusal.
+Greptile reviews ready PRs and new pushes first. Only its authenticated
+App's credit-refusal message on a default-branch PR enables CodeRabbit
+through the Review fallback workflow and `review:greptile-quota-fallback`
+label. CodeRabbit's open and push reviews are disabled; each backup request
+needs a Greptile credit refusal.
 
-The label means a review was requested, not completed. Check feedback against
-the latest commit before merging. If CodeRabbit is rate-limited, rerun Review
-fallback from Actions with the PR number after its allowance refills.
-No paid review overages are enabled by this workflow.
+A refusal reports exhausted organization credits, without a commit SHA. The
+workflow observes the current head; CodeRabbit may see a newer one. A
+completed Greptile review of the current head suppresses fallback and
+removes the opt-in label. Timeouts, generic failures, and an in-progress
+summary never enable it.
+
+The workflow records a reservation before adding the label to suppress
+duplicate automatic requests. Deduplication relies on GitHub comment-list
+visibility. If delivery fails or CodeRabbit is rate-limited, inspect the
+latest feedback, then retry Review fallback from Actions with the PR number.
+Historical retries stop after newer completed Greptile activity. Each event
+reconciles the full PR state, so a replaced queued event does not lose the
+credit refusal or recovery. The label
+means requested, not completed: verify the reviewed commit before merging.
+Skipped-review comments are disabled. Greptile footers stay visible so the
+workflow can recognize the reviewed commit.
+Maintainers can still request either reviewer manually. No paid review
+overages are enabled by this workflow.
 
 Test the helper with `node --test .github/scripts/review-fallback.test.cjs`.
