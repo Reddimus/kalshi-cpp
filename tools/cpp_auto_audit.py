@@ -120,13 +120,45 @@ def read_allowlist(path: Path) -> list[AllowRule]:
 CPP_TOKEN = re.compile(
     r'(?P<skip>(?:u8|u|U|L)?R"(?P<raw>[^\s()\\]{0,16})\(.*?\)(?P=raw)"'
     r'|"(?:\\.|[^"\\])*"|\b\d[\w\'.]*|\'(?:\\.|[^\'\\])*\''
-    r'|/\*.*?\*/|//[^\n]*)|[A-Za-z_]\w*|[^\s]',
+    r'|/\*.*?\*/|//[^\n]*)|[A-Za-z_]\w*|<<|[^\s]',
     re.DOTALL,
 )
 
 
-def is_lambda_closure(line: str, source: str | None = None, offset: int = 0) -> bool | None:
-    """Return None for another initializer, otherwise whether it keeps a closure."""
+def direct_iterator_return(body: list[str], declaration: str) -> bool:
+    # Recognize a single returned iterator call, not incidental calls elsewhere
+    # in a body or an iterator comparison whose result is a bool.
+    if not body or body[0] != "return" or body[-1] != ";":
+        return False
+    expression = body[1:-1]
+
+    def closing_paren(tokens: list[str], start: int) -> int | None:
+        depth = 0
+        for index in range(start, len(tokens)):
+            if tokens[index] == "(":
+                depth += 1
+            elif tokens[index] == ")":
+                depth -= 1
+                if depth == 0:
+                    return index
+        return None
+
+    while expression and expression[0] == "(" and closing_paren(expression, 0) == len(expression) - 1:
+        expression = expression[1:-1]
+    if "(" not in expression:
+        return False
+    opening = expression.index("(")
+    callee = "".join(expression[:opening])
+    if not re.fullmatch(r"(?:[A-Za-z_]\w*(?:::|\.|->))*[A-Za-z_]\w*", callee):
+        return False
+    return (
+        closing_paren(expression, opening) == len(expression) - 1
+        and is_iterator_like(f"{declaration} = {callee}(")
+    )
+
+
+def lambda_initializer_allowed(line: str, source: str | None = None, offset: int = 0) -> bool | None:
+    """Return None for another initializer, otherwise apply lambda/iterator rules."""
     equals = line.find("=")
     if equals < 0:
         return None
@@ -140,7 +172,7 @@ def is_lambda_closure(line: str, source: str | None = None, offset: int = 0) -> 
 
     pairs = {"[": "]", "(": ")", "{": "}"}
 
-    def consume_group(opener: str) -> bool:
+    def consume_group(opener: str, contents: list[str] | None = None) -> bool:
         stack = [">" if opener == "<" else pairs[opener]]
         for token in tokens:
             if token in pairs:
@@ -156,6 +188,8 @@ def is_lambda_closure(line: str, source: str | None = None, offset: int = 0) -> 
                     return False
                 if not stack:
                     return True
+            if contents is not None:
+                contents.append(token)
         return False
 
     if not consume_group("["):
@@ -166,7 +200,7 @@ def is_lambda_closure(line: str, source: str | None = None, offset: int = 0) -> 
     requires_expression = False
     previous = None
     for token in tokens:
-        if token == "requires" and previous == "requires":
+        if token == "requires" and previous in {"requires", "&", "|", "!", "?", ":"}:
             requires_expression = True
         if token == "{":
             if requires_expression:
@@ -175,11 +209,18 @@ def is_lambda_closure(line: str, source: str | None = None, offset: int = 0) -> 
                 requires_expression = False
                 previous = token
                 continue
-            if not consume_group("{"):
+            body: list[str] = []
+            if not consume_group("{", body):
                 return False
-            # A call or another expression after the body deduces a value,
-            # rather than the closure type allowed by this exception.
-            return next(tokens, None) in {None, ";", ",", ")", "}"}
+            following = next(tokens, None)
+            if following == "(":
+                if not consume_group("("):
+                    return False
+                return (
+                    next(tokens, None) in {None, ";", ",", ")", "}"}
+                    and direct_iterator_return(body, line.partition("=")[0])
+                )
+            return following in {None, ";", ",", ")", "}"}
         if token in {"(", "["} or (first_header_token and token == "<"):
             if not consume_group(token):
                 return False
@@ -206,9 +247,9 @@ def is_allowed_auto(line: str, source: str | None = None, offset: int = 0) -> bo
         return True
     if STRUCTURED_BINDING.search(stripped):
         return True
-    closure = is_lambda_closure(line, source, offset)
-    if closure is not None:
-        return closure
+    lambda_allowed = lambda_initializer_allowed(line, source, offset)
+    if lambda_allowed is not None:
+        return lambda_allowed
     if is_iterator_like(stripped):
         return True
     return False

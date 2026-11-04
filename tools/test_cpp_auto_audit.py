@@ -70,6 +70,8 @@ class AutoAuditTests(unittest.TestCase):
             "[]{ return 42; }()",
             "[] static { return 42; }()",
             "[] { return values.begin() != values.end(); }()",
+            "[] { return values.begin(); }() == values.end()",
+            "[] { return std::distance(values.begin(), values.end()); }()",
             "[](int n) constexpr noexcept -> int { return n; }(42)",
             "[n = values[0]] { return n; } /* call */ ()",
             "[]\n{\n    if (true) { return 42; }\n    return 0;\n}\n()",
@@ -91,6 +93,9 @@ class AutoAuditTests(unittest.TestCase):
             "[]() mutable noexcept { return 42; }",
             "[]() consteval -> int { return 42; }",
             "[]<typename T>(T n) constexpr noexcept -> T { return n; }",
+            "[]<int N = 1 << 2>() { return N; }",
+            "[]<typename T>(T n) requires true && requires { n + n; } { return n; }",
+            "[]<typename T> requires true (T n) requires true { return n; }",
             "[]<typename T = decltype([] { return 42; })>() { return T{}; }",
             "[]<typename T>(T n) requires requires { n + n; } { return n; }",
             "[]\n{\n    if (true) { return 42; }\n    return 0;\n}",
@@ -103,6 +108,15 @@ class AutoAuditTests(unittest.TestCase):
         for initializer in initializers:
             with self.subTest(initializer=initializer):
                 (self.root / "lambda.cpp").write_text(f"auto fn = {initializer};\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_direct_iterator_returns_from_invoked_lambdas_are_allowed(self):
+        for expression in ["values.begin()", "(values.begin())", "std::begin(values)", "std::next(values.begin())"]:
+            with self.subTest(expression=expression):
+                (self.root / "iterator.cpp").write_text(
+                    f"auto it = [&] {{ return {expression}; }}();\n"
+                )
                 result = self.audit()
                 self.assertEqual(result.returncode, 0, result.stderr)
 
