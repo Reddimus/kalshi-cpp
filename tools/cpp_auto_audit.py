@@ -115,20 +115,78 @@ def read_allowlist(path: Path) -> list[AllowRule]:
     return rules
 
 
-def is_lambda_closure(line: str) -> bool:
-    initializer = line.partition("=")[2].lstrip()
-    if not initializer.startswith("["):
+# Skip literals and comments before inspecting C++ delimiters. Keep numbers
+# together so digit separators cannot be mistaken for character literals.
+CPP_TOKEN = re.compile(
+    r'(?P<skip>(?:u8|u|U|L)?R"(?P<raw>[^\s()\\]{0,16})\(.*?\)(?P=raw)"'
+    r'|"(?:\\.|[^"\\])*"|\b\d[\w\'.]*|\'(?:\\.|[^\'\\])*\''
+    r'|/\*.*?\*/|//[^\n]*)|[A-Za-z_]\w*|[^\s]',
+    re.DOTALL,
+)
+
+
+def is_lambda_closure(line: str, source: str | None = None, offset: int = 0) -> bool | None:
+    """Return None for another initializer, otherwise whether it keeps a closure."""
+    equals = line.find("=")
+    if equals < 0:
+        return None
+    tokens = (
+        token[0]
+        for token in CPP_TOKEN.finditer(source if source is not None else line, offset + equals + 1)
+        if token.lastgroup != "skip"
+    )
+    if next(tokens, None) != "[":
+        return None
+
+    pairs = {"[": "]", "(": ")", "{": "}"}
+
+    def consume_group(opener: str) -> bool:
+        stack = [">" if opener == "<" else pairs[opener]]
+        for token in tokens:
+            if token in pairs:
+                stack.append(pairs[token])
+            elif token == "<" and stack[-1] == ">":
+                stack.append(">")
+            elif token == ">" and stack[-1] == ">":
+                stack.pop()
+                if not stack:
+                    return True
+            elif token in pairs.values():
+                if token != stack.pop():
+                    return False
+                if not stack:
+                    return True
         return False
-    # Captures can contain subscripts, strings and nested lambdas.
-    tokens = re.finditer('(?:u8|u|U|L)?R"(?P<raw>[^\\s()\\\\]{0,16})\\(.*?\\)(?P=raw)"|"(?:\\\\.|[^"\\\\])*"|\\b\\d[\\w\'.]*|\'(?:\\\\.|[^\'\\\\])*\'|/\\*.*?\\*/|//.*|\\[|\\]', initializer)
-    depth = 0
+
+    if not consume_group("["):
+        return False
+    # Parameter lists, attributes and noexcept/decltype expressions may contain
+    # braces. The closure body starts at the next ungrouped opening brace.
+    first_header_token = True
+    requires_expression = False
+    previous = None
     for token in tokens:
-        if token[0] == "[":
-            depth += 1
-        elif token[0] == "]":
-            depth -= 1
-            if depth == 0:
-                return re.match(r"\s*(?:\(|\{|<|\[\[|static\b|constexpr\b|consteval\b|mutable\b|noexcept\b|->|$)", initializer[token.end():]) is not None
+        if token == "requires" and previous == "requires":
+            requires_expression = True
+        if token == "{":
+            if requires_expression:
+                if not consume_group("{"):
+                    return False
+                requires_expression = False
+                previous = token
+                continue
+            if not consume_group("{"):
+                return False
+            # A call or another expression after the body deduces a value,
+            # rather than the closure type allowed by this exception.
+            return next(tokens, None) in {None, ";", ",", ")", "}"}
+        if token in {"(", "["} or (first_header_token and token == "<"):
+            if not consume_group(token):
+                return False
+        elif token in {";", "}", "]", ")"}:
+            return False
+        first_header_token = False
+        previous = token
     return False
 
 
@@ -140,7 +198,7 @@ def is_iterator_like(line: str) -> bool:
     return any(hint in line for hint in ITERATOR_HINTS)
 
 
-def is_allowed_auto(line: str) -> bool:
+def is_allowed_auto(line: str, source: str | None = None, offset: int = 0) -> bool:
     stripped = line.strip()
     if "auto-ok" in stripped:
         return True
@@ -148,8 +206,9 @@ def is_allowed_auto(line: str) -> bool:
         return True
     if STRUCTURED_BINDING.search(stripped):
         return True
-    if is_lambda_closure(stripped):
-        return True
+    closure = is_lambda_closure(line, source, offset)
+    if closure is not None:
+        return closure
     if is_iterator_like(stripped):
         return True
     return False
@@ -167,10 +226,15 @@ def collect_violations(repo_root: Path, allowlist: list[AllowRule]) -> list[Viol
     violations: list[Violation] = []
     for path in tracked_cpp_files(repo_root):
         relative_path = path.relative_to(repo_root).as_posix()
-        for line_number, line in enumerate(path.read_text().splitlines(), start=1):
+        source = path.read_text()
+        offset = 0
+        for line_number, raw_line in enumerate(source.splitlines(keepends=True), start=1):
+            line = raw_line.rstrip("\r\n")
+            line_offset = offset
+            offset += len(raw_line)
             if not WORD_AUTO.search(line):
                 continue
-            if is_allowed_auto(line):
+            if is_allowed_auto(line, source, line_offset):
                 continue
             if matches_allowlist(relative_path, line, allowlist):
                 continue

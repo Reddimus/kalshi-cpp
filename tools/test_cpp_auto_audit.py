@@ -65,6 +65,47 @@ class AutoAuditTests(unittest.TestCase):
         (self.root / "literal.cpp").write_text(source + "auto stateless = [] static { return 1; };\n")
         self.assertEqual(self.audit().returncode, 0)
 
+    def test_immediately_invoked_lambdas_require_explicit_types(self):
+        initializers = [
+            "[]{ return 42; }()",
+            "[] static { return 42; }()",
+            "[] { return values.begin() != values.end(); }()",
+            "[](int n) constexpr noexcept -> int { return n; }(42)",
+            "[n = values[0]] { return n; } /* call */ ()",
+            "[]\n{\n    if (true) { return 42; }\n    return 0;\n}\n()",
+            '[] { const char* text = "}();"; return 42; }()',
+            '[] { const char* text = R"tag(}\n(); ")tag"; return 42; }()',
+            "[] { /* } */ // }\n    return 42;\n}()",
+            "[] { return [] { return 42; }(); }()",
+        ]
+        for initializer in initializers:
+            with self.subTest(initializer=initializer):
+                (self.root / "lambda.cpp").write_text(f"auto value = {initializer};\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("lambda.cpp:1", result.stderr)
+
+    def test_multiline_lambda_closures_preserve_body_literals_and_specifiers(self):
+        initializers = [
+            "[] static { return 42; }",
+            "[]() mutable noexcept { return 42; }",
+            "[]() consteval -> int { return 42; }",
+            "[]<typename T>(T n) constexpr noexcept -> T { return n; }",
+            "[]<typename T = decltype([] { return 42; })>() { return T{}; }",
+            "[]<typename T>(T n) requires requires { n + n; } { return n; }",
+            "[]\n{\n    if (true) { return 42; }\n    return 0;\n}",
+            '[text = R"tag(]\n\" [)tag"]() { return text; }',
+            '[] { const char* text = "}();"; return text; }',
+            '[] { const char* text = R"tag(}\n(); ")tag"; return text; }',
+            "[] { /* } */ // }\n    return 1'000;\n}",
+            "[] { return [] { return 42; }(); }",
+        ]
+        for initializer in initializers:
+            with self.subTest(initializer=initializer):
+                (self.root / "lambda.cpp").write_text(f"auto fn = {initializer};\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_allowlist_regeneration_is_idempotent(self):
         (self.root / "value.cpp").write_text("auto value = 42;\n")
         self.assertEqual(self.audit("--write-allowlist").returncode, 0)
