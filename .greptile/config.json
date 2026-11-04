@@ -16,5 +16,7 @@
   "autoApprove": {
     "enabled": false
   },
-  "triggerOnDrafts": false
+  "triggerOnDrafts": false,
+  "statusCommentsEnabled": true,
+  "hideFooter": false
 }

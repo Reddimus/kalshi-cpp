@@ -169,3 +169,6 @@ Maintainers can still request either reviewer manually. No paid review
 overages are enabled by this workflow.
 
 Test the helper with `node --test .github/scripts/review-fallback.test.cjs`.
+
+Greptile status comments must stay enabled: the fallback listens for its
+credit refusal. This repository enables them through `statusCommentsEnabled`.
