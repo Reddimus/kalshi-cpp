@@ -15,7 +15,7 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
-- Request fresh snapshots after invalid orderbook data and reject exit triggers without a leg.
+- Request fresh snapshots after invalid data in the orderbook example; reject exit triggers without a leg.
 
 - Follow `next_cursor` when collecting incentive-program pages and stop cursor cycles.
 - Keep public headers compatible with Windows `min` and `max` macros.
