@@ -1,6 +1,7 @@
 #pragma once
 
 #include "kalshi/fixed_point.hpp"
+#include "kalshi/ws_models.hpp"
 
 #include <array>
 #include <cstdint>
@@ -9,6 +10,7 @@
 #include <optional>
 #include <string>
 #include <utility>
+#include <variant>
 #include <vector>
 
 namespace example {
@@ -70,5 +72,51 @@ inline bool apply_delta(Levels& levels, const std::string& price_text,
 	}
 	return true;
 }
+
+// A missing book ignores deltas until a valid snapshot restores it.
+class Orderbooks {
+public:
+	struct Change {
+		// The book is borrowed until the next update.
+		std::string ticker;
+		const Book* book{nullptr};
+		bool needs_snapshot{false};
+	};
+
+	Change consume(const kalshi::ws::Message& message) {
+		using Snapshot = kalshi::ws::Update<kalshi::ws::OrderbookSnapshot>;
+		using Delta = kalshi::ws::Update<kalshi::ws::OrderbookDelta>;
+		if (const Snapshot* snapshot = std::get_if<Snapshot>(&message)) {
+			const std::string& ticker = snapshot->msg.market_ticker;
+			Book replacement;
+			if (!load(replacement.yes, snapshot->msg.yes_dollars_fp) ||
+				!load(replacement.no, snapshot->msg.no_dollars_fp)) {
+				books_.erase(ticker);
+				return {ticker, nullptr, true};
+			}
+			const std::map<std::string, Book>::iterator found =
+				books_.insert_or_assign(ticker, std::move(replacement)).first;
+			return {ticker, &found->second, false};
+		}
+		if (const Delta* delta = std::get_if<Delta>(&message)) {
+			const std::string& ticker = delta->msg.market_ticker;
+			const std::map<std::string, Book>::iterator found = books_.find(ticker);
+			if (found == books_.end())
+				return {};
+			Book& book = found->second;
+			Levels& side = delta->msg.side == kalshi::Side::Yes ? book.yes : book.no;
+			if (delta->msg.side == kalshi::Side::Unknown ||
+				!apply_delta(side, delta->msg.price_dollars, delta->msg.delta_fp)) {
+				books_.erase(found);
+				return {ticker, nullptr, true};
+			}
+			return {ticker, &book, false};
+		}
+		return {};
+	}
+
+private:
+	std::map<std::string, Book> books_;
+};
 
 } // namespace example

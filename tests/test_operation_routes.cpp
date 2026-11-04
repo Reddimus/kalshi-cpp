@@ -37,9 +37,9 @@ TEST(OperationRoutes, SetEventContractExitTrigger) {
 	kalshi::KalshiClient client(transport);
 	const Result<EventContractExitTrigger> result = client.set_event_contract_exit_trigger(
 		"p0", SetEventContractExitTriggerRequest{}, SetEventContractExitTriggerParams{});
-	EXPECT_TRUE(result.has_value());
-	EXPECT_EQ(transport->method, kalshi::HttpMethod::PUT);
-	EXPECT_EQ(route(transport->target), "/portfolio/positions/p0/exit_trigger");
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, DeleteEventContractExitTrigger) {

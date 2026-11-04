@@ -79,6 +79,12 @@ def generate(spec: dict) -> Generator:
 
 
 class SupportedSpec(unittest.TestCase):
+    def test_zero_integer_enum_documentation_is_not_an_empty_string(self) -> None:
+        from common import EnumType
+        text = emit_enum(EnumType("Interval", [0, 100], ""))
+        self.assertIn("V0 = 0, ///< `0`", text)
+        self.assertNotIn("empty string", text)
+
     def test_contract_boolean_spelling_preserves_market_sides(self) -> None:
         schema = load_contract_yaml("enum: [yes, no, on, off]\nnullable: true\ndeprecated: false\n")
         self.assertEqual(schema["enum"], ["yes", "no", "on", "off"])

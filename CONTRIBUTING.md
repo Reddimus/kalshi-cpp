@@ -14,7 +14,7 @@ On Ubuntu 24.04, whose apt CMake is older than the 3.31 this build needs:
 
 ```bash
 sudo apt install build-essential ninja-build pkg-config clang-format-18 python3-yaml \
-    pipx libssl-dev libcurl4-openssl-dev libwebsockets-dev
+    pipx jq libssl-dev libcurl4-openssl-dev libwebsockets-dev
 pipx install cmake && pipx ensurepath   # then open a new shell
 make test
 ```
@@ -23,7 +23,7 @@ On macOS, Homebrew's `llvm@18` provides clang-format and clang-tidy 18, which
 `make` finds on its own. PyYAML goes in a virtual environment:
 
 ```bash
-brew install cmake ninja pkg-config openssl libwebsockets llvm@18
+brew install cmake ninja pkg-config openssl libwebsockets llvm@18 jq
 python3 -m venv .venv && .venv/bin/pip install pyyaml
 export PYTHON=.venv/bin/python
 make test lint
@@ -71,10 +71,11 @@ the WebSocket types from `spec/asyncapi.yaml`: `include/kalshi/api.hpp`,
 `docs/operations.md`, and `docs/channels.md`. Change the generator, a template
 in `tools/codegen/`, or a spec, run `make codegen`, and commit the result.
 `make lint` fails on stale output. [docs/research.md](docs/research.md)
-explains how to refresh the specs.
+explains how to refresh the specs. Prose-only exit-trigger leg requirements live
+in `REQUIRED_ALTERNATIVES`; review them when refreshing the contract.
 
 The script stops with an error on spec features it can't map yet, such as
-`oneOf`, PATCH, header parameters, and inline response schemas, rather than
+`oneOf`, PATCH, and header parameters, rather than
 dropping them. `tools/codegen/test_codegen.py` covers each of these checks, and
 `make lint` runs it.
 

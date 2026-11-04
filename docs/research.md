@@ -24,7 +24,7 @@ RSA-PSS and SHA-256; Ed25519 keys sign the message directly. See Kalshi's
 
 The upstream files contain inconsistent descriptions and incomplete constraints.
 Keep the captured copies unchanged; do not treat their examples as server guarantees.
-Client validation covers order-group limits and subscription identifiers.
+Client validation covers order-group limits, exit-trigger legs, and subscription identifiers.
 Handle partial batch fills according to the operation documentation.
 
 `Timestamp` uses Unix time, which excludes leap seconds. `parse_timestamp` returns

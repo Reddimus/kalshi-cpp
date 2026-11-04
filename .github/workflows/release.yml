@@ -15,7 +15,7 @@ permissions:
 jobs:
   release:
     runs-on: ubuntu-24.04
-    timeout-minutes: 45
+    timeout-minutes: 70
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
 
@@ -48,7 +48,7 @@ jobs:
           # Uses the newest CI run for this commit from any event. A commit
           # that never ran CI (for example, not the head of a push) gets one.
           dispatched=false
-          for _ in $(seq 1 80); do
+          for _ in $(seq 1 130); do
             state=$(gh run list --repo "$GITHUB_REPOSITORY" --workflow ci.yml \
               --commit "$GITHUB_SHA" --json status,conclusion \
               --jq '.[0] // empty | "\(.status) \(.conclusion)"')

@@ -384,7 +384,7 @@ enum class UpdateAction : std::uint8_t {
 /// Orderbook channel only.
 enum class UpdateIntervalMs : std::int64_t {
 	Unknown = -1, ///< A value this SDK version does not know.
-	V0 = 0,		  ///< empty string
+	V0 = 0,		  ///< `0`
 	V100 = 100,	  ///< `100`
 	V1000 = 1000, ///< `1000`
 };

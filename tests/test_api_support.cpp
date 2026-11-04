@@ -227,3 +227,15 @@ TEST(ApiSupport, ExitSlippageValidatesUnitDependentBounds) {
 	EXPECT_FALSE(
 		kalshi::detail::validate(kalshi::EventContractExitSlippage{kalshi::Unit::Unknown, 1}));
 }
+
+TEST(ApiSupport, ExitTriggerRequiresAtLeastOneLeg) {
+	kalshi::SetEventContractExitTriggerRequest request;
+	EXPECT_FALSE(kalshi::detail::validate(request));
+	request.slippage = kalshi::EventContractExitSlippage{kalshi::Unit::Bps, 1};
+	EXPECT_FALSE(kalshi::detail::validate(request));
+	request.stop_loss_price = "0.20";
+	EXPECT_TRUE(kalshi::detail::validate(request));
+	request.stop_loss_price.reset();
+	request.take_profit_price = "0.80";
+	EXPECT_TRUE(kalshi::detail::validate(request));
+}

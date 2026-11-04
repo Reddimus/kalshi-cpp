@@ -15,6 +15,7 @@
 #include <cstdio>
 #include <map>
 #include <string>
+#include <string_view>
 #include <thread>
 #include <utility>
 #include <variant>
@@ -45,7 +46,7 @@ std::string best(const Levels& levels) {
 	return text.data();
 }
 
-void show(const std::string& ticker, const Book& book) {
+void show(std::string_view ticker, const Book& book) {
 	std::cout << ticker << "  yes bid " << best(book.yes) << "  |  no bid " << best(book.no)
 			  << '\n';
 }
@@ -62,36 +63,21 @@ int main(int argc, char** argv) {
 		return 1;
 	}
 
-	std::map<std::string, Book> books; // touched only on the client's network thread
+	example::Orderbooks books; // touched only on the client's network thread
+	kalshi::ws::Subscription subscription;
 	kalshi::WebSocketClient ws(std::move(*signer),
 							   kalshi::WsConfig::for_environment(example::environment()));
-	ws.on_message([&books](const kalshi::WsMessage& message) {
-		using Snapshot = kalshi::ws::Update<kalshi::ws::OrderbookSnapshot>;
-		using Delta = kalshi::ws::Update<kalshi::ws::OrderbookDelta>;
-		if (const Snapshot* snapshot = std::get_if<Snapshot>(&message)) {
-			Book& book = books[snapshot->msg.market_ticker];
-			if (!example::load(book.yes, snapshot->msg.yes_dollars_fp) ||
-				!example::load(book.no, snapshot->msg.no_dollars_fp)) {
-				books.erase(snapshot->msg.market_ticker);
-				std::cerr << "Invalid snapshot; waiting for a fresh snapshot\n";
-				return;
+	ws.on_message([&books, &ws, &subscription](const kalshi::WsMessage& message) {
+		const example::Orderbooks::Change change = books.consume(message);
+		if (change.needs_snapshot) {
+			std::cerr << "Invalid orderbook; requesting a snapshot for " << change.ticker << '\n';
+			if (const kalshi::Result<void> requested =
+					ws.request_snapshot(subscription, {std::string(change.ticker)});
+				!requested) {
+				std::cerr << "Snapshot request failed: " << requested.error().message << '\n';
 			}
-			show(snapshot->msg.market_ticker, book);
-		} else if (const Delta* delta = std::get_if<Delta>(&message)) {
-			const std::map<std::string, Book>::iterator found =
-				books.find(delta->msg.market_ticker);
-			if (found == books.end()) {
-				return; // Deltas cannot reconstruct a missing or invalid snapshot.
-			}
-			Book& book = found->second;
-			Levels& side = delta->msg.side == kalshi::Side::Yes ? book.yes : book.no;
-			if (delta->msg.side == kalshi::Side::Unknown ||
-				!example::apply_delta(side, delta->msg.price_dollars, delta->msg.delta_fp)) {
-				books.erase(found);
-				std::cerr << "Invalid delta; waiting for a fresh snapshot\n";
-				return;
-			}
-			show(delta->msg.market_ticker, book);
+		} else if (change.book) {
+			show(change.ticker, *change.book);
 		}
 	});
 	ws.on_error(
@@ -103,11 +89,11 @@ int main(int argc, char** argv) {
 	// Subscriptions made before connect() are sent once the connection is up.
 	kalshi::ws::SubscribeParams params;
 	params.market_tickers.assign(argv + 1, argv + argc);
-	if (const kalshi::Result<kalshi::ws::Subscription> book =
-			ws.subscribe(kalshi::ws::Channel::OrderbookDelta, std::move(params));
-		!book) {
+	const kalshi::Result<kalshi::ws::Subscription> book =
+		ws.subscribe(kalshi::ws::Channel::OrderbookDelta, std::move(params));
+	if (!book)
 		return example::fail(book.error());
-	}
+	subscription = *book;
 	if (const kalshi::Result<void> connected = ws.connect(); !connected) {
 		return example::fail(connected.error());
 	}

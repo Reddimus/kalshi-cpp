@@ -15,6 +15,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Request fresh snapshots after invalid orderbook data and reject exit triggers without a leg.
+
 - Follow `next_cursor` when collecting incentive-program pages and stop cursor cycles.
 - Keep public headers compatible with Windows `min` and `max` macros.
 - Reject leap-second timestamps instead of silently returning another instant.
@@ -879,7 +881,7 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.7.1...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.8.0...HEAD
 [0.7.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.0...v0.6.1
@@ -912,3 +914,5 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 [0.0.2]: https://github.com/Reddimus/kalshi-cpp/releases/tag/v0.0.2
 
 [0.7.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.7.0...v0.7.1
+
+[0.8.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.7.1...v0.8.0

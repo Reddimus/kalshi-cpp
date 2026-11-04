@@ -407,6 +407,10 @@ inline Result<void> validate(const SetEventContractExitTriggerRequest& value) {
 		return invalid("SetEventContractExitTriggerRequest", "take_profit_price",
 					   "is not a fixed-point decimal");
 	}
+	if (!value.stop_loss_price && !value.take_profit_price) {
+		return invalid("SetEventContractExitTriggerRequest", "fields",
+					   "requires at least one of stop_loss_price or take_profit_price");
+	}
 	return {};
 }
 

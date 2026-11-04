@@ -192,7 +192,7 @@ def emit_enum(enum: EnumType) -> str:
     unknown = "Unknown = -1" if numeric else "Unknown"
     out.append(f"enum class {enum.name} : {underlying} {{\n\t{unknown}, ///< {unknown_doc}\n")
     for value in enum.known:
-        doc = f"`{value}`" if value else "empty string"
+        doc = "empty string" if value == "" else f"`{value}`"
         out.append(f"\t{enumerator(value)}{f' = {value}' if numeric else ''}, ///< {doc}\n")
     out.append("};\n\n")
     out.append(f"[[nodiscard]] constexpr std::string_view to_string({enum.name} value) noexcept {{\n\tswitch (value) {{\n")
