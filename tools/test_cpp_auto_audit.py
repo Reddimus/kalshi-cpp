@@ -69,6 +69,10 @@ class AutoAuditTests(unittest.TestCase):
         initializers = [
             "[]{ return 42; }()",
             "[] static { return 42; }()",
+            "([] { return 42; })()",
+            "(([] { return 42; }))()",
+            "([&] { return values.begin() != values.end(); })()",
+            "(([&] { return values.begin() != values.end(); })())",
             "[] { int pair[2]{1, 2}; auto [a, b] = pair; return a + b; }()",
             "[] { return values.begin() != values.end(); }()",
             "[] { return values.begin(); }() == values.end()",
@@ -91,6 +95,8 @@ class AutoAuditTests(unittest.TestCase):
     def test_multiline_lambda_closures_preserve_body_literals_and_specifiers(self):
         initializers = [
             "[] static { return 42; }",
+            "([] { return 42; })",
+            "(([] { return 42; }))",
             "[] { int pair[2]{1, 2}; auto [a, b] = pair; return a + b; }",
             "[]() mutable noexcept { return 42; }",
             "[]() consteval -> int { return 42; }",
@@ -115,12 +121,16 @@ class AutoAuditTests(unittest.TestCase):
 
     def test_direct_iterator_returns_from_invoked_lambdas_are_allowed(self):
         for expression in ["values.begin()", "(values.begin())", "std::begin(values)", "std::next(values.begin())"]:
-            with self.subTest(expression=expression):
-                (self.root / "iterator.cpp").write_text(
-                    f"auto it = [&] {{ return {expression}; }}();\n"
-                )
-                result = self.audit()
-                self.assertEqual(result.returncode, 0, result.stderr)
+            for initializer in [
+                f"[&] {{ return {expression}; }}()",
+                f"([&] {{ return {expression}; }})()",
+                f"([&] {{ return {expression}; }}())",
+                f"(([&] {{ return {expression}; }})())",
+            ]:
+                with self.subTest(initializer=initializer):
+                    (self.root / "iterator.cpp").write_text(f"auto it = {initializer};\n")
+                    result = self.audit()
+                    self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_structured_binding_declarations_remain_allowed(self):
         declarations = [
@@ -181,6 +191,25 @@ class AutoAuditTests(unittest.TestCase):
         )
         result = self.audit()
         self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_multiline_initializers_keep_original_declaration_lines(self):
+        source = (
+            'const char* label = "café";\r\n'
+            'auto fn =\r\n'
+            '    [] static { return 42; };\r\n'
+            'auto value =\r\n'
+            '    [] static { return 42; }();\r\n'
+            'auto it =\r\n'
+            '    [&] { return values.begin(); }();\r\n'
+        )
+        (self.root / "offset.cpp").write_bytes(source.encode("utf-8"))
+        result = self.audit()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        self.assertEqual(
+            result.stderr,
+            "cpp_auto_audit: disallowed local auto usage found\n"
+            "offset.cpp:4: auto value =\n",
+        )
 
     def test_allowlist_regeneration_is_idempotent(self):
         (self.root / "value.cpp").write_text("auto value = 42;\n")

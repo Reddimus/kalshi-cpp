@@ -198,7 +198,12 @@ def lambda_initializer_allowed(
         for token in CPP_TOKEN.finditer(source if source is not None else line, offset + equals + 1)
         if token.lastgroup != "skip"
     )
-    if next(tokens, None) != "[":
+    first = next(tokens, None)
+    parentheses = 0
+    while first == "(":
+        parentheses += 1
+        first = next(tokens, None)
+    if first != "[":
         return None
 
     pairs = {"[": "]", "(": ")", "{": "}"}
@@ -244,14 +249,21 @@ def lambda_initializer_allowed(
             if not consume_group("{", body):
                 return False
             following = next(tokens, None)
-            if following == "(":
-                if not consume_group("("):
-                    return False
-                return (
-                    next(tokens, None) in {None, ";", ",", ")", "}"}
-                    and direct_iterator_return(body, line.partition("=")[0])
-                )
-            return following in {None, ";", ",", ")", "}"}
+            invoked = False
+            while True:
+                if following == ")" and parentheses:
+                    parentheses -= 1
+                    following = next(tokens, None)
+                elif following == "(" and not invoked:
+                    if not consume_group("("):
+                        return False
+                    invoked = True
+                    following = next(tokens, None)
+                else:
+                    break
+            if parentheses or following not in {None, ";", ",", ")", "}"}:
+                return False
+            return not invoked or direct_iterator_return(body, line.partition("=")[0])
         if token in {"(", "["} or (first_header_token and token == "<"):
             if not consume_group(token):
                 return False
