@@ -172,3 +172,7 @@ Test the helper with `node --test .github/scripts/review-fallback.test.cjs`.
 
 Greptile status comments must stay enabled: the fallback listens for its
 credit refusal. This repository enables them through `statusCommentsEnabled`.
+
+If Greptile shows exhausted credits only in its dashboard, no GitHub event can
+start the fallback. After verifying that refusal, comment `@coderabbitai full review`
+on the PR. Do not request a backup for timeouts or other errors.
