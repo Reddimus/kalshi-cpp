@@ -67,6 +67,17 @@ TEST(WsLifecycle, UrlParserPreservesConnectionPathAndCustomPort) {
 	EXPECT_TRUE(result->use_ssl);
 }
 
+TEST(WsLifecycle, UrlSchemesIgnoreAsciiCase) {
+	for (const std::string& scheme :
+		 {std::string{"WS"}, std::string{"wS"}, std::string{"WSS"}, std::string{"wSs"}}) {
+		const kalshi::Result<kalshi::detail::WsEndpoint> result =
+			kalshi::detail::parse_ws_endpoint(scheme + "://example.test/ws");
+		ASSERT_TRUE(result) << scheme;
+		EXPECT_EQ(result->use_ssl, scheme.size() == 3);
+		EXPECT_EQ(result->port, scheme.size() == 3 ? 443 : 80);
+	}
+}
+
 TEST(WsLifecycle, UrlParserSupportsBracketedIpv6AndQueryOnlyPath) {
 	const kalshi::Result<kalshi::detail::WsEndpoint> result =
 		kalshi::detail::parse_ws_endpoint("ws://[::1]?token=value");

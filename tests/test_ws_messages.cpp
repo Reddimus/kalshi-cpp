@@ -125,7 +125,7 @@ TEST(WsMessages, EventFeeUpdateExample1) {
 
 TEST(WsMessages, MultivariateMarketLifecycleExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
-		R"json({"type":"multivariate_market_lifecycle","sending_ts_ms":1669149841234,"sid":14,"seq":7,"msg":{"market_ticker":"KXMVE-TEST-EVENT-M1","exchange_index":0,"open_ts":1773936000,"close_ts":1774022400,"additional_metadata":{"name":"MVE One","title":"Market 1","yes_sub_title":"YES 1","no_sub_title":"NO 1","rules_primary":"Rule 1","rules_secondary":"Rule 2","can_close_early":true,"event_ticker":"KXMVE-TEST-EVENT","expected_expiration_ts":1774029600},"event_type":"created"}})json");
+		R"json({"type":"multivariate_market_lifecycle","sending_ts_ms":1669149841234,"sid":14,"seq":7,"msg":{"market_ticker":"KXMVE-TEST-EVENT-M1","exchange_index":0,"open_ts":1773936000,"close_ts":1774022400,"additional_metadata":{"name":"MVE One","title":"Market 1","yes_sub_title":"YES 1","no_sub_title":"YES 1","rules_primary":"Rule 1","rules_secondary":"Rule 2","can_close_early":true,"event_ticker":"KXMVE-TEST-EVENT","expected_expiration_ts":1774029600},"event_type":"created"}})json");
 	ASSERT_TRUE(message.has_value());
 	const kalshi::ws::Update<kalshi::ws::MultivariateMarketLifecycle>* update =
 		std::get_if<kalshi::ws::Update<kalshi::ws::MultivariateMarketLifecycle>>(&*message);

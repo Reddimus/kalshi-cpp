@@ -348,3 +348,34 @@ TEST(WsSubscriptions, MaximumSequenceCannotOverflowGapDetection) {
 	ASSERT_TRUE(reaction.error);
 	EXPECT_NE(reaction.error->message.find("beyond INT64_MAX"), std::string::npos);
 }
+
+TEST(WsSubscriptions, RemovingAnAddedFilterDoesNotBroadenAfterReconnect) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription ticker = registry.subscribe(Channel::Ticker, {}, false, frames);
+	ASSERT_TRUE(registry.update(
+		ticker, {.market_ticker = "A", .action = kalshi::ws::UpdateAction::AddMarkets}, false,
+		frames));
+	ASSERT_TRUE(registry.update(
+		ticker, {.market_ticker = "A", .action = kalshi::ws::UpdateAction::DeleteMarkets}, false,
+		frames));
+	registry.on_connected(frames);
+	EXPECT_TRUE(frames.empty());
+	EXPECT_EQ(registry.subscriptions().size(), 1U);
+}
+
+TEST(WsSubscriptions, RejectedUnsubscribeKeepsTheSubscriptionRetryable) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription ticker = registry.subscribe(Channel::Ticker, {}, true, frames);
+	registry.on_subscribed({2, "ticker", 7});
+	frames.clear();
+	ASSERT_TRUE(registry.unsubscribe(ticker, frames));
+	const Reaction failed = registry.on_error({3, 7, std::nullopt, 2, "invalid parameters"});
+	ASSERT_TRUE(failed.error);
+	EXPECT_EQ(failed.error->subscription, ticker);
+	EXPECT_EQ(registry.subscriptions().size(), 1U);
+	frames.clear();
+	EXPECT_TRUE(registry.unsubscribe(ticker, frames));
+	EXPECT_EQ(frames.size(), 1U);
+}

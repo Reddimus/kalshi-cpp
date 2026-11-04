@@ -21,8 +21,10 @@ inline std::optional<kalshi::Signer> signer() {
 	const char* id = std::getenv("KALSHI_API_KEY_ID");
 	const char* file = std::getenv("KALSHI_API_KEY_FILE");
 	if (id == nullptr || file == nullptr) {
-		std::cerr << "Set KALSHI_API_KEY_ID and KALSHI_API_KEY_FILE. Create a key under "
-					 "API keys at https://kalshi.com/account/profile.\n";
+		std::cerr << "Set KALSHI_API_KEY_ID and KALSHI_API_KEY_FILE for "
+				  << (environment() == kalshi::Environment::Demo ? "https://demo.kalshi.co/"
+																 : "https://kalshi.com/")
+				  << " (Account > API keys). Demo and production keys are separate.\n";
 		return std::nullopt;
 	}
 	kalshi::Result<kalshi::Signer> loaded = kalshi::Signer::from_pem_file(id, file);

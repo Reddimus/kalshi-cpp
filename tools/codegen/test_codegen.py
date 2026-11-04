@@ -11,6 +11,7 @@ import copy
 import unittest
 
 from generate import Generator
+from common import load_contract_yaml, emit_enum, emit_enum_adapter, emit_enum_parser
 from ws import WsGenerator
 
 
@@ -78,12 +79,25 @@ def generate(spec: dict) -> Generator:
 
 
 class SupportedSpec(unittest.TestCase):
+    def test_contract_boolean_spelling_preserves_market_sides(self) -> None:
+        schema = load_contract_yaml("enum: [yes, no, on, off]\nnullable: true\ndeprecated: false\n")
+        self.assertEqual(schema["enum"], ["yes", "no", "on", "off"])
+        self.assertIs(schema["nullable"], True)
+        self.assertIs(schema["deprecated"], False)
+
     def test_base_spec_generates(self) -> None:
         ops = {op.method_name: op for op in generate(copy.deepcopy(BASE)).operations}
         self.assertEqual(ops["create_thing"].body_type, "Thing")
         self.assertEqual(ops["get_thing"].response_type, "Thing")  # unwrapped from GetThingResponse
         self.assertTrue(ops["reset_thing"].empty_body)
         self.assertIsNone(ops["reset_thing"].response_type)
+
+    def test_array_alias_follows_its_scalar_alias(self) -> None:
+        spec = copy.deepcopy(BASE)
+        spec["components"]["schemas"]["ZScalar"] = {"type": "string"}
+        spec["components"]["schemas"]["AValues"] = {"type": "array", "items": ref("ZScalar")}
+        header = generate(spec).models_header()
+        self.assertLess(header.index("using ZScalar ="), header.index("using AValues ="))
 
     def test_read_only_outside_request_bodies_is_allowed(self) -> None:
         spec = copy.deepcopy(BASE)
@@ -124,6 +138,43 @@ class SupportedSpec(unittest.TestCase):
         thing["required"].append("alias")
         members = {m.json_name: m for m in generate(spec).structs["Thing"].members}
         self.assertEqual(members["alias"].cpp_type, "std::optional<MaybeName>")
+
+    def test_required_property_not_constraints_are_validated(self) -> None:
+        spec = copy.deepcopy(BASE)
+        spec["components"]["schemas"]["Slippage"] = {
+            "type": "object", "required": ["unit", "value"],
+            "properties": {
+                "unit": {"type": "string", "enum": ["bps", "cents"]},
+                "value": {"type": "integer", "minimum": 0, "maximum": 9999},
+            },
+            "not": {"required": ["unit", "value"], "properties": {
+                "unit": {"enum": ["cents"]}, "value": {"minimum": 100}}},
+        }
+        spec["components"]["schemas"]["Thing"]["properties"]["slippage"] = ref("Slippage")
+        header = generate(spec).validate_header()
+        self.assertIn("value.value >= 100", header)
+        self.assertIn("value.value < 0", header)
+        self.assertIn("value.value > 9999", header)
+        self.assertIn("::Cents", header)
+
+    def test_object_composition_keeps_base_and_extension_fields(self) -> None:
+        spec = copy.deepcopy(BASE)
+        spec["components"]["schemas"]["ExtendedThing"] = {"allOf": [ref("Thing"), {
+            "type": "object", "required": ["extra"], "properties": {"extra": {"type": "integer"}}}]}
+        members = {m.json_name: m for m in generate(spec).structs["ExtendedThing"].members}
+        self.assertTrue(members["name"].required)
+        self.assertTrue(members["extra"].required)
+        self.assertEqual(members["extra"].base_kind, "scalar")
+
+    def test_inline_object_response_gets_its_own_type(self) -> None:
+        spec = copy.deepcopy(BASE)
+        spec["paths"]["/things"]["post"]["responses"]["201"] = json_content({
+            "type": "object", "required": ["status"], "properties": {"status": {"type": "string"}}})
+        gen = generate(spec)
+        op = next(op for op in gen.operations if op.operation_id == "CreateThing")
+        self.assertEqual(op.response_type, "CreateThingResponse")
+        self.assertIsNone(op.unwrap_member)
+        self.assertTrue(gen.structs[op.response_type].members[0].required)
 
     def test_same_body_under_two_success_codes_is_allowed(self) -> None:
         spec = copy.deepcopy(BASE)
@@ -217,7 +268,7 @@ class Rejected(unittest.TestCase):
         self.stops("#/components/requestBodies/Thing is not a component schema")
 
     def test_body_ref_to_array_schema(self) -> None:
-        self.schemas["Things"] = {"type": "array", "items": ref("Thing")}
+        self.schemas["Things"] = {"type": "array", "items": {"type": "string"}}
         self.post["requestBody"] = json_content(ref("Things"))
         self.stops("CreateThing request body: must be a $ref to a component object")
 
@@ -301,9 +352,9 @@ class Rejected(unittest.TestCase):
         props["detail_info"] = {"type": "object", "properties": {"b": {"type": "string"}}}
         self.stops("ThingDetailInfo: an inline object has the same name as another schema")
 
-    def test_all_of_with_two_members(self) -> None:
-        self.schemas["BigThing"] = {"allOf": [ref("Thing"), {"type": "object", "properties": {"x": {"type": "string"}}}]}
-        self.stops("BigThing: `allOf` with 2 members")
+    def test_all_of_with_conflicting_fields(self) -> None:
+        self.schemas["BigThing"] = {"allOf": [ref("Thing"), {"type": "object", "properties": {"name": {"type": "integer"}}}]}
+        self.stops("BigThing.name: incompatible allOf fields")
 
     def test_type_list(self) -> None:
         self.schemas["Thing"]["properties"]["count"] = {"type": ["integer", "null"]}
@@ -312,6 +363,14 @@ class Rejected(unittest.TestCase):
     def test_properties_with_additional_properties(self) -> None:
         self.schemas["Thing"]["additionalProperties"] = True
         self.stops("Thing: properties with additionalProperties")
+
+    def test_component_array_of_objects_stops_before_emitting_an_invalid_alias(self) -> None:
+        self.schemas["Things"] = {"type": "array", "items": ref("Thing")}
+        self.stops("Things: component arrays with composite or enum items are not supported")
+
+    def test_component_array_of_enums_stops_before_emitting_an_invalid_alias(self) -> None:
+        self.schemas["Colors"] = {"type": "array", "items": {"type": "string", "enum": ["red", "blue"]}}
+        self.stops("Colors: component arrays with composite or enum items are not supported")
 
     def test_top_level_map(self) -> None:
         self.schemas["Totals"] = {"type": "object", "additionalProperties": {"type": "integer"}}
@@ -374,8 +433,21 @@ class RejectedWebSocket(unittest.TestCase):
     def test_null_type(self) -> None:
         self.stops({"type": "null"}, "type 'null' is not supported")
 
-    def test_integer_enum(self) -> None:
-        self.stops({"type": "integer", "enum": [1, 2]}, "only string enums are supported")
+    def test_mixed_enum_is_rejected(self) -> None:
+        self.stops({"type": "integer", "enum": [1, "two"]}, "enums must contain strings or nonnegative int64 values")
+
+    def test_numeric_enum_preserves_wire_numbers(self) -> None:
+        name = self.ws.type_of({"type": "integer", "enum": [0, 100, 1000]}, "TickerMsg", "interval")[0]
+        enum = self.ws.enums[name]
+        self.assertIn("V0 = 0", emit_enum(enum))
+        self.assertIn("Unknown = -1", emit_enum(enum))
+        self.assertIn("std::int64_t text", emit_enum_parser(enum, "ws::" + name))
+        self.assertIn("static_cast<std::int64_t>(value)", emit_enum_adapter(enum, "ws::" + name, "parse"))
+
+    def test_numeric_enum_rejects_unrepresentable_values(self) -> None:
+        for values in ([-1, 1], [True, False], [0, 9223372036854775808]):
+            with self.subTest(values=values):
+                self.stops({"type": "integer", "enum": values}, "enums must contain strings or nonnegative int64 values")
 
     def test_properties_with_additional_properties(self) -> None:
         self.stops({"type": "object", "properties": {"a": {"type": "string"}}, "additionalProperties": True},
@@ -440,6 +512,12 @@ class WebSocketSpec(unittest.TestCase):
     def members(self, struct: str) -> dict:
         return {m.json_name: m for m in generate_ws(self.spec).structs[struct].members}
 
+    def test_contract_boolean_spelling_preserves_market_sides(self) -> None:
+        schema = load_contract_yaml("enum: [yes, no, on, off]\nnullable: true\ndeprecated: false\n")
+        self.assertEqual(schema["enum"], ["yes", "no", "on", "off"])
+        self.assertIs(schema["nullable"], True)
+        self.assertIs(schema["deprecated"], False)
+
     def test_base_spec_generates(self) -> None:
         self.assertIn("price", self.members("Ticker"))
 
@@ -488,6 +566,17 @@ class WebSocketSpec(unittest.TestCase):
         self.schemas["pythUpdateSubscriptionCommandPayload"] = update_command(
             ["subscribe_feeds"], {"market_tickers": {"type": "array", "items": {"type": "integer"}}})
         self.stops("UpdateSubscriptionParams.market_tickers has different schemas across commands")
+
+    def test_shared_enum_param_cannot_change_shape(self) -> None:
+        self.schemas["pythUpdateSubscriptionCommandPayload"] = update_command([1, 2])
+        self.schemas["pythUpdateSubscriptionCommandPayload"]["properties"]["params"]["properties"]["action"]["type"] = "integer"
+        self.stops("UpdateSubscriptionParams.action has different schemas across commands")
+
+    def test_struct_name_collision_is_rejected(self) -> None:
+        ws = WsGenerator(self.spec, {})
+        ws.struct_for("Collision", {"type": "object", "properties": {"a": {"type": "string"}}})
+        with self.assertRaisesRegex(SystemExit, "Collision: different schemas share a struct name"):
+            ws.struct_for("Collision", {"type": "object", "properties": {"b": {"type": "integer"}}})
 
     def test_param_that_is_not_an_identifier(self) -> None:
         params = self.schemas["subscribeCommandPayload"]["properties"]["params"]["properties"]

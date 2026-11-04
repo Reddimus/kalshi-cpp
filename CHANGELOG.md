@@ -6,6 +6,27 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.8.0] - 2026-11-03
+
+### Added
+
+- Follow Predictions OpenAPI 3.35.0: credit history and event-contract exit triggers.
+- Support WebSocket order-book update intervals and the refreshed message fields.
+
+### Fixed
+
+- Follow `next_cursor` when collecting incentive-program pages and stop cursor cycles.
+- Keep public headers compatible with Windows `min` and `max` macros.
+- Reject leap-second timestamps instead of silently returning another instant.
+
+- Accept case-insensitive WebSocket URL schemes.
+- Read all portfolio pages and reject malformed or overflowing order-book updates in examples.
+
+- Dispatch missing CI runs before release and leave time for publication.
+
+- Keep emptied market filters from broadening subscriptions after reconnect.
+- Preserve subscription handles when the server rejects an unsubscribe.
+
 ## [0.7.1] - 2026-10-25
 
 ### Fixed

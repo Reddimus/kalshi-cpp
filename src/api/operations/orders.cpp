@@ -107,6 +107,16 @@ KalshiClient::batch_cancel_orders(const BatchCancelOrdersV2Request& body) {
 	return std::move(response->orders);
 }
 
+Result<CreateOrderV2Response>
+KalshiClient::create_order_with_exit_trigger(const CreateOrderWithExitTriggerRequest& body) {
+	if (Result<void> valid = detail::validate(body); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
+	return detail::decode<CreateOrderV2Response>(
+		impl_->send(HttpMethod::POST, std::string{"/portfolio/events/orders/with_exit_trigger"},
+					detail::encode(body), "create_order_with_exit_trigger"));
+}
+
 Result<CancelOrderV2Response> KalshiClient::cancel_order(std::string_view order_id,
 														 const CancelOrderParams& params) {
 	Result<std::string> target =

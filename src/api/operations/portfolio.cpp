@@ -6,6 +6,54 @@
 
 namespace kalshi {
 
+Result<GetEventContractExitTriggersResponse>
+KalshiClient::get_event_contract_exit_triggers(std::string_view ticker,
+											   const GetEventContractExitTriggersParams& params) {
+	Result<std::string> target =
+		detail::expand_path("/portfolio/positions/{ticker}/exit_trigger", {ticker});
+	if (!target) {
+		return std::unexpected(std::move(target.error()));
+	}
+	detail::Query query(*target);
+	query.add("subaccount", params.subaccount);
+	query.add("kind", params.kind);
+	return detail::decode<GetEventContractExitTriggersResponse>(impl_->send(
+		HttpMethod::GET, std::move(query).str(), {}, "get_event_contract_exit_triggers"));
+}
+
+Result<EventContractExitTrigger>
+KalshiClient::set_event_contract_exit_trigger(std::string_view ticker,
+											  const SetEventContractExitTriggerRequest& body,
+											  const SetEventContractExitTriggerParams& params) {
+	if (Result<void> valid = detail::validate(body); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
+	Result<std::string> target =
+		detail::expand_path("/portfolio/positions/{ticker}/exit_trigger", {ticker});
+	if (!target) {
+		return std::unexpected(std::move(target.error()));
+	}
+	detail::Query query(*target);
+	query.add("subaccount", params.subaccount);
+	return detail::decode<EventContractExitTrigger>(
+		impl_->send(HttpMethod::PUT, std::move(query).str(), detail::encode(body),
+					"set_event_contract_exit_trigger"));
+}
+
+Result<void> KalshiClient::delete_event_contract_exit_trigger(
+	std::string_view ticker, const DeleteEventContractExitTriggerParams& params) {
+	Result<std::string> target =
+		detail::expand_path("/portfolio/positions/{ticker}/exit_trigger", {ticker});
+	if (!target) {
+		return std::unexpected(std::move(target.error()));
+	}
+	detail::Query query(*target);
+	query.add("subaccount", params.subaccount);
+	query.add("kind", params.kind);
+	return detail::expect_success(impl_->send(HttpMethod::DEL, std::move(query).str(), {},
+											  "delete_event_contract_exit_trigger"));
+}
+
 Result<GetBalanceResponse> KalshiClient::get_balance(const GetBalanceParams& params) {
 	detail::Query query(std::string{"/portfolio/balance"});
 	query.add("subaccount", params.subaccount);
@@ -134,6 +182,17 @@ Result<GetSettlementsResponse> KalshiClient::get_settlements(const GetSettlement
 	query.add("subaccount", params.subaccount);
 	return detail::decode<GetSettlementsResponse>(
 		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_settlements"));
+}
+
+Result<GetCreditHistoryResponse>
+KalshiClient::get_credit_history(const GetCreditHistoryParams& params) {
+	detail::Query query(std::string{"/portfolio/credit_history"});
+	query.add("limit", params.limit);
+	query.add("cursor", params.cursor);
+	query.add("min_ts", params.min_ts);
+	query.add("max_ts", params.max_ts);
+	return detail::decode<GetCreditHistoryResponse>(
+		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_credit_history"));
 }
 
 Result<GetDepositsResponse> KalshiClient::get_deposits(const GetDepositsParams& params) {

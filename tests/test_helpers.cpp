@@ -3,6 +3,7 @@
 
 #include <chrono>
 #include <gtest/gtest.h>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -89,4 +90,45 @@ TEST(Helpers, CollectPagesHonorsMaxPages) {
 		&Page::items, 3);
 	ASSERT_TRUE(items.has_value());
 	EXPECT_EQ(*items, (std::vector<int>{1, 2, 3}));
+}
+
+TEST(Helpers, CollectPagesSupportsIncentiveNextCursor) {
+	int calls = 0;
+	std::vector<std::string> requested;
+	const kalshi::Result<std::vector<kalshi::IncentiveProgram>> items = kalshi::collect_pages(
+		[&](std::string_view cursor) -> kalshi::Result<kalshi::GetIncentiveProgramsResponse> {
+			requested.emplace_back(cursor);
+			++calls;
+			return kalshi::GetIncentiveProgramsResponse{
+				{kalshi::IncentiveProgram{.id = std::to_string(calls)}},
+				calls == 1 ? std::optional<std::string>{"next"} : std::nullopt};
+		},
+		&kalshi::GetIncentiveProgramsResponse::incentive_programs);
+	ASSERT_TRUE(items);
+	ASSERT_EQ(items->size(), 2u);
+	EXPECT_EQ((*items)[0].id, "1");
+	EXPECT_EQ((*items)[1].id, "2");
+	EXPECT_EQ(requested, (std::vector<std::string>{"", "next"}));
+}
+
+TEST(Helpers, LeapSecondsCannotSilentlyBecomeAnotherInstant) {
+	for (const char* text : {"2026-01-01T12:34:60Z", "2016-12-31T23:59:60Z",
+							 "2016-12-31T15:59:60-08:00", "2016-12-31T23:59:60.123Z"}) {
+		const kalshi::Result<kalshi::Timestamp> result = kalshi::parse_timestamp(text);
+		ASSERT_FALSE(result) << text;
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::ParseError);
+	}
+}
+
+TEST(Helpers, CollectPagesRejectsMultiCursorCycles) {
+	int calls = 0;
+	const kalshi::Result<std::vector<int>> items = kalshi::collect_pages(
+		[&](std::string_view) {
+			++calls;
+			return kalshi::Result<Page>{Page{{calls}, calls % 2 == 1 ? "a" : "b"}};
+		},
+		&Page::items, 4);
+	ASSERT_FALSE(items);
+	EXPECT_EQ(items.error().code, kalshi::ErrorCode::ParseError);
+	EXPECT_EQ(calls, 3);
 }

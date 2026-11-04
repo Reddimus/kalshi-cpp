@@ -21,6 +21,7 @@
 #include <vector>
 
 #include "common.hpp"
+#include "orderbook.hpp"
 
 namespace {
 
@@ -30,26 +31,8 @@ void stop(int /*signal*/) {
 	running = false;
 }
 
-// Prices in ten-thousandths of a dollar, counts in hundredths of a contract.
-using Levels = std::map<std::int64_t, std::int64_t>;
-
-struct Book {
-	Levels yes;
-	Levels no;
-};
-
-std::int64_t scaled(const std::string& text, std::uint8_t scale) {
-	const kalshi::Result<kalshi::FixedPoint> value = kalshi::FixedPoint::parse(text);
-	return value ? value->scaled_integer(scale).value_or(0) : 0;
-}
-
-void load(Levels& levels, const std::optional<std::vector<std::array<std::string, 2>>>& snapshot) {
-	levels.clear();
-	for (const std::array<std::string, 2>& level :
-		 snapshot.value_or(std::vector<std::array<std::string, 2>>{})) {
-		levels[scaled(level[0], 4)] = scaled(level[1], 2);
-	}
-}
+using example::Book;
+using example::Levels;
 
 std::string best(const Levels& levels) {
 	if (levels.empty()) {
@@ -87,17 +70,26 @@ int main(int argc, char** argv) {
 		using Delta = kalshi::ws::Update<kalshi::ws::OrderbookDelta>;
 		if (const Snapshot* snapshot = std::get_if<Snapshot>(&message)) {
 			Book& book = books[snapshot->msg.market_ticker];
-			load(book.yes, snapshot->msg.yes_dollars_fp);
-			load(book.no, snapshot->msg.no_dollars_fp);
+			if (!example::load(book.yes, snapshot->msg.yes_dollars_fp) ||
+				!example::load(book.no, snapshot->msg.no_dollars_fp)) {
+				books.erase(snapshot->msg.market_ticker);
+				std::cerr << "Invalid snapshot; waiting for a fresh snapshot\n";
+				return;
+			}
 			show(snapshot->msg.market_ticker, book);
 		} else if (const Delta* delta = std::get_if<Delta>(&message)) {
-			Book& book = books[delta->msg.market_ticker];
+			const std::map<std::string, Book>::iterator found =
+				books.find(delta->msg.market_ticker);
+			if (found == books.end()) {
+				return; // Deltas cannot reconstruct a missing or invalid snapshot.
+			}
+			Book& book = found->second;
 			Levels& side = delta->msg.side == kalshi::Side::Yes ? book.yes : book.no;
-			const std::int64_t price = scaled(delta->msg.price_dollars, 4);
-			std::int64_t& count = side[price];
-			count += scaled(delta->msg.delta_fp, 2);
-			if (count <= 0) {
-				side.erase(price);
+			if (delta->msg.side == kalshi::Side::Unknown ||
+				!example::apply_delta(side, delta->msg.price_dollars, delta->msg.delta_fp)) {
+				books.erase(found);
+				std::cerr << "Invalid delta; waiting for a fresh snapshot\n";
+				return;
 			}
 			show(delta->msg.market_ticker, book);
 		}

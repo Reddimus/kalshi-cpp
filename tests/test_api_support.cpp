@@ -212,3 +212,18 @@ TEST(ApiSupport, NullTransportUsesTheDefaultHttpClient) {
 	const kalshi::KalshiClient client{std::shared_ptr<const kalshi::HttpTransport>{}};
 	EXPECT_NE(dynamic_cast<const kalshi::HttpClient*>(&client.transport()), nullptr);
 }
+
+TEST(ApiSupport, ExitSlippageValidatesUnitDependentBounds) {
+	for (const kalshi::Unit unit : {kalshi::Unit::Bps, kalshi::Unit::Cents}) {
+		EXPECT_TRUE(kalshi::detail::validate(kalshi::EventContractExitSlippage{unit, 0}));
+		EXPECT_TRUE(kalshi::detail::validate(kalshi::EventContractExitSlippage{unit, 99}));
+		EXPECT_FALSE(kalshi::detail::validate(kalshi::EventContractExitSlippage{unit, -1}));
+		EXPECT_FALSE(kalshi::detail::validate(kalshi::EventContractExitSlippage{unit, 10000}));
+	}
+	EXPECT_TRUE(
+		kalshi::detail::validate(kalshi::EventContractExitSlippage{kalshi::Unit::Bps, 9999}));
+	EXPECT_FALSE(
+		kalshi::detail::validate(kalshi::EventContractExitSlippage{kalshi::Unit::Cents, 100}));
+	EXPECT_FALSE(
+		kalshi::detail::validate(kalshi::EventContractExitSlippage{kalshi::Unit::Unknown, 1}));
+}

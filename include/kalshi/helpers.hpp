@@ -34,6 +34,7 @@ using Timestamp = std::chrono::sys_time<std::chrono::milliseconds>;
 
 /// Parses the RFC 3339 timestamps Kalshi returns, such as
 /// "2026-09-25T14:00:00.123Z" or "2026-09-25T10:00:00-04:00".
+/// Leap seconds return ParseError: Timestamp cannot represent them.
 [[nodiscard]] Result<Timestamp> parse_timestamp(std::string_view text);
 
 /// The outcome a (side, action) pair is exposed to: buying yes or selling no

@@ -18,24 +18,36 @@ int main() {
 	}
 	std::cout << "Balance: $" << balance->balance_dollars << '\n';
 
-	const kalshi::Result<kalshi::GetPositionsResponse> positions =
-		client.get_positions({.count_filter = "position"});
+	kalshi::GetPositionsParams positions_params{.count_filter = "position"};
+	const kalshi::Result<std::vector<kalshi::MarketPosition>> positions = kalshi::collect_pages(
+		[&](std::string_view cursor) {
+			positions_params.cursor =
+				cursor.empty() ? std::nullopt : std::optional<std::string>{cursor};
+			return client.get_positions(positions_params);
+		},
+		&kalshi::GetPositionsResponse::market_positions);
 	if (!positions) {
 		return example::fail(positions.error());
 	}
-	std::cout << positions->market_positions.size() << " open positions\n";
-	for (const kalshi::MarketPosition& position : positions->market_positions) {
+	std::cout << positions->size() << " open positions\n";
+	for (const kalshi::MarketPosition& position : *positions) {
 		std::cout << "  " << position.ticker << "  " << position.position_fp << " contracts, "
 				  << "exposure $" << position.market_exposure_dollars << '\n';
 	}
 
-	const kalshi::Result<kalshi::GetOrdersResponse> orders =
-		client.get_orders({.status = "resting"});
+	kalshi::GetOrdersParams orders_params{.status = "resting"};
+	const kalshi::Result<std::vector<kalshi::Order>> orders = kalshi::collect_pages(
+		[&](std::string_view cursor) {
+			orders_params.cursor =
+				cursor.empty() ? std::nullopt : std::optional<std::string>{cursor};
+			return client.get_orders(orders_params);
+		},
+		&kalshi::GetOrdersResponse::orders);
 	if (!orders) {
 		return example::fail(orders.error());
 	}
-	std::cout << orders->orders.size() << " resting orders\n";
-	for (const kalshi::Order& order : orders->orders) {
+	std::cout << orders->size() << " resting orders\n";
+	for (const kalshi::Order& order : *orders) {
 		std::cout << "  " << order.ticker << "  " << kalshi::to_string(order.book_side) << ' '
 				  << order.remaining_count_fp << " @ " << order.yes_price_dollars << '\n';
 	}

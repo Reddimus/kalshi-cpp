@@ -1,5 +1,6 @@
 add_executable(kalshi_tests
     test_api_support.cpp
+    test_examples.cpp
     test_features.cpp
     test_fixed_point.cpp
     test_helpers.cpp

@@ -134,7 +134,7 @@ Result<void> SubscriptionRegistry::update(ws::Subscription subscription,
 		case State::Unsent:
 			// No server subscription to change; the next subscribe carries it. A
 			// subscription left out for having no markets starts again here.
-			apply(entry->params, params);
+			record_update(*entry, params);
 			if (connected && (!entry->filtered || has_markets(entry->params))) {
 				frames.push_back(subscribe_frame(*entry));
 			}
@@ -174,7 +174,7 @@ void SubscriptionRegistry::on_disconnected() {
 	for (const std::pair<const std::int64_t, InFlight>& item : commands_) {
 		if (item.second.update) {
 			if (Entry* entry = find(item.second.subscription)) {
-				apply(entry->params, *item.second.update);
+				record_update(*entry, *item.second.update);
 			}
 		}
 	}
@@ -189,7 +189,7 @@ void SubscriptionRegistry::on_disconnected() {
 		entry.sid = 0;
 		entry.last_seq.reset();
 		for (const ws::UpdateSubscriptionParams& params : entry.held) {
-			apply(entry.params, params); // never sent; the next subscribe carries them
+			record_update(entry, params); // never sent; the next subscribe carries them
 		}
 		entry.held.clear();
 	}
@@ -265,7 +265,7 @@ Reaction SubscriptionRegistry::on_ok(const OkFrame& frame) {
 	}
 	note_seq(frame.sid, frame.seq);
 	if (command->update) {
-		apply(entry->params, *command->update);
+		record_update(*entry, *command->update);
 	}
 	ws::Updated updated = parse_updated(frame.msg);
 	updated.subscription = entry->handle;
@@ -279,6 +279,7 @@ Reaction SubscriptionRegistry::on_ok(const OkFrame& frame) {
 		entry->params.market_id.reset();
 		entry->params.market_ids = updated.market_ids;
 	}
+	entry->filtered = entry->filtered || has_markets(entry->params);
 	reaction.message = std::move(updated);
 	return reaction;
 }
@@ -298,10 +299,12 @@ Reaction SubscriptionRegistry::on_error(const ErrorFrame& frame) {
 			by_sid_.find(*frame.sid);
 		subscription = found == by_sid_.end() ? 0 : found->second;
 	}
-	if (const Entry* entry = find(subscription)) {
+	if (Entry* entry = find(subscription)) {
 		error.subscription = entry->handle;
-		if (command && (command->kind == Kind::Subscribe || command->kind == Kind::Unsubscribe)) {
-			erase(subscription); // the server holds no such subscription
+		if (command && command->kind == Kind::Subscribe) {
+			erase(subscription);
+		} else if (command && command->kind == Kind::Unsubscribe) {
+			entry->state = State::Active; // rejection does not confirm removal
 		}
 	}
 	reaction.error = std::move(error);
@@ -373,6 +376,11 @@ std::vector<ws::Subscription> SubscriptionRegistry::subscriptions() const {
 SubscriptionRegistry::Entry* SubscriptionRegistry::find(std::int64_t subscription) {
 	const std::map<std::int64_t, Entry>::iterator found = entries_.find(subscription);
 	return found == entries_.end() ? nullptr : &found->second;
+}
+
+void SubscriptionRegistry::record_update(Entry& entry, const ws::UpdateSubscriptionParams& params) {
+	apply(entry.params, params);
+	entry.filtered = entry.filtered || has_markets(entry.params);
 }
 
 void SubscriptionRegistry::erase(std::int64_t subscription) {

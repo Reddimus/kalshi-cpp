@@ -178,6 +178,7 @@ private:
 					const std::lock_guard lock(mutex_);
 					headers_ = std::move(seen);
 					client_ = wsi;
+					partial_.clear();
 					++connections_;
 					outgoing_.clear();
 					drop_ = drop_on_connect_;
@@ -217,6 +218,7 @@ private:
 					if (drop_) {
 						drop_ = false;
 						client_ = nullptr;
+						partial_.clear();
 						return -1;
 					}
 					if (outgoing_.empty()) {

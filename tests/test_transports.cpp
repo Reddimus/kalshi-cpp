@@ -131,7 +131,10 @@ TEST(Retry, TransportHonorsRetryAfterUpToMaxDelay) {
 	inner->responses.emplace_back(status(200));
 	const kalshi::RetryingTransport capped(inner, fast_policy()); // max_delay is 5 ms
 	const std::chrono::steady_clock::time_point capped_start = std::chrono::steady_clock::now();
-	ASSERT_TRUE(capped.get("/markets").has_value());
+	const kalshi::Result<kalshi::HttpResponse> capped_response = capped.get("/markets");
+	ASSERT_TRUE(capped_response);
+	EXPECT_EQ(capped_response->status_code, 200);
+	EXPECT_EQ(inner->calls, 2);
 	EXPECT_LT(std::chrono::steady_clock::now() - capped_start, 500ms);
 
 	inner->responses.emplace_back(kalshi::HttpResponse{429, "{}", {{"retry-after", "1"}}});
@@ -184,12 +187,16 @@ TEST(TokenBucket, WaitersReserveTokensSoLaterCallersQueueBehindThem) {
 	kalshi::TokenBucket bucket(
 		{.capacity = 10.0, .refill_per_second = 10.0, .initial_tokens = 5.0});
 	std::latch started(1);
-	std::thread waiter([&] {
+	std::jthread waiter([&] {
 		started.count_down();
 		EXPECT_TRUE(bucket.acquire_for(10.0, 5s));
 	});
 	started.wait();
-	std::this_thread::sleep_for(100ms);
+	const std::chrono::steady_clock::time_point deadline = std::chrono::steady_clock::now() + 2s;
+	while (bucket.available() > 0.0 && std::chrono::steady_clock::now() < deadline) {
+		std::this_thread::sleep_for(1ms);
+	}
+	ASSERT_DOUBLE_EQ(bucket.available(), 0.0) << "waiter did not reserve its tokens";
 	// Without the reservation, the 5 tokens on hand would let this through.
 	EXPECT_FALSE(bucket.try_acquire(1.0));
 	EXPECT_DOUBLE_EQ(bucket.available(), 0.0);

@@ -32,7 +32,6 @@ enum class Channel : std::uint8_t {
 	CfbenchmarksValue,			 ///< `cfbenchmarks_value`
 	CfbenchmarksValue5hz,		 ///< `cfbenchmarks_value_5hz`
 	PythValue,					 ///< `pyth_value`
-	BatchCommunications,		 ///< `batch_communications`
 };
 
 [[nodiscard]] constexpr std::string_view to_string(Channel value) noexcept {
@@ -63,8 +62,6 @@ enum class Channel : std::uint8_t {
 			return "cfbenchmarks_value_5hz";
 		case Channel::PythValue:
 			return "pyth_value";
-		case Channel::BatchCommunications:
-			return "batch_communications";
 		case Channel::Unknown:
 			break;
 	}
@@ -384,6 +381,28 @@ enum class UpdateAction : std::uint8_t {
 	return "";
 }
 
+/// Orderbook channel only.
+enum class UpdateIntervalMs : std::int64_t {
+	Unknown = -1, ///< A value this SDK version does not know.
+	V0 = 0,		  ///< empty string
+	V100 = 100,	  ///< `100`
+	V1000 = 1000, ///< `1000`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(UpdateIntervalMs value) noexcept {
+	switch (value) {
+		case UpdateIntervalMs::V0:
+			return "0";
+		case UpdateIntervalMs::V100:
+			return "100";
+		case UpdateIntervalMs::V1000:
+			return "1000";
+		case UpdateIntervalMs::Unknown:
+			break;
+	}
+	return "";
+}
+
 /// Communications channel only.
 enum class UserFilter : std::uint8_t {
 	Unknown, ///< A value this SDK version does not know.
@@ -656,6 +675,7 @@ struct LifecycleAdditionalMetadata {
 	std::string name;
 	std::string title;
 	std::string yes_sub_title;
+	/// Deprecated.
 	std::string no_sub_title;
 	std::string rules_primary;
 	std::string rules_secondary;
@@ -798,7 +818,7 @@ struct OrderbookDelta {
 	std::string market_ticker;
 	/// Unique market UUID
 	std::string market_id;
-	/// Exchange clock of the exchange action that made this change.
+	/// Exchange clock of the latest change included in this delta.
 	std::int64_t clock{};
 	/// Price level in dollars
 	std::string price_dollars;
@@ -852,7 +872,7 @@ struct PythValue {
 
 /// Notification when a quote is accepted
 struct QuoteAccepted {
-	/// Unique identifier for the quote
+	/// Unique identifier of the quote that executes.
 	std::string quote_id;
 	/// Identifier of the RFQ this quote is for
 	std::string rfq_id;
@@ -932,7 +952,7 @@ struct QuoteExecuted {
 	std::string executed_ts;
 	/// Optional - Present only when your side of this quote used a subaccount.
 	std::optional<std::int64_t> subaccount;
-	/// Identifier of the RFQ batch, when the quote was accepted as part of a batch quote.
+	/// Identifier of the RFQ batch, when the quote is on a child RFQ of an RFQ batch.
 	std::optional<std::string> rfq_batch_id;
 };
 
@@ -1082,6 +1102,8 @@ struct RfqCreated {
 	std::optional<std::string> mve_collection_ticker;
 	/// Selected legs for an MVE RFQ.
 	std::optional<std::vector<RfqCreatedMveSelectedLegsItem>> mve_selected_legs;
+	/// Identifier of the RFQ batch this RFQ is a child of.
+	std::optional<std::string> rfq_batch_id;
 };
 
 /// Notification when an RFQ is deleted
@@ -1100,6 +1122,8 @@ struct RfqDeleted {
 	std::optional<std::string> target_cost_dollars;
 	/// Timestamp when the RFQ was deleted
 	std::string deleted_ts;
+	/// Identifier of the RFQ batch this RFQ is a child of, which closed with it.
+	std::optional<std::string> rfq_batch_id;
 };
 
 /// Options for subscribe; the client sets the channel.
@@ -1120,6 +1144,8 @@ struct SubscribeParams {
 	std::optional<bool> skip_ticker_ack;
 	/// Orderbook channel only.
 	std::optional<bool> use_yes_price;
+	/// Orderbook channel only.
+	std::optional<UpdateIntervalMs> update_interval_ms;
 	/// Communications channel only.
 	std::optional<UserFilter> user_filter;
 	/// Number of shards for communications channel fanout (optional)
@@ -1375,6 +1401,8 @@ using Message =
 			return "Too many requests";
 		case 28:
 			return "Underlying tickers required";
+		case 29:
+			return "update_interval_ms must be 0, 100 or 1000";
 		default:
 			return "";
 	}

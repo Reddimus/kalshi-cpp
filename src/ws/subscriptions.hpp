@@ -72,7 +72,7 @@ private:
 		/// update_subscription calls made before the server confirmed.
 		std::vector<ws::UpdateSubscriptionParams> held;
 		bool unsubscribe_held{false};
-		/// Subscribed with a market filter. Once every market is removed, it is
+		/// Has used a market filter. Once every market is removed, it is
 		/// not resubscribed, which would stream every market instead.
 		bool filtered{false};
 	};
@@ -87,6 +87,7 @@ private:
 	std::int64_t next_id() { return next_id_++; }
 	Entry* find(std::int64_t subscription);
 	void erase(std::int64_t subscription);
+	static void record_update(Entry& entry, const ws::UpdateSubscriptionParams& params);
 	std::optional<InFlight> take(std::optional<std::int64_t> command);
 	/// Frames such as `ok` also take a sequence number on sequenced channels.
 	void note_seq(std::optional<std::int64_t> sid, std::optional<std::int64_t> seq);

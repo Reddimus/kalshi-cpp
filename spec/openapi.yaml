@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: Kalshi Trade API Manual Endpoints
-  version: 3.34.0
+  version: 3.35.0
   description: Manually defined OpenAPI spec for endpoints being migrated to spec-first approach
 
 servers:
@@ -15,6 +15,141 @@ servers:
     description: Demo shared API server, also supported
 
 paths:
+  /portfolio/positions/{ticker}/exit_trigger:
+    parameters:
+      - name: ticker
+        in: path
+        required: true
+        schema:
+          type: string
+      - $ref: '#/components/parameters/SubaccountQueryDefaultPrimary'
+    put:
+      operationId: SetEventContractExitTrigger
+      # Hidden from the published docs until event-contract TP/SL launches.
+      x-excluded: true
+      summary: Set Position Exit Trigger
+      description: >-
+        Endpoint for setting a take-profit / stop-loss bracket on a position. Requires an open
+        position and fires a sell capped at the position. Both legs are set from the request, so
+        a leg you omit is cleared; use DELETE to cancel the bracket.
+      tags: [portfolio]
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetEventContractExitTriggerRequest'
+      responses:
+        '200':
+          description: ""
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EventContractExitTrigger'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    get:
+      operationId: GetEventContractExitTriggers
+      # Hidden from the published docs until event-contract TP/SL launches.
+      x-excluded: true
+      summary: Get Position Exit Triggers
+      description: >-
+        Endpoint for retrieving the take-profit / stop-loss bracket on a position.
+        `exit_triggers` lists live brackets, and `exit_trigger` is the most recently updated
+        bracket, including a terminal one.
+      tags: [portfolio]
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [bracket]
+            x-enum-varnames:
+              - GetEventContractExitTriggersParamsKindBracket
+      responses:
+        '200':
+          description: ""
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [exit_trigger, exit_triggers]
+                properties:
+                  exit_trigger:
+                    nullable: true
+                    allOf:
+                      - $ref: '#/components/schemas/EventContractExitTrigger'
+                  exit_triggers:
+                    type: array
+                    items:
+                      $ref: '#/components/schemas/EventContractExitTrigger'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+    delete:
+      operationId: DeleteEventContractExitTrigger
+      # Hidden from the published docs until event-contract TP/SL launches.
+      x-excluded: true
+      summary: Cancel Position Exit Trigger
+      description: >-
+        Endpoint for cancelling the take-profit / stop-loss bracket on a position. Succeeds even
+        when nothing is live.
+      tags: [portfolio]
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - name: kind
+          in: query
+          schema:
+            type: string
+            enum: [bracket]
+            x-enum-varnames:
+              - DeleteEventContractExitTriggerParamsKindBracket
+      responses:
+        '204':
+          description: ""
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /exchange/status:
     get:
       operationId: GetExchangeStatus
@@ -1168,6 +1303,47 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /portfolio/events/orders/with_exit_trigger:
+    post:
+      operationId: CreateOrderWithExitTrigger
+      # Hidden from the published docs until event-contract TP/SL launches.
+      x-excluded: true
+      summary: Create Order With TP/SL
+      description: Creates an entry order with attached take-profit or stop-loss protection.
+      tags:
+        - orders
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateOrderWithExitTriggerRequest'
+      responses:
+        '201':
+          description: Order created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateOrderV2Response'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableError'
+
   /portfolio/events/orders/{order_id}:
     delete:
       operationId: CancelOrderV2
@@ -1884,6 +2060,40 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /portfolio/credit_history:
+    get:
+      operationId: GetCreditHistory
+      summary: Get Credit History
+      description: |
+        Returns the authenticated member's credit history, newest first.
+        Filters apply to credit creation time: `min_ts` is inclusive and `max_ts` is exclusive.
+      tags:
+        - portfolio
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - $ref: '#/components/parameters/LimitQuery'
+        - $ref: '#/components/parameters/CursorQuery'
+        - $ref: '#/components/parameters/MinTsQuery'
+        - $ref: '#/components/parameters/MaxTsQuery'
+      responses:
+        '200':
+          description: Credit history retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetCreditHistoryResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /portfolio/deposits:
     get:
       operationId: GetDeposits
@@ -2354,7 +2564,10 @@ paths:
     put:
       operationId: AcceptRFQQuote
       summary: Accept RFQ Quote
-      description: ' Endpoint for accepting a quote scoped to its RFQ. This will require the quoter to confirm.'
+      description: >-
+        Endpoint for accepting a quote scoped to its RFQ. This will require the quoter to confirm.
+        The quote that fills can be another maker's quote at the same price; see
+        [RFQs](/getting_started/rfqs#flow).
       tags:
         - communications
       security:
@@ -2496,6 +2709,9 @@ paths:
         child that has none; every child must be sized the same way, by
         contracts or by target cost. rest_remainder must be false, and FCM
         members cannot create RFQ batches yet (403 rfq_batch_unavailable).
+        Makers also see each child as an ordinary RFQ, with rfq_batch_id set,
+        and can quote it as a single RFQ; its best quote counts toward the
+        batch's.
       x-mint:
         content: |
           <Note>
@@ -2841,8 +3057,11 @@ paths:
       operationId: GetQuotes
       summary: Get Quotes
       description: >-
-        List quotes. The rfq_id filter requires an RFQ UUID. Pass pagination
-        cursors back unchanged; malformed RFQ IDs or cursors return HTTP 400.
+        List quotes. The rfq_id filter requires an RFQ UUID. With rfq_id, quotes
+        are sorted on the RFQ's main side (no for a target-cost RFQ, yes
+        otherwise): the best price first, then the earliest place in line at that
+        price. Pass pagination cursors back unchanged; malformed RFQ IDs or
+        cursors return HTTP 400.
       tags:
         - communications
       security:
@@ -3049,7 +3268,7 @@ paths:
       operationId: AcceptQuote
       summary: Accept Quote
       deprecated: true
-      description: 'DEPRECATED: Use PUT /communications/rfqs/{rfq_id}/quotes/{quote_id}/accept instead. Endpoint for accepting a quote. This will require the quoter to confirm.'
+      description: 'DEPRECATED: Use PUT /communications/rfqs/{rfq_id}/quotes/{quote_id}/accept instead.'
       x-mint:
         content: |
           <Warning>
@@ -5369,6 +5588,101 @@ components:
         default: null
 
   schemas:
+    EventContractExitSlippage:
+      description: Execution allowance below the trigger price, shared by TP and SL. Use bps (0-9999) or whole cents (0-99). Zero allows no slippage. Omit on creation to save the backend default, or on edits to keep the existing setting.
+      type: object
+      additionalProperties: false
+      required: [unit, value]
+      not:
+        properties:
+          unit:
+            enum: [cents]
+          value:
+            minimum: 100
+        required: [unit, value]
+      properties:
+        unit:
+          type: string
+          enum: [bps, cents]
+          x-enum-varnames:
+            - EventContractExitSlippageUnitBps
+            - EventContractExitSlippageUnitCents
+        value:
+          type: integer
+          format: int32
+          x-go-type: "*int32"
+          minimum: 0
+          maximum: 9999
+    SetEventContractExitTriggerRequest:
+      description: Replaces both legs, so a leg you omit is cleared. At least one leg is required. Prices are YES prices, like order prices, so on a NO position the stop loss is above the YES price and the take profit is below it.
+      type: object
+      additionalProperties: false
+      properties:
+        slippage:
+          $ref: '#/components/schemas/EventContractExitSlippage'
+        kind:
+          type: string
+          enum: [bracket]
+          x-enum-varnames:
+            - SetEventContractExitTriggerRequestKindBracket
+        stop_loss_price:
+          $ref: '#/components/schemas/FixedPointDollars'
+        take_profit_price:
+          $ref: '#/components/schemas/FixedPointDollars'
+    EventContractExitTrigger:
+      description: "`side` is the outcome the position holds. Prices are YES prices, like order prices."
+      type: object
+      required: [id, ticker, side, subaccount_number, kind, status, created_time, updated_time]
+      properties:
+        slippage:
+          $ref: '#/components/schemas/EventContractExitSlippage'
+        id:
+          type: string
+        ticker:
+          type: string
+        side:
+          type: string
+          enum: [yes, no]
+          x-enum-varnames:
+            - EventContractExitTriggerSideYes
+            - EventContractExitTriggerSideNo
+        subaccount_number:
+          type: integer
+        kind:
+          type: string
+          enum: [bracket]
+          x-enum-varnames:
+            - EventContractExitTriggerKindBracket
+        stop_loss_price:
+          $ref: '#/components/schemas/FixedPointDollars'
+        take_profit_price:
+          $ref: '#/components/schemas/FixedPointDollars'
+        status:
+          type: string
+          enum: [pending_on_entry, active, filled, canceled, failed, unknown]
+          x-enum-varnames:
+            - EventContractExitTriggerStatusPendingOnEntry
+            - EventContractExitTriggerStatusActive
+            - EventContractExitTriggerStatusFilled
+            - EventContractExitTriggerStatusCanceled
+            - EventContractExitTriggerStatusFailed
+            - EventContractExitTriggerStatusUnknown
+        status_reason:
+          type: string
+        triggered_order_id:
+          type: string
+        triggered_leg:
+          type: string
+          enum: [stop_loss, take_profit]
+          x-enum-varnames:
+            - EventContractExitTriggerTriggeredLegStopLoss
+            - EventContractExitTriggerTriggeredLegTakeProfit
+        created_time:
+          type: string
+          format: date-time
+        updated_time:
+          type: string
+          format: date-time
     # Common schemas
     FixedPointDollars:
       type: string
@@ -6248,6 +6562,7 @@ components:
         details:
           type: object
           additionalProperties: true
+          x-go-type: json.RawMessage
           description: Live data details as a flexible object
         milestone_id:
           type: string
@@ -6283,6 +6598,7 @@ components:
         details:
           type: object
           additionalProperties: true
+          x-go-type: json.RawMessage
           description: Live data details as a flexible object whose shape depends on the type.
         is_historical:
           type: boolean
@@ -6307,6 +6623,211 @@ components:
       properties:
         live_data:
           $ref: '#/components/schemas/EventLiveData'
+
+    GetMarketIndexesResponse:
+      type: object
+      required:
+        - indexes
+      properties:
+        indexes:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketIndex'
+
+    MarketIndex:
+      type: object
+      required:
+        - id
+        - name
+        - family
+        - currency
+        - units
+        - session
+        - available
+      properties:
+        id:
+          type: string
+          description: Stable index ID, e.g. `SP500` or `SP500-45`.
+        name:
+          type: string
+          description: Index name, e.g. `S&P 500 Information Technology`.
+        family:
+          type: string
+          description: Index family, e.g. `S&P 500 GICS Sectors`.
+        gics_code:
+          type: string
+          description: GICS sector code, for sector indexes only.
+        sector:
+          type: string
+          description: GICS sector name, for sector indexes only.
+        currency:
+          type: string
+          description: ISO 4217 currency of the index, e.g. `USD`.
+        units:
+          type: string
+          description: Unit of index values; always `index_points`.
+        session:
+          $ref: '#/components/schemas/MarketIndexSession'
+        available:
+          type: boolean
+          description: >-
+            False while the index has no data source; such an index serves no
+            values.
+        latest:
+          $ref: '#/components/schemas/MarketIndexLatest'
+
+    MarketIndexSession:
+      type: object
+      description: The index's regular publication session.
+      required:
+        - timezone
+        - open
+        - close
+        - days
+      properties:
+        timezone:
+          type: string
+          description: IANA time zone of `open` and `close`, e.g. `America/New_York`.
+        open:
+          type: string
+          description: Session open, `HH:MM` local time.
+        close:
+          type: string
+          description: Session close, `HH:MM` local time.
+        days:
+          type: array
+          description: Weekdays the session runs, e.g. `mon`.
+          items:
+            type: string
+        calendar:
+          type: string
+          description: >-
+            Holiday calendar applied on top of `days`: `us_equity` (US stock
+            market holidays and 1:00 PM early closes).
+
+    MarketIndexLatest:
+      type: object
+      required:
+        - source
+        - status
+      properties:
+        source:
+          type: string
+          description: Data source of the value, e.g. `spdji` (S&P Dow Jones Indices) or `massive`.
+        status:
+          $ref: '#/components/schemas/MarketIndexStatus'
+        value:
+          type: number
+          format: double
+          description: Latest index value. Absent when no value is available.
+        last_tick_ms:
+          type: integer
+          format: int64
+          description: Time of `value`, unix milliseconds. Absent with `value`.
+
+    MarketIndexStatus:
+      type: string
+      enum: [open, closed, stale]
+      description: >-
+        `open`: in session with a current value. `closed`: outside the
+        session; the value is the latest from the last session. `stale`: in
+        session, but no source has updated in the last two minutes.
+
+    MarketIndexTimeseriesPoint:
+      type: object
+      required:
+        - t
+        - v
+      properties:
+        t:
+          type: integer
+          format: int64
+          description: Unix milliseconds.
+        v:
+          type: number
+          format: double
+          description: Index value.
+
+    GetMarketIndexResponse:
+      type: object
+      required:
+        - index
+        - source
+        - status
+        - interval
+        - start_ms
+        - end_ms
+        - timeseries
+      properties:
+        index:
+          $ref: '#/components/schemas/MarketIndex'
+        source:
+          type: string
+          description: Data source of `timeseries`.
+        status:
+          $ref: '#/components/schemas/MarketIndexStatus'
+        value:
+          type: number
+          format: double
+          description: Latest index value. Absent when no value is available.
+        last_tick_ms:
+          type: integer
+          format: int64
+          description: Time of `value`, unix milliseconds.
+        interval:
+          type: string
+          description: Point spacing of `timeseries` (`1m`).
+        start_ms:
+          type: integer
+          format: int64
+          description: Window start, unix milliseconds.
+        end_ms:
+          type: integer
+          format: int64
+          description: Window end, unix milliseconds.
+        timeseries:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketIndexTimeseriesPoint'
+
+    GetMarketIndexHistoryResponse:
+      type: object
+      required:
+        - id
+        - source
+        - status
+        - interval
+        - start_ms
+        - end_ms
+        - timeseries
+      properties:
+        id:
+          type: string
+          description: Market index ID.
+        source:
+          type: string
+          description: Data source of `timeseries`.
+        status:
+          $ref: '#/components/schemas/MarketIndexStatus'
+        last_tick_ms:
+          type: integer
+          format: int64
+          description: Time of the index's latest value, unix milliseconds.
+        interval:
+          type: string
+          description: Point spacing of `timeseries` (`1s` or `1m`).
+        start_ms:
+          type: integer
+          format: int64
+          description: Window start, unix milliseconds.
+        end_ms:
+          type: integer
+          format: int64
+          description: Window end, unix milliseconds.
+        timeseries:
+          type: array
+          items:
+            $ref: '#/components/schemas/MarketIndexTimeseriesPoint'
 
     GetWeatherIndexResponse:
       type: object
@@ -6759,6 +7280,51 @@ components:
           description: Exchange index of the subaccount.
 
     # Portfolio schemas (specific to portfolio endpoints, not shared with IB)
+    GetCreditHistoryResponse:
+      type: object
+      required:
+        - credits
+        - cursor
+      properties:
+        credits:
+          type: array
+          items:
+            $ref: '#/components/schemas/CreditHistory'
+        cursor:
+          type: string
+          description: Pagination cursor; empty when there are no more results.
+
+    CreditHistory:
+      type: object
+      required:
+        - credit_id
+        - type
+        - status
+        - amount_dollars
+        - reason
+        - created_time
+      properties:
+        credit_id:
+          type: string
+          description: Unique credit identifier.
+        type:
+          type: string
+          description: Credit category.
+        status:
+          type: string
+          enum: [unknown, pending, failed, applied]
+          description: Credit processing status.
+        amount_dollars:
+          $ref: '#/components/schemas/FixedPointDollars'
+          description: Credit amount in dollars.
+        reason:
+          type: string
+          description: Credit description, which may include a market or event ticker.
+        created_time:
+          type: string
+          format: date-time
+          description: Time the credit was created.
+
     GetSettlementsResponse:
       type: object
       required:
@@ -7157,6 +7723,7 @@ components:
         details:
           type: object
           additionalProperties: true
+          x-go-type: json.RawMessage
           description: >-
             Additional details about the milestone.
             `details.status`, when present, is maintained by a periodic background job. It lags the game's live state and may be stale or inaccurate, for example remaining `live` after the game ends. For game status, prefer live data, which is updated far more often: `live_data.details.status` from `GET /live_data/milestone/{milestone_id}`, or each entry's `details.status` from `GET /live_data/batch`. Scores are in the sport-specific fields of that live data `details` object.
@@ -7254,6 +7821,7 @@ components:
         - realized_pnl_dollars
         - fees_paid_dollars
         - last_updated_ts
+        - netting_enabled
       properties:
         ticker:
           type: string
@@ -7280,6 +7848,9 @@ components:
           type: string
           format: date-time
           description: Last time the position is updated
+        netting_enabled:
+          type: boolean
+          description: Whether netting applies to this position's event. Set at the subaccount's first order in the event.
 
     EventPosition:
       type: object
@@ -8495,6 +9066,14 @@ components:
           type: string
           format: date-time
           description: Timestamp when the RFQ was last updated
+        rfq_batch_id:
+          type: string
+          description: >-
+            Identifier of the RFQ batch this RFQ is a child of. Omitted for an
+            RFQ outside a batch. A child can be quoted like a single RFQ, with
+            the differences described in
+            [Request for Quote](/getting_started/rfqs#rfq-batch-children).
+          x-go-type-skip-optional-pointer: true
 
     GetRFQsResponse:
       type: object
@@ -9228,6 +9807,17 @@ components:
         order:
           $ref: '#/components/schemas/Order'
 
+    AttachedEventContractExitTrigger:
+      description: Prices are YES prices, like the order's `price`, so for an ask the stop loss is above the entry price and the take profit is below it.
+      type: object
+      properties:
+        slippage:
+          $ref: '#/components/schemas/EventContractExitSlippage'
+        stop_loss_price:
+          $ref: '#/components/schemas/FixedPointDollars'
+        take_profit_price:
+          $ref: '#/components/schemas/FixedPointDollars'
+
     CreateOrderRequest:
       type: object
       required:
@@ -9526,6 +10116,18 @@ components:
         order:
           $ref: '#/components/schemas/Order'
           description: The order after amendment
+
+    CreateOrderWithExitTriggerRequest:
+      allOf:
+        - $ref: '#/components/schemas/CreateOrderV2Request'
+        - type: object
+          required: [exit_trigger]
+          properties:
+            time_in_force:
+              type: string
+              x-go-type: CreateOrderV2RequestTimeInForce
+            exit_trigger:
+              $ref: '#/components/schemas/AttachedEventContractExitTrigger'
 
     CreateOrderV2Request:
       type: object
@@ -10806,7 +11408,9 @@ components:
           description: Shortened title for the yes side of this market
         no_sub_title:
           type: string
-          description: Shortened title for the no side of this market
+          deprecated: true
+          description: |
+            Deprecated. Use `yes_sub_title` instead. Equal to `yes_sub_title` on every market created since September 2024.
         created_time:
           type: string
           format: date-time
@@ -10956,6 +11560,8 @@ components:
           type: object
           nullable: true
           x-omitempty: true
+          x-go-type: json.RawMessage
+          x-go-type-skip-optional-pointer: true
           description: Expiration value for each target that leads to a YES settlement
         rules_primary:
           type: string

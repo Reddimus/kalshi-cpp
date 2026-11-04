@@ -11,6 +11,23 @@ import textwrap
 from dataclasses import dataclass, field
 from pathlib import Path
 
+def load_contract_yaml(text: str) -> dict:
+    """Use YAML 1.2 boolean spelling; market sides yes/no stay strings."""
+    import yaml
+
+    class ContractLoader(yaml.SafeLoader):
+        pass
+
+    ContractLoader.yaml_implicit_resolvers = {
+        key: [(tag, pattern) for tag, pattern in rules if tag != "tag:yaml.org,2002:bool"]
+        for key, rules in yaml.SafeLoader.yaml_implicit_resolvers.items()
+    }
+    ContractLoader.add_implicit_resolver(
+        "tag:yaml.org,2002:bool", re.compile(r"^(?:true|false)$", re.IGNORECASE), list("tTfF")
+    )
+    return yaml.load(text, Loader=ContractLoader)
+
+
 ROOT = Path(__file__).resolve().parents[2]
 
 ACRONYMS = {"RFQs": "Rfqs", "RFQ": "Rfq", "FCM": "Fcm", "ID": "Id", "API": "Api", "MVE": "Mve"}
@@ -48,7 +65,9 @@ def pascal(name: str) -> str:
     return "".join(part[:1].upper() + part[1:] for part in parts if part)
 
 
-def enumerator(value: str) -> str:
+def enumerator(value: str | int) -> str:
+    if type(value) is int:
+        return f"V{value}"
     if value == "":
         return "Unset"  # e.g. a market result before settlement
     text = pascal(value.replace("::", "_"))
@@ -89,11 +108,11 @@ def doc_lines(text: str, indent: str, width: int = 96) -> list[str]:
 @dataclass
 class EnumType:
     name: str
-    values: list[str]
+    values: list[str | int]
     doc: str = ""
 
     @property
-    def known(self) -> list[str]:
+    def known(self) -> list[str | int]:
         """Values with their own enumerator; "unknown" maps to Unknown."""
         return [v for v in self.values if v != UNKNOWN_VALUE]
 
@@ -168,10 +187,13 @@ def emit_enum(enum: EnumType) -> str:
     out = [line + "\n" for line in doc_lines(enum.doc, "")]
     unknown_doc = "`unknown`, or a value this SDK version does not know." if UNKNOWN_VALUE in enum.values \
         else "A value this SDK version does not know."
-    out.append(f"enum class {enum.name} : std::uint8_t {{\n\tUnknown, ///< {unknown_doc}\n")
+    numeric = bool(enum.values) and all(type(v) is int for v in enum.values)
+    underlying = "std::int64_t" if numeric else "std::uint8_t"
+    unknown = "Unknown = -1" if numeric else "Unknown"
+    out.append(f"enum class {enum.name} : {underlying} {{\n\t{unknown}, ///< {unknown_doc}\n")
     for value in enum.known:
         doc = f"`{value}`" if value else "empty string"
-        out.append(f"\t{enumerator(value)}, ///< {doc}\n")
+        out.append(f"\t{enumerator(value)}{f' = {value}' if numeric else ''}, ///< {doc}\n")
     out.append("};\n\n")
     out.append(f"[[nodiscard]] constexpr std::string_view to_string({enum.name} value) noexcept {{\n\tswitch (value) {{\n")
     for value in enum.known:
@@ -182,9 +204,11 @@ def emit_enum(enum: EnumType) -> str:
 
 
 def emit_enum_parser(enum: EnumType, qualified: str, prefix: str = "") -> str:
-    out = [f"inline {qualified} parse_{prefix}{snake(enum.name)}(std::string_view text) noexcept {{\n"]
+    numeric = bool(enum.values) and all(type(v) is int for v in enum.values)
+    input_type = "std::int64_t" if numeric else "std::string_view"
+    out = [f"inline {qualified} parse_{prefix}{snake(enum.name)}({input_type} text) noexcept {{\n"]
     for value in enum.known:
-        test = "text.empty()" if value == "" else f'text == "{value}"'
+        test = f"text == {value}" if numeric else ("text.empty()" if value == "" else f'text == "{value}"')
         out.append(f"\tif ({test}) {{\n\t\treturn {qualified}::{enumerator(value)};\n\t}}\n")
     out.append(f"\treturn {qualified}::Unknown;\n}}\n\n")
     return "".join(out)
@@ -192,14 +216,18 @@ def emit_enum_parser(enum: EnumType, qualified: str, prefix: str = "") -> str:
 
 def emit_enum_adapter(enum: EnumType, qualified: str, parser: str) -> str:
     """Glaze adapter that reads unknown strings as Unknown."""
+    numeric = bool(enum.values) and all(type(v) is int for v in enum.values)
+    read_type = "std::int64_t" if numeric else "std::string"
+    write_value = f"static_cast<std::int64_t>(value)" if numeric else f"{qualified.rsplit('::', 1)[0]}::to_string(value)"
+    write_type = "std::int64_t" if numeric else "std::string_view"
     return (
         f"template <>\nstruct from<JSON, {qualified}> {{\n\ttemplate <auto Opts>\n"
         f"\tstatic void op({qualified}& value, auto&& ctx, auto&& it, auto&& end) {{\n"
-        "\t\tstd::string text;\n\t\tparse<JSON>::op<Opts>(text, ctx, it, end);\n"
+        f"\t\t{read_type} text{{}};\n\t\tparse<JSON>::op<Opts>(text, ctx, it, end);\n"
         f"\t\tvalue = {parser}(text);\n\t}}\n}};\n\n"
         f"template <>\nstruct to<JSON, {qualified}> {{\n\ttemplate <auto Opts>\n"
         f"\tstatic void op(const {qualified}& value, auto&& ctx, auto&&... args) {{\n"
-        f"\t\tconst std::string_view text = {qualified.rsplit('::', 1)[0]}::to_string(value);\n"
+        f"\t\tconst {write_type} text = {write_value};\n"
         "\t\tserialize<JSON>::op<Opts>(text, ctx, args...);\n\t}\n};\n\n")
 
 

@@ -38,7 +38,7 @@ Result<Timestamp> parse_timestamp(std::string_view text) {
 		!read_digits(text, 0, 4, year) || !read_digits(text, 5, 2, month) ||
 		!read_digits(text, 8, 2, day) || !read_digits(text, 11, 2, hour) ||
 		!read_digits(text, 14, 2, minute) || !read_digits(text, 17, 2, second) || hour > 23 ||
-		minute > 59 || second > 60) {
+		minute > 59 || second > 59) {
 		return invalid(text);
 	}
 	const std::chrono::year_month_day date{std::chrono::year{year}, std::chrono::month(month),

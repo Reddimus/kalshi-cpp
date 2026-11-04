@@ -7,7 +7,7 @@ memory.
 
 | File | Covers |
 | --- | --- |
-| `test_operation_routes.cpp` | Every REST operation's method and path (generated) |
+| `test_operation_routes.cpp` | Every REST operation: route or invalid-default rejection (generated) |
 | `test_operations.cpp` | Request bodies and response parsing for common operations |
 | `test_api_support.cpp` | Encoding, error mapping, null handling, validation |
 | `test_http_client.cpp` | The libcurl transport on POSIX and Windows |

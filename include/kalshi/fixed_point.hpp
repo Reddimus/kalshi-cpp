@@ -78,8 +78,8 @@ public:
 		}
 
 		const std::uint64_t positive_limit =
-			negative ? std::uint64_t{std::numeric_limits<std::int64_t>::max()} + 1U
-					 : std::uint64_t{std::numeric_limits<std::int64_t>::max()};
+			negative ? std::uint64_t{(std::numeric_limits<std::int64_t>::max)()} + 1U
+					 : std::uint64_t{(std::numeric_limits<std::int64_t>::max)()};
 		std::uint64_t magnitude = 0;
 		const auto append_digit = [&](char ch) -> bool {
 			const std::uint64_t digit = static_cast<std::uint64_t>(ch - '0');
@@ -103,7 +103,7 @@ public:
 		}
 
 		if (negative && magnitude == positive_limit) {
-			return std::numeric_limits<std::int64_t>::min();
+			return (std::numeric_limits<std::int64_t>::min)();
 		}
 		const std::int64_t signed_value = static_cast<std::int64_t>(magnitude);
 		return negative ? -signed_value : signed_value;

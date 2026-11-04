@@ -44,6 +44,27 @@ int main() {
 	std::cout << kalshi::VERSION;
 }
 CPP
+  cat > "$1/macros.cpp" <<'CPP'
+#include <kalshi/error.hpp>
+#include <charconv>
+#include <cstddef>
+#include <cstdint>
+#include <iterator>
+#include <limits>
+#include <optional>
+#include <string>
+#include <string_view>
+#include <unordered_set>
+#include <utility>
+#include <vector>
+
+// Windows headers can define these before an application's SDK includes.
+#define min(a, b) ((a) < (b) ? (a) : (b))
+#define max(a, b) ((a) > (b) ? (a) : (b))
+#include <kalshi/fixed_point.hpp>
+#include <kalshi/pagination.hpp>
+static_assert(min(1, 2) == 1 && max(1, 2) == 2);
+CPP
 }
 
 cmake -S "$repo_dir" -B "$scratch_dir/sdk-build" -DCMAKE_BUILD_TYPE=Release \
@@ -56,7 +77,7 @@ cat > "$scratch_dir/installed/CMakeLists.txt" <<CMAKE
 cmake_minimum_required(VERSION 3.21)
 project(kalshi_installed_consumer LANGUAGES CXX)
 find_package(kalshi $minor CONFIG REQUIRED)
-add_executable(consumer main.cpp)
+add_executable(consumer main.cpp macros.cpp)
 target_link_libraries(consumer PRIVATE kalshi::kalshi)
 # Public headers must stay warning-free for projects that build with -Werror.
 target_compile_options(consumer PRIVATE -Wall -Wextra -Wpedantic -Werror)
@@ -77,7 +98,7 @@ FetchContent_MakeAvailable(kalshi)
 if(TARGET kalshi_tests OR TARGET example_market_data)
   message(FATAL_ERROR "kalshi-cpp built tests or examples as a subproject")
 endif()
-add_executable(consumer main.cpp)
+add_executable(consumer main.cpp macros.cpp)
 target_link_libraries(consumer PRIVATE kalshi::kalshi)
 # Public headers must stay warning-free for projects that build with -Werror.
 target_compile_options(consumer PRIVATE -Wall -Wextra -Wpedantic -Werror)
