@@ -1,0 +1,27 @@
+# yaml-language-server: $schema=https://coderabbit.ai/integrations/schema.v2.json
+language: en-US
+reviews:
+  profile: chill
+  auto_approvals:
+    enabled: false
+  review_status: false
+  high_level_summary: false
+  poem: false
+  sequence_diagrams: false
+  auto_review:
+    enabled: false
+    auto_incremental_review: false
+    drafts: false
+    labels:
+      - review:greptile-quota-fallback
+knowledge_base:
+  code_guidelines:
+    enabled: true
+    filePatterns:
+      - AGENTS.md
+      - CLAUDE.md
+      - CONTRIBUTING.md
+      - .github/review-policy.md
+chat:
+  auto_reply: false
+  art: false

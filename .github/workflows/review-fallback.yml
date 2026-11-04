@@ -1,0 +1,61 @@
+name: Review fallback
+
+on:
+  pull_request:
+    paths: ['.github/scripts/review-fallback*', '.github/workflows/review-fallback.yml']
+  push:
+    branches: [main]
+    paths: ['.github/scripts/review-fallback*', '.github/workflows/review-fallback.yml']
+  issue_comment: # zizmor: ignore[dangerous-triggers] -- verified App only; trusted default-branch code
+    types: [created, edited]
+  workflow_dispatch:
+    inputs:
+      pr:
+        description: PR number to retry after a backup review rate limit
+        required: true
+        type: number
+
+permissions:
+  contents: read
+
+jobs:
+  tests:
+    if: github.event_name == 'pull_request' || github.event_name == 'push'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          persist-credentials: false
+      - run: node --test .github/scripts/review-fallback.test.cjs
+
+  fallback:
+    concurrency:
+      group: review-fallback-${{ github.event.issue.number || inputs.pr }}
+      cancel-in-progress: false
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.issue.pull_request &&
+       github.event.sender.id == 165735046 &&
+       github.event.comment.user.id == 165735046 &&
+       github.event.comment.performed_via_github_app.id == 867647 &&
+       (contains(github.event.comment.body, '<!-- greptile-credit-pause:') ||
+        contains(github.event.comment.body, '<!-- greptile_summary -->')))
+    runs-on: ubuntu-24.04
+    timeout-minutes: 3
+    permissions:
+      contents: read
+      issues: write
+      pull-requests: read
+    steps:
+      # Execute only the trusted default branch, including for fork PRs.
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: ${{ github.event.repository.default_branch }}
+          persist-credentials: false
+          sparse-checkout: .github/scripts
+      - uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        with:
+          script: |
+            const {run} = require('./.github/scripts/review-fallback.cjs');
+            await run(github, context, core);
