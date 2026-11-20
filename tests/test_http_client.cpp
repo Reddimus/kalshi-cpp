@@ -1,6 +1,7 @@
 // Runs the real libcurl transport against a loopback HTTP server.
 
 #include "kalshi/http_client.hpp"
+#include "kalshi/retry.hpp"
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -286,6 +287,49 @@ TEST(HttpClientLoopback, SignedEmptyPostSendsAnExplicitEmptyBody) {
 	EXPECT_TRUE(request.body.empty());
 }
 
+TEST(HttpClientLoopback, SignaturesCoverTheMethodAndThePathFromTheHostRootWithoutTheQuery) {
+	const LoopbackServer server(http_response(200, "{}"));
+	const kalshi::HttpClient client(kalshi::test::make_signer("key-id"), config_for(server));
+	const std::string& key = kalshi::test::private_key_pem();
+
+	struct Call {
+		kalshi::HttpMethod method;
+		std::string endpoint;
+		std::string body;
+		std::string signed_path;
+	};
+	for (const Call& call :
+		 {Call{kalshi::HttpMethod::GET, "/portfolio/orders?limit=5&status=resting", "",
+			   "/trade-api/v2/portfolio/orders"},
+		  Call{kalshi::HttpMethod::POST, "/portfolio/orders", R"({"ticker":"KXA"})",
+			   "/trade-api/v2/portfolio/orders"},
+		  Call{kalshi::HttpMethod::PUT, "/portfolio/order_groups/g-1/limit", "{}",
+			   "/trade-api/v2/portfolio/order_groups/g-1/limit"},
+		  Call{kalshi::HttpMethod::DEL, "/portfolio/orders/o-1?subaccount=2", "",
+			   "/trade-api/v2/portfolio/orders/o-1"}}) {
+		ASSERT_TRUE(client.request(call.method, call.endpoint, call.body).has_value());
+		RecordedRequest request = server.last();
+		const std::string method{kalshi::to_string(call.method)};
+		ASSERT_EQ(request.method, method);
+		// What the server saw, which is what it verifies the signature against.
+		EXPECT_EQ(request.target, "/trade-api/v2" + call.endpoint);
+		ASSERT_EQ(request.target.substr(0, request.target.find('?')), call.signed_path);
+		const std::string& timestamp = request.headers["kalshi-access-timestamp"];
+		const std::string& signature = request.headers["kalshi-access-signature"];
+		EXPECT_EQ(timestamp.size(), 13U); // milliseconds
+		EXPECT_TRUE(
+			kalshi::test::signature_verifies(key, timestamp + method + call.signed_path, signature))
+			<< method << ' ' << call.endpoint;
+		// Not over the endpoint alone, the query string, or another method.
+		EXPECT_FALSE(kalshi::test::signature_verifies(
+			key, timestamp + method + call.endpoint.substr(0, call.endpoint.find('?')), signature));
+		EXPECT_FALSE(kalshi::test::signature_verifies(
+			key, timestamp + method + call.signed_path + "?", signature));
+		EXPECT_FALSE(kalshi::test::signature_verifies(
+			key, timestamp + (method == "GET" ? "POST" : "GET") + call.signed_path, signature));
+	}
+}
+
 TEST(HttpClientLoopback, DeleteCarriesItsJsonBody) {
 	const LoopbackServer server(http_response(200, "{}"));
 	const kalshi::HttpClient client(config_for(server));
@@ -350,8 +394,32 @@ TEST(HttpClientLoopback, ResponseLimitAppliesToKnownAndChunkedBodies) {
 		const kalshi::HttpClient client(config);
 		const kalshi::Result<kalshi::HttpResponse> result = client.get("/markets");
 		ASSERT_FALSE(result);
-		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+		// The server received the request and answered, so this is not a
+		// rejection before sending, which InvalidRequest would claim.
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::ParseError);
+		EXPECT_EQ(server.last().method, "GET");
 	}
+}
+
+TEST(HttpClientLoopback, AnOversizedReplyToAWriteSaysTheRequestWasSent) {
+	const LoopbackServer server(http_response(201, R"({"order_id":"o-1"})"));
+	kalshi::ClientConfig config = config_for(server);
+	config.max_response_bytes = 4;
+	const kalshi::HttpClient client(config);
+
+	const kalshi::Result<kalshi::HttpResponse> result =
+		client.post("/portfolio/orders", R"({"ticker":"KXA"})");
+
+	// The order was placed. Neither "rejected before sending" nor a code that
+	// a retry policy repeats may come back.
+	ASSERT_FALSE(result);
+	EXPECT_EQ(server.last().method, "POST");
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::ParseError);
+	EXPECT_NE(result.error().message.find("was sent"), std::string::npos) << result.error().message;
+	kalshi::RetryPolicy retry_everything;
+	retry_everything.retry_writes = true;
+	EXPECT_FALSE(kalshi::should_retry(kalshi::HttpMethod::POST, result.error(), retry_everything));
+	EXPECT_FALSE(kalshi::should_retry(kalshi::HttpMethod::GET, result.error(), retry_everything));
 }
 
 TEST(HttpClientLoopback, ExactResponseLimitAndUnlimitedBodiesSucceed) {

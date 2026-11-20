@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <future>
 #include <gtest/gtest.h>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -179,6 +180,38 @@ TEST_F(WsClient, HandshakeCarriesSignedHeadersAndNoOrigin) {
 	EXPECT_FALSE(headers["kalshi-access-signature:"].empty());
 	EXPECT_EQ(headers["kalshi-access-timestamp:"].size(), 13U); // milliseconds
 	EXPECT_TRUE(headers["origin:"].empty());
+
+	// Kalshi verifies the signature over the timestamp, GET, and the path it
+	// received. A non-empty signature over anything else would be refused.
+	const std::string& key = kalshi::test::private_key_pem();
+	const std::string& timestamp = headers["kalshi-access-timestamp:"];
+	const std::string& signature = headers["kalshi-access-signature:"];
+	EXPECT_TRUE(
+		kalshi::test::signature_verifies(key, timestamp + "GET" + headers["path"], signature));
+	EXPECT_FALSE(
+		kalshi::test::signature_verifies(key, timestamp + "POST" + headers["path"], signature));
+	EXPECT_FALSE(kalshi::test::signature_verifies(key, timestamp + "GET/", signature));
+}
+
+TEST_F(WsClient, HandshakeSignatureLeavesOutTheQueryString) {
+	kalshi::WsConfig config = local(server);
+	config.url += "?shard=3";
+	kalshi::WebSocketClient ws(kalshi::test::make_signer("key-123"), config);
+	ASSERT_TRUE(ws.connect().has_value());
+	ASSERT_TRUE(server.wait_for_connections(1));
+
+	std::map<std::string, std::string> headers = server.headers();
+	if (headers["kalshi-access-key:"].empty()) {
+		GTEST_SKIP() << "libwebsockets was built without custom header support";
+	}
+	EXPECT_EQ(headers["path"], "/trade-api/ws/v2");
+	const std::string& key = kalshi::test::private_key_pem();
+	const std::string& timestamp = headers["kalshi-access-timestamp:"];
+	const std::string& signature = headers["kalshi-access-signature:"];
+	EXPECT_TRUE(
+		kalshi::test::signature_verifies(key, timestamp + "GET/trade-api/ws/v2", signature));
+	EXPECT_FALSE(kalshi::test::signature_verifies(key, timestamp + "GET/trade-api/ws/v2?shard=3",
+												  signature));
 }
 
 TEST_F(WsClient, RefusedHandshakeFailsFastWithTheReason) {

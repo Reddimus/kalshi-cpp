@@ -164,8 +164,10 @@ conservative across exchange shards. Share one paced transport per account;
 separate instances cannot coordinate their budgets.
 
 `ClientConfig::max_response_bytes` limits decompressed HTTP bodies to 64 MiB;
-set it to zero to disable the limit. WebSocket messages have the same default
-limit through `WsConfig::max_message_bytes`.
+set it to zero to disable the limit. A larger body returns `ParseError` after
+the server has handled the request, so check whether a write took effect.
+WebSocket messages have the same default limit through
+`WsConfig::max_message_bytes`.
 
 ## Examples
 

@@ -5,10 +5,7 @@
 #include <cstddef>
 #include <fstream>
 #include <gtest/gtest.h>
-#include <openssl/bn.h>
-#include <openssl/core_names.h>
 #include <openssl/evp.h>
-#include <openssl/param_build.h>
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 #include <stdexcept>
@@ -146,89 +143,6 @@ TEST(HttpSigningPath, WebSocketCallSitePassesAnEmptyBaseUrl) {
 
 namespace {
 
-/// Verify a signature the way Kalshi's gateway does: RSA-PSS/SHA-256 or Ed25519.
-///
-/// RSA-PSS salts every signature, so two calls over the same input are
-/// never byte-identical and cannot be pinned with a golden string. What
-/// *is* stable, and what a signing regression would break, is that the
-/// emitted signature verifies against the key over exactly
-/// `timestamp + method + path`.
-/// The public half of an RSA or RSA-PSS key as a plain RSA key. A verifier that
-/// holds only the modulus and exponent applies none of an RSA-PSS key's
-/// parameter restrictions, so it accepts exactly the signature it asks for.
-EVP_PKEY* plain_rsa_public_key(const EVP_PKEY* key) {
-	BIGNUM* modulus = nullptr;
-	BIGNUM* exponent = nullptr;
-	OSSL_PARAM_BLD* builder = OSSL_PARAM_BLD_new();
-	OSSL_PARAM* params = nullptr;
-	EVP_PKEY_CTX* ctx = EVP_PKEY_CTX_new_from_name(nullptr, "RSA", nullptr);
-	EVP_PKEY* plain = nullptr;
-	if (builder != nullptr && ctx != nullptr &&
-		EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_N, &modulus) == 1 &&
-		EVP_PKEY_get_bn_param(key, OSSL_PKEY_PARAM_RSA_E, &exponent) == 1 &&
-		OSSL_PARAM_BLD_push_BN(builder, OSSL_PKEY_PARAM_RSA_N, modulus) == 1 &&
-		OSSL_PARAM_BLD_push_BN(builder, OSSL_PKEY_PARAM_RSA_E, exponent) == 1 &&
-		(params = OSSL_PARAM_BLD_to_param(builder)) != nullptr &&
-		EVP_PKEY_fromdata_init(ctx) == 1) {
-		(void)EVP_PKEY_fromdata(ctx, &plain, EVP_PKEY_PUBLIC_KEY, params);
-	}
-	EVP_PKEY_CTX_free(ctx);
-	OSSL_PARAM_free(params);
-	OSSL_PARAM_BLD_free(builder);
-	BN_free(exponent);
-	BN_free(modulus);
-	return plain;
-}
-
-bool signature_verifies(const std::string& pem, const std::string& message,
-						const std::string& base64_signature) {
-	BIO* key_bio = BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size()));
-	if (!key_bio)
-		return false;
-	EVP_PKEY* key = PEM_read_bio_PrivateKey(key_bio, nullptr, nullptr, nullptr);
-	BIO_free(key_bio);
-	if (!key)
-		return false;
-	const int base_id = EVP_PKEY_get_base_id(key);
-	const bool rsa = base_id == EVP_PKEY_RSA || base_id == EVP_PKEY_RSA_PSS;
-	if (rsa) {
-		EVP_PKEY* plain = plain_rsa_public_key(key);
-		EVP_PKEY_free(key);
-		key = plain;
-		if (!key)
-			return false;
-	}
-
-	std::vector<unsigned char> signature(base64_signature.size());
-	const int decoded_with_padding = EVP_DecodeBlock(
-		signature.data(), reinterpret_cast<const unsigned char*>(base64_signature.data()),
-		static_cast<int>(base64_signature.size()));
-	if (decoded_with_padding < 0) {
-		EVP_PKEY_free(key);
-		return false;
-	}
-	std::size_t padding = 0;
-	while (padding < base64_signature.size() &&
-		   base64_signature[base64_signature.size() - 1 - padding] == '=')
-		++padding;
-	signature.resize(static_cast<std::size_t>(decoded_with_padding) - padding);
-
-	EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-	EVP_PKEY_CTX* pkey_ctx = nullptr;
-	const bool verified =
-		ctx &&
-		EVP_DigestVerifyInit(ctx, &pkey_ctx, rsa ? EVP_sha256() : nullptr, nullptr, key) == 1 &&
-		(!rsa || (EVP_PKEY_CTX_set_rsa_padding(pkey_ctx, RSA_PKCS1_PSS_PADDING) == 1 &&
-				  EVP_PKEY_CTX_set_rsa_mgf1_md(pkey_ctx, EVP_sha256()) == 1 &&
-				  EVP_PKEY_CTX_set_rsa_pss_saltlen(pkey_ctx, RSA_PSS_SALTLEN_DIGEST) == 1)) &&
-		EVP_DigestVerify(ctx, signature.data(), signature.size(),
-						 reinterpret_cast<const unsigned char*>(message.data()),
-						 message.size()) == 1;
-	EVP_MD_CTX_free(ctx);
-	EVP_PKEY_free(key);
-	return verified;
-}
-
 /// Key files larger than this are rejected. Mirrors the limit in signer.cpp.
 constexpr std::size_t kMaxKeyFileBytes = std::size_t{1024} * 1024;
 
@@ -253,13 +167,16 @@ TEST(Signer, SignatureVerifiesOverTimestampMethodAndPath) {
 	ASSERT_TRUE(headers.has_value());
 	EXPECT_EQ(headers->timestamp, "1234567890000");
 
-	EXPECT_TRUE(signature_verifies(pem, "1234567890000GET" + path, headers->signature));
+	EXPECT_TRUE(
+		kalshi::test::signature_verifies(pem, "1234567890000GET" + path, headers->signature));
 	// A different path, method, or timestamp must not verify — otherwise
 	// the assertion above would pass for any signed message.
+	EXPECT_FALSE(kalshi::test::signature_verifies(pem, "1234567890000GET" + path + "?token=value",
+												  headers->signature));
 	EXPECT_FALSE(
-		signature_verifies(pem, "1234567890000GET" + path + "?token=value", headers->signature));
-	EXPECT_FALSE(signature_verifies(pem, "1234567890000POST" + path, headers->signature));
-	EXPECT_FALSE(signature_verifies(pem, "1234567890001GET" + path, headers->signature));
+		kalshi::test::signature_verifies(pem, "1234567890000POST" + path, headers->signature));
+	EXPECT_FALSE(
+		kalshi::test::signature_verifies(pem, "1234567890001GET" + path, headers->signature));
 }
 
 TEST(Signer, Ed25519KeysSignWithEd25519) {
@@ -273,8 +190,10 @@ TEST(Signer, Ed25519KeysSignWithEd25519) {
 		signer->sign_with_timestamp("GET", path, 1234567890000);
 	ASSERT_TRUE(headers.has_value()) << headers.error().message;
 	EXPECT_EQ(headers->signature.size(), 88U); // 64 bytes, base64
-	EXPECT_TRUE(signature_verifies(pem, "1234567890000GET" + path, headers->signature));
-	EXPECT_FALSE(signature_verifies(pem, "1234567890000GET/other", headers->signature));
+	EXPECT_TRUE(
+		kalshi::test::signature_verifies(pem, "1234567890000GET" + path, headers->signature));
+	EXPECT_FALSE(
+		kalshi::test::signature_verifies(pem, "1234567890000GET/other", headers->signature));
 }
 
 TEST(Signer, RsaKeysReportTheirType) {
@@ -331,8 +250,10 @@ TEST(Signer, RsaPssKeysLoadAsRsaAndSign) {
 	const kalshi::Result<kalshi::AuthHeaders> headers =
 		signer->sign_with_timestamp("GET", path, 1234567890000);
 	ASSERT_TRUE(headers.has_value()) << headers.error().message;
-	EXPECT_TRUE(signature_verifies(pem, "1234567890000GET" + path, headers->signature));
-	EXPECT_FALSE(signature_verifies(pem, "1234567890000GET/other", headers->signature));
+	EXPECT_TRUE(
+		kalshi::test::signature_verifies(pem, "1234567890000GET" + path, headers->signature));
+	EXPECT_FALSE(
+		kalshi::test::signature_verifies(pem, "1234567890000GET/other", headers->signature));
 }
 
 TEST(Signer, RsaPssKeysRestrictedToKalshisParametersLoadAndSign) {
@@ -347,8 +268,8 @@ TEST(Signer, RsaPssKeysRestrictedToKalshisParametersLoadAndSign) {
 		const kalshi::Result<kalshi::AuthHeaders> headers =
 			signer->sign_with_timestamp("GET", "/trade-api/v2/markets", 1234567890000);
 		ASSERT_TRUE(headers.has_value()) << headers.error().message;
-		EXPECT_TRUE(
-			signature_verifies(pem, "1234567890000GET/trade-api/v2/markets", headers->signature));
+		EXPECT_TRUE(kalshi::test::signature_verifies(pem, "1234567890000GET/trade-api/v2/markets",
+													 headers->signature));
 	}
 }
 

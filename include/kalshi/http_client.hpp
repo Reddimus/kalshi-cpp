@@ -58,7 +58,9 @@ struct ClientConfig {
 	/// is capped, exactly as `timeout` is.
 	std::chrono::milliseconds connect_timeout{std::chrono::seconds{10}};
 	bool verify_ssl{true};
-	/// Maximum decompressed response body; zero disables the limit.
+	/// Maximum decompressed response body; zero disables the limit. A larger
+	/// body fails with ErrorCode::ParseError. The server had already handled
+	/// that request, so a write such as an order may have taken effect.
 	std::size_t max_response_bytes{std::size_t{64} * 1024 * 1024};
 
 	[[nodiscard]] static ClientConfig for_environment(Environment environment) {

@@ -263,8 +263,11 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 	}
 	const CURLcode result = curl_easy_perform(curl);
 	if (sink.too_large) {
-		return std::unexpected(
-			Error{ErrorCode::InvalidRequest, "Response body exceeds max_response_bytes"});
+		// Not InvalidRequest, which says nothing was sent, and not NetworkError,
+		// which retry policies repeat: the server has already acted on this.
+		return std::unexpected(Error{ErrorCode::ParseError,
+									 "Response body exceeds max_response_bytes; the request "
+									 "was sent and may have taken effect"});
 	}
 	if (result != CURLE_OK) {
 		return std::unexpected(Error::network(curl_easy_strerror(result)));
