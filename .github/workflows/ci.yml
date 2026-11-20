@@ -72,8 +72,8 @@ jobs:
       - name: Test
         run: make test
 
-  # Builds against the Glaze release that vcpkg and Conan ship, so the minimum
-  # supported version stays tested alongside the FetchContent pin.
+  # Builds against the Glaze release that vcpkg ships (8.4), alongside the
+  # FetchContent pin the other jobs use. The 8.3 floor is not built in CI.
   build-windows:
     runs-on: windows-2025
     timeout-minutes: 45

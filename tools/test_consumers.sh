@@ -10,6 +10,7 @@ trap 'rm -rf -- "$scratch_dir"' EXIT HUP INT TERM
 
 version=$("$repo_dir/tools/project_version.sh")
 minor=${version%.*}
+jobs=${JOBS:-$(getconf _NPROCESSORS_ONLN 2>/dev/null || echo 4)}
 
 write_consumer() {
   mkdir -p "$1"
@@ -44,6 +45,19 @@ int main() {
 	std::cout << kalshi::VERSION;
 }
 CPP
+  # Linking the static libraries into a shared one needs position-independent code.
+  cat > "$1/shared.cpp" <<'CPP'
+#include <kalshi/kalshi.hpp>
+#include <memory>
+
+extern "C" int kalshi_shared_probe() {
+	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem("id", "not a key");
+	kalshi::KalshiClient client{std::shared_ptr<const kalshi::HttpTransport>{}};
+	kalshi::Result<void> (kalshi::WebSocketClient::*volatile connect)() =
+		&kalshi::WebSocketClient::connect;
+	return signer || connect == nullptr || client.transport().get("/").has_value() ? 1 : 0;
+}
+CPP
   cat > "$1/macros.cpp" <<'CPP'
 #include <kalshi/error.hpp>
 #include <charconv>
@@ -69,7 +83,7 @@ CPP
 
 cmake -S "$repo_dir" -B "$scratch_dir/sdk-build" -DCMAKE_BUILD_TYPE=Release \
   -DKALSHI_BUILD_TESTS=OFF -DKALSHI_BUILD_EXAMPLES=OFF
-cmake --build "$scratch_dir/sdk-build" --parallel
+cmake --build "$scratch_dir/sdk-build" --parallel "$jobs"
 cmake --install "$scratch_dir/sdk-build" --prefix "$scratch_dir/prefix"
 
 write_consumer "$scratch_dir/installed"
@@ -79,12 +93,14 @@ project(kalshi_installed_consumer LANGUAGES CXX)
 find_package(kalshi $minor CONFIG REQUIRED)
 add_executable(consumer main.cpp macros.cpp)
 target_link_libraries(consumer PRIVATE kalshi::kalshi)
+add_library(consumer_shared SHARED shared.cpp)
+target_link_libraries(consumer_shared PRIVATE kalshi::kalshi)
 # Public headers must stay warning-free for projects that build with -Werror.
 target_compile_options(consumer PRIVATE -Wall -Wextra -Wpedantic -Werror)
 CMAKE
 cmake -S "$scratch_dir/installed" -B "$scratch_dir/installed-build" \
   -DCMAKE_PREFIX_PATH="$scratch_dir/prefix"
-cmake --build "$scratch_dir/installed-build" --parallel
+cmake --build "$scratch_dir/installed-build" --parallel "$jobs"
 test "$("$scratch_dir/installed-build/consumer")" = "$version"
 
 # Tests and examples must stay off by default when consumed as a subproject.
@@ -100,11 +116,19 @@ if(TARGET kalshi_tests OR TARGET example_market_data)
 endif()
 add_executable(consumer main.cpp macros.cpp)
 target_link_libraries(consumer PRIVATE kalshi::kalshi)
+add_library(consumer_shared SHARED shared.cpp)
+target_link_libraries(consumer_shared PRIVATE kalshi::kalshi)
 # Public headers must stay warning-free for projects that build with -Werror.
 target_compile_options(consumer PRIVATE -Wall -Wextra -Wpedantic -Werror)
 CMAKE
 cmake -S "$scratch_dir/fetched" -B "$scratch_dir/fetched-build"
-cmake --build "$scratch_dir/fetched-build" --parallel
+cmake --build "$scratch_dir/fetched-build" --parallel "$jobs"
 test "$("$scratch_dir/fetched-build/consumer")" = "$version"
+# Installing the consumer must not install the SDK it fetched.
+cmake --install "$scratch_dir/fetched-build" --prefix "$scratch_dir/fetched-prefix" >/dev/null
+if [ -e "$scratch_dir/fetched-prefix/include/kalshi" ]; then
+  echo "A FetchContent consumer's install also installed kalshi-cpp" >&2
+  exit 1
+fi
 
 echo "Installed and FetchContent consumers link kalshi-cpp $version"

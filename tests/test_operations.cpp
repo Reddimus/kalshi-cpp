@@ -1,6 +1,6 @@
 // Contract tests for the operations applications use most: the exact request
 // each one sends and how its documented response parses. Fixtures are
-// synthetic and follow Kalshi Predictions OpenAPI 3.34.0.
+// synthetic and follow the Predictions OpenAPI document in spec/.
 
 #include "kalshi/api.hpp"
 #include "kalshi/helpers.hpp"
