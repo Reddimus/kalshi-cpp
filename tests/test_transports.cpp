@@ -93,6 +93,30 @@ TEST(Retry, WritesRetryOnlyWhenTheServerRejectedThem) {
 	EXPECT_TRUE(kalshi::should_retry(kalshi::HttpMethod::DEL, reset, writes));
 }
 
+// Error classifies 408 as NetworkError, so the response follows the same rule.
+TEST(Retry, RequestTimeoutRetriesLikeANetworkError) {
+	const kalshi::RetryPolicy policy;
+	EXPECT_TRUE(kalshi::should_retry(kalshi::HttpMethod::GET, status(408), policy));
+	EXPECT_FALSE(kalshi::should_retry(kalshi::HttpMethod::POST, status(408), policy));
+
+	kalshi::RetryPolicy writes = policy;
+	writes.retry_writes = true;
+	EXPECT_TRUE(kalshi::should_retry(kalshi::HttpMethod::POST, status(408), writes));
+
+	kalshi::RetryPolicy no_network = policy;
+	no_network.retry_on_network_error = false;
+	EXPECT_FALSE(kalshi::should_retry(kalshi::HttpMethod::GET, status(408), no_network));
+
+	const std::shared_ptr<ScriptedTransport> inner = std::make_shared<ScriptedTransport>();
+	inner->responses.emplace_back(status(408));
+	inner->responses.emplace_back(status(200));
+	const kalshi::RetryingTransport transport(inner, fast_policy());
+	const kalshi::Result<kalshi::HttpResponse> response = transport.get("/markets");
+	ASSERT_TRUE(response.has_value());
+	EXPECT_EQ(response->status_code, 200);
+	EXPECT_EQ(inner->calls, 2);
+}
+
 TEST(Retry, TransportRetriesTransientFailuresThenReturnsTheResult) {
 	const std::shared_ptr<ScriptedTransport> inner = std::make_shared<ScriptedTransport>();
 	inner->responses.emplace_back(std::unexpected(kalshi::Error::network("reset")));
@@ -163,7 +187,8 @@ TEST(TokenBucket, StartsFullAndSpendsFractionalCosts) {
 }
 
 TEST(TokenBucket, RefillsContinuouslyWithoutLosingPartialTime) {
-	// 1,000 tokens/s: a millisecond-resolution limiter could not express this.
+	// Tokens accrue continuously: an empty bucket refills within its wait time
+	// and then stops at capacity.
 	kalshi::TokenBucket bucket(
 		{.capacity = 10.0, .refill_per_second = 1000.0, .initial_tokens = 0.0});
 	EXPECT_FALSE(bucket.try_acquire(10.0));
@@ -370,6 +395,60 @@ TEST(RateLimitedTransport, BalanceBudgetDependsOnTheAccountTier) {
 		EXPECT_DOUBLE_EQ(config.balance.capacity, expected) << tier;
 		EXPECT_DOUBLE_EQ(config.balance.refill_per_second, expected) << tier;
 	}
+}
+
+// Kalshi assigns each operation to a bucket; the HTTP method does not decide it.
+TEST(RateLimitedTransport, WriteBucketFollowsKalshisOperationList) {
+	using kalshi::HttpMethod;
+	using kalshi::RateLimitedTransport;
+	for (const HttpMethod method : {HttpMethod::PUT, HttpMethod::DEL}) {
+		EXPECT_TRUE(
+			RateLimitedTransport::is_write(method, "/portfolio/positions/KX-1/exit_trigger"));
+	}
+	EXPECT_TRUE(RateLimitedTransport::is_write(HttpMethod::POST,
+											   "/portfolio/events/orders/with_exit_trigger"));
+	EXPECT_TRUE(RateLimitedTransport::is_write(HttpMethod::POST,
+											   "/communications/block-trade-proposals/p1/accept"));
+	EXPECT_TRUE(RateLimitedTransport::is_write(HttpMethod::POST, "/weather_point_markets"));
+	EXPECT_TRUE(RateLimitedTransport::is_write(HttpMethod::POST, "/concert_cancellation_markets"));
+	EXPECT_TRUE(
+		RateLimitedTransport::is_write(HttpMethod::POST, "/portfolio/target_balance_allocation"));
+	EXPECT_TRUE(RateLimitedTransport::is_write(HttpMethod::POST,
+											   "/trade-api/v2/account/api_usage_level/upgrade"));
+
+	EXPECT_FALSE(
+		RateLimitedTransport::is_write(HttpMethod::POST, "/communications/block-trade-proposals"));
+	EXPECT_FALSE(RateLimitedTransport::is_write(HttpMethod::POST,
+												"/communications/block-trade-proposals/p1/reject"));
+	EXPECT_FALSE(RateLimitedTransport::is_write(HttpMethod::DEL,
+												"/communications/block-trade-proposals/p1"));
+	EXPECT_FALSE(
+		RateLimitedTransport::is_write(HttpMethod::POST, "/portfolio/subaccounts/transfer"));
+	EXPECT_FALSE(RateLimitedTransport::is_write(HttpMethod::POST,
+												"/portfolio/intra_exchange_instance_transfer"));
+	EXPECT_FALSE(
+		RateLimitedTransport::is_write(HttpMethod::GET, "/portfolio/positions/KX-1/exit_trigger"));
+	EXPECT_FALSE(RateLimitedTransport::is_write(HttpMethod::POST,
+												"/portfolio/positions/KX-1/exit_trigger/x"));
+}
+
+TEST(RateLimitedTransport, IntraAccountTransfersUseTheirOwnBucket) {
+	const std::shared_ptr<ScriptedTransport> inner = std::make_shared<ScriptedTransport>();
+	inner->responses.emplace_back(status(200));
+	kalshi::RateLimitConfig config;
+	config.read = {.capacity = 10.0, .refill_per_second = 0.001, .initial_tokens = 0.0};
+	config.write = config.read;
+	config.max_wait = 0ms;
+	const kalshi::RateLimitedTransport transport(inner, config);
+
+	const kalshi::Result<kalshi::HttpResponse> transfer =
+		transport.post("/portfolio/intra_exchange_instance_transfer", "{}");
+	ASSERT_TRUE(transfer.has_value()) << transfer.error().message;
+	EXPECT_EQ(inner->calls, 1);
+	const kalshi::Result<kalshi::HttpResponse> read = transport.get("/markets");
+	ASSERT_FALSE(read.has_value());
+	EXPECT_EQ(read.error().code, kalshi::ErrorCode::RateLimited);
+	EXPECT_EQ(inner->calls, 1);
 }
 
 TEST(RateLimitedTransport, WriteRoutesRespectPathSegmentsAndApiPrefixes) {

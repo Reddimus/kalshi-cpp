@@ -78,21 +78,18 @@ bool path_matches(std::string_view rule, std::string_view path) noexcept {
 RateLimitedTransport::RateLimitedTransport(std::shared_ptr<const HttpTransport> inner,
 										   RateLimitConfig config)
 	: inner_(std::move(inner)), config_(std::move(config)), read_(config_.read),
-	  write_(config_.write), balance_(config_.balance) {}
+	  write_(config_.write), balance_(config_.balance), transfer_(config_.transfer) {}
 
 bool RateLimitedTransport::is_write(HttpMethod method, std::string_view path) noexcept {
 	if (method == HttpMethod::GET) {
 		return false;
 	}
 	path = strip_query(path);
-	constexpr std::array<std::string_view, 7> write_prefixes{
-		"/portfolio/events/orders",
-		"/portfolio/orders",
-		"/portfolio/order_groups",
-		"/communications/rfqs",
-		"/communications/rfq_batches",
-		"/communications/quotes",
-		"/communications/block-trade-proposals",
+	// Kalshi assigns buckets per operation; see its rate limits guide. Proposing,
+	// rejecting, and canceling a block trade use Read.
+	constexpr std::array<std::string_view, 6> write_prefixes{
+		"/portfolio/events/orders", "/portfolio/orders",		   "/portfolio/order_groups",
+		"/communications/rfqs",		"/communications/rfq_batches", "/communications/quotes",
 	};
 	for (const std::string_view prefix : write_prefixes) {
 		if (path.starts_with(prefix) &&
@@ -100,7 +97,16 @@ bool RateLimitedTransport::is_write(HttpMethod method, std::string_view path) no
 			return true;
 		}
 	}
-	return false;
+	constexpr std::array<std::string_view, 6> write_routes{
+		"/portfolio/positions/{ticker}/exit_trigger",
+		"/communications/block-trade-proposals/{block_trade_proposal_id}/accept",
+		"/weather_point_markets",
+		"/concert_cancellation_markets",
+		"/portfolio/target_balance_allocation",
+		"/account/api_usage_level/upgrade",
+	};
+	return std::any_of(write_routes.begin(), write_routes.end(),
+					   [path](std::string_view route) { return path_matches(route, path); });
 }
 
 double RateLimitedTransport::cost(HttpMethod method, std::string_view path,
@@ -124,9 +130,12 @@ Result<HttpResponse> RateLimitedTransport::request(HttpMethod method, std::strin
 	if (!inner_) {
 		return std::unexpected(Error::network("RateLimitedTransport has no inner transport"));
 	}
-	TokenBucket& bucket = method == HttpMethod::GET && strip_query(path) == "/portfolio/balance"
-							  ? balance_
-							  : (is_write(method, path) ? write_ : read_);
+	const std::string_view route = strip_query(path);
+	TokenBucket& bucket =
+		method == HttpMethod::GET && route == "/portfolio/balance" ? balance_
+		: method == HttpMethod::POST && route == "/portfolio/intra_exchange_instance_transfer"
+			? transfer_
+			: (is_write(method, path) ? write_ : read_);
 	const double tokens = cost(method, path, body);
 	if (!std::isfinite(tokens) || tokens < 0.0) {
 		return std::unexpected(

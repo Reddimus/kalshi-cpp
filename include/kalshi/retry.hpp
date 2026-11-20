@@ -18,10 +18,11 @@ struct RetryPolicy {
 	double jitter_factor{0.1};
 	/// Total attempts, including the first.
 	std::uint8_t max_attempts{3};
+	/// Covers transport failures and 408 Request Timeout responses.
 	bool retry_on_network_error{true};
 	bool retry_on_rate_limit{true};
 	bool retry_on_server_error{true};
-	/// Also retry POST, PUT, and DELETE after network errors and 5xx responses.
+	/// Also retry POST, PUT, and DELETE after network errors, 408, and 5xx responses.
 	/// Off by default: the first attempt may have taken effect (an order placed,
 	/// a quote accepted, an order canceled), and a repeat would then double it
 	/// or fail misleadingly. A 429 always retries because the server rejected
