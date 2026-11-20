@@ -6,6 +6,30 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Follow Predictions OpenAPI 3.37.0: cancel and reject block-trade proposals, on-request weather
+  point, concert cancellation, and flight disruption markets, and incentive schedules.
+- Support the `ebattle_scores` WebSocket channel with `subscribe_matches`, `unsubscribe_matches`,
+  and `matchlist`. Matches are added again after each reconnect, since a subscribe carries none.
+
+### Changed
+
+- Remove `Market::expiration_time`, which the upstream contract no longer lists.
+- Name the subscription with `sid` in `update_subscription` commands. Every command variant
+  accepts it, and eBattle updates require it.
+- Reject market changes to a ticker subscription sent without markets, which Kalshi answers
+  with error 13 while it keeps streaming every market.
+
+### Fixed
+
+- Reject `market_id` and `market_ids` outside the ticker channel. An orderbook subscribed by ID
+  received no snapshots and could not recover from a gap
+  ([#85](https://github.com/Reddimus/kalshi-cpp/issues/85)).
+- Retry HTTP 408 responses like network errors: reads by default, writes only with
+  `retry_writes` ([#86](https://github.com/Reddimus/kalshi-cpp/issues/86)).
+- Keep public enum names stable when the upstream contract reorders its schemas.
+
 ## [0.8.0] - 2026-11-03
 
 ### Added

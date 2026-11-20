@@ -51,13 +51,18 @@ public:
 	[[nodiscard]] const std::string& wire() const noexcept { return wire_; }
 
 	/// Convert exactly to an integer with `scale` decimal places.
-	/// Returns InvalidRequest instead of rounding or saturating.
+	/// Returns InvalidRequest instead of rounding or saturating, and for a
+	/// moved-from value.
 	[[nodiscard]] Result<std::int64_t> scaled_integer(std::uint8_t scale) const {
 		if (scale > 18) {
 			return std::unexpected(Error{
 				ErrorCode::InvalidRequest, "fixed-point scale exceeds int64 capacity", 0, {}});
 		}
 
+		if (wire_.empty()) { // moved from
+			return std::unexpected(
+				Error{ErrorCode::InvalidRequest, "fixed-point value is empty", 0, {}});
+		}
 		const bool negative = wire_.front() == '-';
 		const std::size_t first = negative ? 1 : 0;
 		const std::size_t decimal = wire_.find('.', first);
