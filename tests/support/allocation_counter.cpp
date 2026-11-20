@@ -25,6 +25,7 @@ struct Counters {
 	// Signed, because freeing a block from before the probe opened lowers it.
 	std::int64_t live{0};
 	std::int64_t peak{0};
+	FreeObserver observer{nullptr};
 };
 
 // Constant-initialized and trivially destructible, so it is safe to use from
@@ -65,11 +66,18 @@ void release(void* block) noexcept {
 		if (c.probes > 0) {
 			c.live -= block_size(block);
 		}
+		if (c.observer != nullptr) {
+			c.observer(block, static_cast<std::size_t>(block_size(block)));
+		}
 		std::free(block);
 	}
 }
 
 } // namespace
+
+void set_free_observer(FreeObserver observer) noexcept {
+	counters.observer = observer;
+}
 
 void set_allocation_failure(bool enabled) noexcept {
 	counters.fail = enabled;

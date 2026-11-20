@@ -10,6 +10,7 @@
 // over-aligned allocations, which take std::align_val_t, keep the default
 // operators.
 
+#include <cstddef>
 #include <cstdint>
 
 namespace kalshi::test {
@@ -17,6 +18,15 @@ namespace kalshi::test {
 /// Injects failures on the calling thread until disabled. Test support only.
 void set_allocation_failure(bool enabled) noexcept;
 [[nodiscard]] std::uint64_t allocation_failures() noexcept;
+
+/// Sees each block the calling thread frees through operator delete, just
+/// before it is released. `size` is the allocator's size for the block, which
+/// is at least what was requested.
+using FreeObserver = void (*)(const void* block, std::size_t size) noexcept;
+
+/// Installs `observer` for the calling thread, or removes it when null. Test
+/// support only; the observer must not allocate or free.
+void set_free_observer(FreeObserver observer) noexcept;
 
 /// Allocations made through global operator new.
 struct AllocationCount {
