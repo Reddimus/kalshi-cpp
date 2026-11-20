@@ -13,12 +13,15 @@
 #include <string>
 #include <string_view>
 #include <thread>
+#include <utility>
 #include <vector>
 
 #ifndef _WIN32
 #include <cerrno>
+#include <condition_variable>
 #include <csignal>
 #include <fcntl.h>
+#include <mutex>
 #include <pthread.h>
 #include <sys/stat.h>
 #include <unistd.h>
@@ -409,22 +412,30 @@ void count_interruption(int /*signal*/) {
 	interruptions.fetch_add(1, std::memory_order_relaxed);
 }
 
-/// Opens the FIFO's write end once a reader has it open, or returns -1 after
-/// `deadline`, so a reader that gave up fails the test instead of hanging it.
-int open_fifo_writer(const std::string& path, std::chrono::steady_clock::time_point deadline) {
-	while (std::chrono::steady_clock::now() < deadline) {
-		const int fd = ::open(path.c_str(), O_WRONLY | O_NONBLOCK | O_CLOEXEC);
-		if (fd >= 0) {
-			const int flags = ::fcntl(fd, F_GETFL);
-			if (flags >= 0 && ::fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) == 0) {
-				return fd;
-			}
-			(void)::close(fd);
-			return -1;
-		}
-		std::this_thread::sleep_for(std::chrono::milliseconds{5});
+/// Interrupts `reader` with SIGUSR1 and waits, up to a second, until the
+/// handler has run. A signal still pending when a FIFO's two ends meet can make
+/// the reader's open() fail with EINTR after the writer's open succeeded. On
+/// macOS the writer then writes to a FIFO with no reader, and the reader, on
+/// retrying, waits for a writer that has gone.
+void interrupt_and_wait(pthread_t reader) {
+	const int handled = interruptions.load() + 1;
+	(void)::pthread_kill(reader, SIGUSR1);
+	const std::chrono::steady_clock::time_point deadline =
+		std::chrono::steady_clock::now() + std::chrono::seconds{1};
+	while (interruptions.load() < handled && std::chrono::steady_clock::now() < deadline) {
+		std::this_thread::sleep_for(std::chrono::milliseconds{1});
 	}
-	return -1;
+}
+
+/// Opens the FIFO's write end, waiting in open() for the reader as a real
+/// writer would. Unlike a non-blocking open, it cannot miss a reader that is
+/// between two attempts.
+int open_fifo_writer(const std::string& path) {
+	int fd = -1;
+	do {
+		fd = ::open(path.c_str(), O_WRONLY | O_CLOEXEC);
+	} while (fd < 0 && errno == EINTR);
+	return fd;
 }
 
 bool write_all(int fd, std::string_view bytes) {
@@ -440,6 +451,58 @@ bool write_all(int fd, std::string_view bytes) {
 	}
 	return true;
 }
+
+/// Opens both ends of a FIFO if the test has not called finish() within five
+/// seconds. That releases a reader or a writer stuck in open(), so a broken
+/// test fails in seconds instead of running into ctest's timeout.
+class FifoWatchdog {
+public:
+	explicit FifoWatchdog(std::string path)
+		: path_(std::move(path)), thread_([this] { watch(); }) {}
+	~FifoWatchdog() { finish(); }
+	FifoWatchdog(const FifoWatchdog&) = delete;
+	FifoWatchdog& operator=(const FifoWatchdog&) = delete;
+
+	/// Stops the watchdog. Returns whether it had to release an end.
+	bool finish() {
+		{
+			const std::scoped_lock lock(mutex_);
+			done_ = true;
+		}
+		finished_.notify_all();
+		if (thread_.joinable()) {
+			thread_.join();
+		}
+		return fired_;
+	}
+
+private:
+	void watch() {
+		std::unique_lock lock(mutex_);
+		if (finished_.wait_for(lock, std::chrono::seconds{5}, [this] { return done_; })) {
+			return;
+		}
+		fired_ = true;
+		lock.unlock();
+		// A non-blocking read open always succeeds and releases a waiting
+		// writer; with that reader in place, a non-blocking write open
+		// succeeds and releases a waiting reader.
+		const int read_end = ::open(path_.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+		const int write_end = ::open(path_.c_str(), O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+		for (const int fd : {write_end, read_end}) {
+			if (fd >= 0) {
+				(void)::close(fd);
+			}
+		}
+	}
+
+	std::string path_;
+	std::mutex mutex_;
+	std::condition_variable finished_;
+	bool done_{false};
+	bool fired_{false};
+	std::thread thread_; // last, so it starts after the members it uses
+};
 
 /// Loads a key through a FIFO, the way a secrets manager or a shell's process
 /// substitution hands one over, while SIGUSR1, handled without SA_RESTART,
@@ -469,15 +532,16 @@ void expect_key_loads_through_fifo(int open_signals, int read_signals) {
 	const std::string& pem = kalshi::test::private_key_pem();
 	const pthread_t reader = ::pthread_self();
 	bool delivered = false;
+	FifoWatchdog watchdog{path};
 	std::thread writer{[&] {
 		const std::chrono::milliseconds pause{30};
-		// No writer yet, so the reader is blocked in open().
+		// No writer yet, so the reader is blocked in open(). Every signal is
+		// handled before the writer opens its end.
 		for (int i = 0; i < open_signals; ++i) {
 			std::this_thread::sleep_for(pause);
-			(void)::pthread_kill(reader, SIGUSR1);
+			interrupt_and_wait(reader);
 		}
-		const int fd =
-			open_fifo_writer(path, std::chrono::steady_clock::now() + std::chrono::seconds{10});
+		const int fd = open_fifo_writer(path);
 		if (fd < 0) {
 			return;
 		}
@@ -487,16 +551,18 @@ void expect_key_loads_through_fifo(int open_signals, int read_signals) {
 		// The reader has the first half and is blocked in read() for the rest.
 		for (int i = 0; i < read_signals && written; ++i) {
 			std::this_thread::sleep_for(pause);
-			(void)::pthread_kill(reader, SIGUSR1);
+			interrupt_and_wait(reader);
 		}
 		written = written && write_all(fd, text.substr(half));
 		delivered = ::close(fd) == 0 && written;
 	}};
 	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem_file("key", path);
 	writer.join();
+	const bool released = watchdog.finish();
 	(void)::sigaction(SIGPIPE, &previous_pipe, nullptr);
 	(void)::sigaction(SIGUSR1, &previous_usr1, nullptr);
 
+	EXPECT_FALSE(released) << "the reader or the writer was stuck in open()";
 	ASSERT_TRUE(signer.has_value()) << signer.error().message;
 	EXPECT_TRUE(delivered);
 	EXPECT_EQ(interruptions.load(), open_signals + read_signals);
@@ -530,9 +596,9 @@ TEST(SignerKeyFile, EndlessStreamsAreRejectedAtTheSizeLimit) {
 
 	constexpr std::size_t kWriterLimit = std::size_t{8} * 1024 * 1024;
 	std::size_t written = 0;
+	FifoWatchdog watchdog{path};
 	std::thread writer{[&] {
-		const int fd =
-			open_fifo_writer(path, std::chrono::steady_clock::now() + std::chrono::seconds{10});
+		const int fd = open_fifo_writer(path);
 		if (fd < 0) {
 			return;
 		}
@@ -544,8 +610,10 @@ TEST(SignerKeyFile, EndlessStreamsAreRejectedAtTheSizeLimit) {
 	}};
 	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem_file("key", path);
 	writer.join();
+	const bool released = watchdog.finish();
 	(void)::sigaction(SIGPIPE, &previous_pipe, nullptr);
 
+	EXPECT_FALSE(released) << "the reader or the writer was stuck in open()";
 	ASSERT_FALSE(signer.has_value());
 	EXPECT_EQ(signer.error().code, kalshi::ErrorCode::InvalidKey);
 	EXPECT_NE(signer.error().message.find("larger than"), std::string::npos)
