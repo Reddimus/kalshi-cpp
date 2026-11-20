@@ -520,21 +520,33 @@ TEST(HttpClientLoopback, DotSegmentsAreRejectedBeforeSending) {
 	EXPECT_TRUE(server.last().method.empty()) << "a request reached the server";
 }
 
-TEST(HttpClientLoopback, DotsThatAreNotDotSegmentsAreSentAndSignedAsGiven) {
+// libcurl may rewrite a path as it parses it, and each version differently:
+// 8.22 uppercases percent escapes, 8.18 does not. Whatever it sends must be
+// what was signed, and no segment may be dropped on the way.
+TEST(HttpClientLoopback, PathsAreSignedAsLibcurlSendsThem) {
 	const LoopbackServer server(http_response(200, "{}"));
 	const kalshi::HttpClient client(kalshi::test::make_signer(), config_for(server));
 	const std::string& key = kalshi::test::private_key_pem();
+	const auto lower = [](std::string text) {
+		std::transform(text.begin(), text.end(), text.begin(), [](unsigned char character) {
+			return static_cast<char>(std::tolower(character));
+		});
+		return text;
+	};
 	for (const std::string_view endpoint :
-		 {"/markets/.../x", "/markets/..foo", "/markets/foo..", "/markets/.hidden",
-		  "/markets/%2e%2e%2e", "/markets?cursor=../x", "/markets?cursor=/./x&next=.."}) {
+		 {"/markets", "/markets/.../x", "/markets/..foo", "/markets/foo..", "/markets/.hidden",
+		  "/markets/%2e%2e%2e", "/markets/%2E%2E%2E", "/markets/a%2fb", "/markets/a%2Fb",
+		  "/markets/%7euser", "/markets/%41", "/markets/caf%c3%a9", "/markets?cursor=../x",
+		  "/markets?cursor=/./x&next=..&y=%2e"}) {
 		ASSERT_TRUE(client.get(std::string{endpoint}).has_value()) << endpoint;
 		RecordedRequest request = server.last();
-		EXPECT_EQ(request.target, "/trade-api/v2" + std::string{endpoint});
+		// Percent escapes may change case, but nothing else.
+		EXPECT_EQ(lower(request.target), lower("/trade-api/v2" + std::string{endpoint}));
 		const std::string sent_path = request.target.substr(0, request.target.find('?'));
 		EXPECT_TRUE(kalshi::test::signature_verifies(
 			key, request.headers["kalshi-access-timestamp"] + "GET" + sent_path,
 			request.headers["kalshi-access-signature"]))
-			<< endpoint;
+			<< endpoint << " was sent as " << request.target;
 	}
 }
 

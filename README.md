@@ -13,9 +13,9 @@ and Perpetuals API is out of scope. The
 
 ## Install
 
-You need a C++23 compiler, CMake 3.31+, OpenSSL 3 or later, libcurl, and
-libwebsockets. When libwebsockets uses OpenSSL, as the packages below do,
-kalshi-cpp must use the same OpenSSL, because it calls OpenSSL on
+You need a C++23 compiler, CMake 3.31+, OpenSSL 3 or later, libcurl 7.65 or
+later, and libwebsockets. When libwebsockets uses OpenSSL, as the packages
+below do, kalshi-cpp must use the same OpenSSL, because it calls OpenSSL on
 libwebsockets' TLS connections. CMake warns when it can tell they differ.
 CI tests GCC 13 on Ubuntu 24.04, Apple Clang on Apple silicon, and MSVC on
 Windows, where [`vcpkg.json`](https://github.com/Reddimus/kalshi-cpp/blob/main/vcpkg.json)

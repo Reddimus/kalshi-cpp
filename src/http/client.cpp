@@ -11,6 +11,11 @@
 #include <new>
 #include <string>
 
+// CURLOPT_CURLU, and a libcurl that copies the URL handle it is given.
+#if LIBCURL_VERSION_NUM < 0x074100
+#error "kalshi-cpp needs libcurl 7.65 or newer"
+#endif
+
 namespace kalshi {
 
 namespace {
@@ -33,6 +38,36 @@ struct CurlDeleter {
 struct SlistDeleter {
 	void operator()(curl_slist* list) const noexcept { curl_slist_free_all(list); }
 };
+struct UrlDeleter {
+	void operator()(CURLU* url) const noexcept { curl_url_cleanup(url); }
+};
+struct CurlFree {
+	void operator()(char* text) const noexcept { curl_free(text); }
+};
+
+/// Unsets CURLOPT_CURLU when a request ends, so the handle never keeps a
+/// pointer to a URL that has been freed.
+class UrlOptionGuard {
+public:
+	explicit UrlOptionGuard(CURL* curl) noexcept : curl_(curl) {}
+	~UrlOptionGuard() {
+		(void)curl_easy_setopt(curl_, CURLOPT_CURLU, static_cast<CURLU*>(nullptr));
+	}
+	UrlOptionGuard(const UrlOptionGuard&) = delete;
+	UrlOptionGuard& operator=(const UrlOptionGuard&) = delete;
+
+private:
+	CURL* curl_;
+};
+
+/// The flags libcurl itself reads a URL's path with when it builds the request
+/// line: libcurl 7.84 and later re-encode it, earlier versions do not. Read
+/// with these, the path is the one the server receives.
+unsigned int sent_path_flags() noexcept {
+	static const unsigned int flags =
+		curl_version_info(CURLVERSION_NOW)->version_num >= 0x075400 ? CURLU_URLENCODE : 0U;
+	return flags;
+}
 
 // Built at load time so config() stays noexcept on a moved-from client.
 const ClientConfig kMovedFromConfig{};
@@ -187,6 +222,20 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 		return std::unexpected(
 			Error{ErrorCode::InvalidRequest, "Expected an HTTP or HTTPS URL without NUL bytes"});
 	}
+	// One parse yields both the signed path and the request libcurl sends.
+	// libcurl rewrites some paths while parsing them, and each version
+	// differently: 8.22 uppercases percent escapes, 8.18 does not. Signing the
+	// path read back from the parse signs what the server receives.
+	const std::unique_ptr<CURLU, UrlDeleter> parsed{curl_url()};
+	if (!parsed) {
+		return std::unexpected(Error::network("Failed to allocate a libcurl URL"));
+	}
+	const UrlOptionGuard clear_url_option{curl};
+	if (curl_url_set(parsed.get(), CURLUPART_URL, url.c_str(), 0) != CURLUE_OK) {
+		return std::unexpected(Error{ErrorCode::InvalidRequest,
+									 "ClientConfig.base_url and the request path do not form a "
+									 "URL libcurl accepts"});
+	}
 	std::unique_ptr<curl_slist, SlistDeleter> headers;
 	bool headers_ok = true;
 	const auto append_header = [&headers, &headers_ok](const std::string& header) {
@@ -196,8 +245,14 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 		headers_ok = headers_ok && updated != nullptr;
 	};
 	if (const std::optional<Signer>& signer = impl_->signer; signer.has_value()) {
-		const Result<AuthHeaders> auth = signer->sign(
-			to_string(method), detail::request_signing_path(impl_->config.base_url, path));
+		char* sent_path = nullptr;
+		const CURLUcode read =
+			curl_url_get(parsed.get(), CURLUPART_PATH, &sent_path, sent_path_flags());
+		const std::unique_ptr<char, CurlFree> owned_path{sent_path};
+		if (read != CURLUE_OK || sent_path == nullptr) {
+			return std::unexpected(Error::signing("Failed to read the request path to sign"));
+		}
+		const Result<AuthHeaders> auth = signer->sign(to_string(method), sent_path);
 		if (!auth) {
 			return std::unexpected(auth.error());
 		}
@@ -225,7 +280,7 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 			option_error = curl_easy_setopt(curl, option, value);
 		}
 	};
-	set_option(CURLOPT_URL, url.c_str());
+	set_option(CURLOPT_CURLU, parsed.get());
 #if LIBCURL_VERSION_NUM >= 0x075500
 	set_option(CURLOPT_PROTOCOLS_STR, "http,https");
 #else

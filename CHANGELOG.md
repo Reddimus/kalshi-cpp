@@ -25,6 +25,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   the request path has a `.` or `..` segment, `%2e` included. libcurl removed those segments
   before sending, so the request was signed over a path the server never received
   ([#95](https://github.com/Reddimus/kalshi-cpp/issues/95)).
+- Sign each REST request over the path libcurl actually sends. libcurl rewrites some paths
+  while parsing them, and each version differently: 8.22, which vcpkg ships for Windows,
+  uppercases percent escapes, so a path such as `/markets/a%2fb` failed authentication.
 
 ### Changed
 
@@ -34,6 +37,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for kalshi-cpp. Both must be the same, because the SDK calls OpenSSL on libwebsockets' TLS
   connections. The README's macOS steps now build against the OpenSSL that Homebrew's
   libwebsockets links.
+- kalshi-cpp needs libcurl 7.65 or newer.
+- A base URL and request path that libcurl cannot parse return `InvalidRequest`, without
+  sending anything, instead of `NetworkError`.
 
 ## [0.9.0] - 2026-11-20
 
