@@ -58,20 +58,24 @@ using Frame = std::variant<std::monostate, WsMessage, SubscribedFrame, Unsubscri
 /// Parses one frame. std::monostate means the frame had no type this SDK
 /// version knows; MalformedFrame means a known type failed to parse.
 ///
-/// Control frames (`subscribed`, `unsubscribed`, `ok`, `error`) must carry the
-/// members spec/asyncapi.yaml requires, except an `unsubscribed` frame's `seq`,
-/// and any `sid` in them must be at least 1. No member of a parsed control
-/// frame is a default standing in for one the server left out.
+/// `subscribed`, `unsubscribed`, and `error` frames must carry the members
+/// spec/asyncapi.yaml requires, except an `unsubscribed` frame's `seq`. An `ok`
+/// frame needs only its type: the members it requires depend on the command it
+/// answers, so the reply to update_subscription is not checked, and only
+/// parse_subscription_list() checks the reply to list_subscriptions. Any `sid`
+/// in a control frame must be at least 1. No member of a parsed control frame
+/// is a default standing in for one the server left out.
 [[nodiscard]] Frame parse_frame(const std::string& json);
 
 /// Parses a data frame, for tests and benchmarks.
 [[nodiscard]] std::optional<WsMessage> parse_message(const std::string& json);
 
-/// Reads the lists in an update_subscription `ok` reply.
+/// Reads the lists in an update_subscription `ok` reply. A reply without a
+/// readable `msg` gives empty lists, not an error.
 [[nodiscard]] ws::Updated parse_updated(const std::string& msg);
 
-/// Reads the array in a list_subscriptions reply. Empty unless `msg` is an
-/// array whose entries each carry a channel and a `sid` of at least 1.
+/// Reads the array in a list_subscriptions reply. std::nullopt unless `msg` is
+/// an array whose entries each carry a channel and a `sid` of at least 1.
 [[nodiscard]] std::optional<std::vector<ws::ListedSubscription>>
 parse_subscription_list(const std::string& msg);
 

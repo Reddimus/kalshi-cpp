@@ -137,7 +137,8 @@ TEST(WsTls, AuthoritiesInTheSystemsDefaultVerifyPathsAreTrusted) {
 	if (!tls.server.running()) {
 		GTEST_SKIP() << "could not start a local TLS WebSocket server";
 	}
-	// OpenSSL reads its default CA file from here, as it does for libcurl.
+	// OpenSSL reads its default CA file from here. libcurl does not, so this
+	// trusts the authority for WebSocket connections only.
 	const EnvironmentVariable trusted{"SSL_CERT_FILE",
 									  tls.scratch.write("ca.pem", tls.authority.certificate())};
 

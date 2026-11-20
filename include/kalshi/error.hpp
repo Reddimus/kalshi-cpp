@@ -14,9 +14,11 @@ enum class ErrorCode : std::uint8_t {
 	NotFound,			 ///< HTTP 404.
 	RateLimited,		 ///< HTTP 429, or a local rate limit that would wait too long.
 	ServerError,		 ///< HTTP 5xx.
-	/// The request was sent, but the response was not the JSON the API documents
-	/// or was larger than `ClientConfig::max_response_bytes`. A write may have
-	/// taken effect; this code is never retried.
+	/// Data did not have the form it must: a response that was not the JSON the
+	/// API documents or was larger than `ClientConfig::max_response_bytes`,
+	/// pagination that repeats a cursor, or text that parse_timestamp() cannot
+	/// read. From an HTTP call, it means the request was sent, so a write may
+	/// have taken effect; this code is never retried.
 	ParseError,
 	SigningError, ///< The request could not be signed.
 	InvalidKey,	  ///< The private key could not be loaded.

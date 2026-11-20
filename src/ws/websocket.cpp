@@ -66,8 +66,11 @@ int reject_every_certificate(X509_STORE_CTX* /*chain*/, void* /*unused*/) noexce
 	return 0;
 }
 
-/// Makes `tls` trust OpenSSL's default verify paths and nothing else, which is
-/// what libcurl trusts for REST calls.
+/// Makes `tls` trust only OpenSSL's default verify paths, which SSL_CERT_FILE
+/// and SSL_CERT_DIR override, and the certificates libwebsockets put in the
+/// store itself. REST calls trust whatever libcurl's TLS library and build
+/// trust, which can differ: libcurl ignores those variables, and on macOS and
+/// Windows it can use the system's TLS library and certificate store.
 ///
 /// libwebsockets adds a CA directory to every client trust store that has no
 /// CA file configured: LWS_OPENSSL_CLIENT_CERTS, which is "../share" unless

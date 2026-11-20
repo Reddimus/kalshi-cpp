@@ -66,9 +66,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `HttpClient::request` returns `InvalidRequest` when `ClientConfig::base_url` names no host or
   contains a query string or a fragment, or when `timeout` or `connect_timeout` is zero or
   negative.
-- WebSocket `subscribed`, `unsubscribed`, `ok`, and `error` messages that lack a field Kalshi's
-  contract requires, or carry a subscription ID below 1, are reported through `on_error` and
-  otherwise ignored.
+- WebSocket `subscribed`, `unsubscribed`, and `error` messages that lack a field Kalshi's
+  contract requires, and those and `ok` messages that carry a subscription ID below 1, are
+  reported through `on_error` and otherwise ignored. Only an `ok` that answers
+  `list_subscriptions` has its contents checked.
 - An HTTP response larger than `max_response_bytes` returns `ParseError` instead of
   `InvalidRequest`. The request was sent by then and may have taken effect, which
   `InvalidRequest` denied.
@@ -107,8 +108,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Report a malformed `list_subscriptions` reply as an error instead of an empty list.
 - Reject `.` and `..` as path parameters such as a market ticker. They reached a different
   route than the one requested, which could answer with another resource's data.
-- Trust only OpenSSL's default certificate authorities for WebSocket TLS, as REST calls do.
-  libwebsockets also trusted a `../share` directory relative to the working directory.
+- Trust only OpenSSL's default verify paths for WebSocket TLS, which `SSL_CERT_FILE` and
+  `SSL_CERT_DIR` override, plus the system's root certificates on Windows. libwebsockets also
+  trusted a `../share` directory relative to the working directory.
 - Report and retry a reconnect attempt whose handshake cannot be signed, instead of staying
   in `Reconnecting` for good.
 - Publish a release only after CI passes on the tagged commit itself. A pull request's run no
