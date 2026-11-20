@@ -15,6 +15,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   for a writer to open the other end. Only an interrupted read was retried before.
 - Keep the key file's descriptor out of child processes started while `Signer::from_pem_file`
   reads it.
+- Leave libwebsockets' WebSocket trust store alone when it uses GnuTLS, Schannel, BearSSL,
+  OpenHiTLS, PolarSSL, or CyaSSL for TLS. The SDK would have passed their TLS contexts to
+  OpenSSL, corrupting memory.
 
 ### Changed
 

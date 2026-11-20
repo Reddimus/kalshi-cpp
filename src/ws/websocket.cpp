@@ -26,6 +26,7 @@
 
 #include "callback_slot.hpp"
 #include "frames.hpp"
+#include "lws_tls_backend.hpp"
 #include "reconnect.hpp"
 #include "subscriptions.hpp"
 #include "ws_endpoint.hpp"
@@ -56,9 +57,8 @@ std::uint16_t seconds_field(std::chrono::seconds value) {
 }
 
 // libwebsockets hands its callbacks an OpenSSL SSL_CTX only when OpenSSL is its
-// TLS library, which is the one this SDK links.
-#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BORINGSSL) && \
-	!defined(LWS_WITH_AWSLC) && !defined(LWS_WITH_WOLFSSL) && !defined(USE_WOLFSSL)
+// TLS library; lws_tls_backend.hpp says when that is.
+#if KALSHI_LWS_TLS_IS_OPENSSL
 
 /// Fails every certificate check. Stands in when the trust store below cannot
 /// be built, so the connection fails instead of trusting the wrong authorities.

@@ -15,7 +15,8 @@ add_executable(kalshi_tests
     test_ws_lifecycle.cpp
     test_ws_messages.cpp
     test_ws_subscriptions.cpp
-    test_ws_tls.cpp)
+    test_ws_tls.cpp
+    test_ws_tls_backend.cpp)
 # Tests reach implementation headers under src/, which include Glaze.
 target_include_directories(kalshi_tests PRIVATE
     ${CMAKE_CURRENT_SOURCE_DIR}
