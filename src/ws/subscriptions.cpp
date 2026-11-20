@@ -329,9 +329,22 @@ Reaction SubscriptionRegistry::on_ok(const OkFrame& frame, bool resync) {
 		return reaction;
 	}
 	if (command->kind == Kind::List) {
+		std::optional<std::vector<ws::ListedSubscription>> list =
+			parse_subscription_list(frame.msg);
+		if (!list) {
+			// Reporting an empty list would tell the caller it has no subscriptions.
+			reaction.error = WsError{0,
+									 "Could not parse a list_subscriptions reply",
+									 frame.id,
+									 std::nullopt,
+									 std::nullopt,
+									 std::nullopt,
+									 frame.sending_ts_ms};
+			return reaction;
+		}
 		// take() found the command, so the reply carried its id.
-		reaction.message = ws::SubscriptionList{
-			frame.id.value_or(0), parse_subscription_list(frame.msg), frame.sending_ts_ms};
+		reaction.message =
+			ws::SubscriptionList{frame.id.value_or(0), std::move(*list), frame.sending_ts_ms};
 		return reaction;
 	}
 	Entry* entry = command->kind == Kind::Update ? find(command->subscription) : nullptr;

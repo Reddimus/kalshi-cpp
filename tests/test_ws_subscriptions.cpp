@@ -7,6 +7,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "subscriptions.hpp"
@@ -242,6 +243,34 @@ TEST(WsSubscriptions, ListRepliesCarryTheCommandId) {
 	EXPECT_EQ(list.id, id);
 	ASSERT_EQ(list.subscriptions.size(), 1U);
 	EXPECT_EQ(list.subscriptions[0].sid, 2);
+}
+
+TEST(WsSubscriptions, MalformedListRepliesAreErrorsNotEmptyLists) {
+	// The spec requires `msg` to be an array whose entries carry a channel and a
+	// sid of at least 1. Anything else is not a list this SDK can vouch for.
+	for (const std::string_view msg :
+		 {std::string_view{}, std::string_view{"{}"}, std::string_view{"null"},
+		  std::string_view{R"([{"channel":"ticker"}])"}, std::string_view{R"([{"sid":2}])"},
+		  std::string_view{R"([{"channel":"ticker","sid":0}])"}}) {
+		SubscriptionRegistry registry;
+		std::vector<std::string> frames;
+		const std::int64_t id = registry.list_subscriptions(frames);
+		const Reaction reply =
+			registry.on_ok({id, std::nullopt, std::nullopt, std::string{msg}, 1234});
+		EXPECT_FALSE(reply.message.has_value()) << msg;
+		ASSERT_TRUE(reply.error.has_value()) << msg;
+		EXPECT_EQ(reply.error->id, id) << msg;
+		EXPECT_EQ(reply.error->sending_ts_ms, 1234) << msg;
+		EXPECT_TRUE(reply.frames.empty()) << msg;
+	}
+
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const std::int64_t id = registry.list_subscriptions(frames);
+	const Reaction empty = registry.on_ok({id, std::nullopt, std::nullopt, "[]"});
+	EXPECT_FALSE(empty.error.has_value());
+	ASSERT_TRUE(empty.message.has_value());
+	EXPECT_TRUE(std::get<kalshi::ws::SubscriptionList>(*empty.message).subscriptions.empty());
 }
 
 TEST(WsSubscriptions, RejectsUnknownHandlesAndMissingActions) {

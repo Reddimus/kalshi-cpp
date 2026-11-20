@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <variant>
 #include <vector>
 
@@ -55,11 +56,12 @@ TEST(WsFrames, OkRepliesKeepTheirPayloadForTheCommandThatAskedForIt) {
 
 	const kalshi::detail::Frame list = kalshi::detail::parse_frame(
 		R"({"id":3,"type":"ok","msg":[{"channel":"orderbook_delta","sid":1},{"channel":"ticker","sid":2}]})");
-	const std::vector<kalshi::ws::ListedSubscription> subscriptions =
+	const std::optional<std::vector<kalshi::ws::ListedSubscription>> subscriptions =
 		kalshi::detail::parse_subscription_list(std::get<kalshi::detail::OkFrame>(list).msg);
-	ASSERT_EQ(subscriptions.size(), 2U);
-	EXPECT_EQ(subscriptions[1].channel, "ticker");
-	EXPECT_EQ(subscriptions[1].sid, 2);
+	ASSERT_TRUE(subscriptions.has_value());
+	ASSERT_EQ(subscriptions->size(), 2U);
+	EXPECT_EQ((*subscriptions)[1].channel, "ticker");
+	EXPECT_EQ((*subscriptions)[1].sid, 2);
 }
 
 TEST(WsFrames, UnknownTypesAreIgnoredAndMalformedOnesFlagged) {
@@ -156,10 +158,99 @@ TEST(WsFrames, ControlFramesKeepServerTimestamps) {
 		R"({"type":"error","sending_ts_ms":1236,"msg":{"code":1,"msg":"failure"}})");
 	ASSERT_TRUE(std::holds_alternative<kalshi::detail::ErrorFrame>(error));
 	EXPECT_EQ(std::get<kalshi::detail::ErrorFrame>(error).sending_ts_ms, 1236);
-	const kalshi::detail::Frame unsubscribed =
-		kalshi::detail::parse_frame(R"({"type":"unsubscribed","sending_ts_ms":1237,"sid":1})");
+	const kalshi::detail::Frame unsubscribed = kalshi::detail::parse_frame(
+		R"({"type":"unsubscribed","sending_ts_ms":1237,"sid":1,"seq":1})");
 	ASSERT_TRUE(std::holds_alternative<kalshi::detail::UnsubscribedFrame>(unsubscribed));
 	EXPECT_EQ(std::get<kalshi::detail::UnsubscribedFrame>(unsubscribed).sending_ts_ms, 1237);
+}
+
+TEST(WsFrames, ControlFramesMissingRequiredMembersAreMalformed) {
+	struct Case {
+		std::string_view type;
+		std::string_view json;
+	};
+	for (const Case& test : {
+			 Case{"subscribed", R"({"type":"subscribed","id":1})"},
+			 Case{"subscribed", R"({"type":"subscribed","id":1,"msg":{}})"},
+			 Case{"subscribed", R"({"type":"subscribed","id":1,"msg":{"channel":"ticker"}})"},
+			 Case{"subscribed", R"({"type":"subscribed","id":1,"msg":{"sid":4}})"},
+			 Case{"subscribed", R"({"type":"subscribed","id":1,"msg":null})"},
+			 Case{"subscribed",
+				  R"({"type":"subscribed","id":1,"msg":{"channel":"ticker","sid":null}})"},
+			 Case{"subscribed", R"({"type":"subscribed","id":1,"sid":4,"channel":"ticker"})"},
+			 Case{"unsubscribed", R"({"type":"unsubscribed","id":1})"},
+			 Case{"unsubscribed", R"({"type":"unsubscribed","id":1,"seq":3})"},
+			 Case{"unsubscribed", R"({"type":"unsubscribed","id":1,"sid":2})"},
+			 Case{"unsubscribed", R"({"type":"unsubscribed","id":1,"sid":null,"seq":3})"},
+			 Case{"error", R"({"type":"error","id":1})"},
+			 Case{"error", R"({"type":"error","id":1,"msg":{}})"},
+			 Case{"error", R"({"type":"error","id":1,"msg":{"msg":"x"}})"},
+			 Case{"error", R"({"type":"error","id":1,"msg":{"code":5}})"},
+			 Case{"error", R"({"type":"error","id":1,"code":5,"msg":"x"})"},
+		 }) {
+		const kalshi::detail::Frame frame = kalshi::detail::parse_frame(std::string{test.json});
+		const kalshi::detail::MalformedFrame* malformed =
+			std::get_if<kalshi::detail::MalformedFrame>(&frame);
+		ASSERT_NE(malformed, nullptr) << test.json;
+		EXPECT_EQ(malformed->type, test.type) << test.json;
+	}
+}
+
+TEST(WsFrames, ControlFramesRejectSidsBelowOne) {
+	// Kalshi's subscription IDs start at 1; the registry uses 0 for "not confirmed".
+	for (const std::string_view json : {
+			 std::string_view{R"({"type":"subscribed","id":1,"msg":{"channel":"ticker","sid":0}})"},
+			 std::string_view{
+				 R"({"type":"subscribed","id":1,"msg":{"channel":"ticker","sid":-1}})"},
+			 std::string_view{R"({"type":"unsubscribed","id":1,"sid":0,"seq":1})"},
+			 std::string_view{R"({"type":"unsubscribed","id":1,"sid":-7,"seq":1})"},
+			 std::string_view{R"({"type":"ok","id":1,"sid":0,"seq":1,"msg":{}})"},
+			 std::string_view{R"({"type":"error","id":1,"sid":0,"msg":{"code":7,"msg":"x"}})"},
+		 }) {
+		EXPECT_TRUE(std::holds_alternative<kalshi::detail::MalformedFrame>(
+			kalshi::detail::parse_frame(std::string{json})))
+			<< json;
+	}
+}
+
+TEST(WsFrames, ControlFramesKeepTheirOptionalMembersOptional) {
+	// A server-initiated unsubscribe has no command id.
+	const kalshi::detail::Frame unsubscribed =
+		kalshi::detail::parse_frame(R"({"type":"unsubscribed","sid":2,"seq":7})");
+	const kalshi::detail::UnsubscribedFrame* ended =
+		std::get_if<kalshi::detail::UnsubscribedFrame>(&unsubscribed);
+	ASSERT_NE(ended, nullptr);
+	EXPECT_FALSE(ended->id.has_value());
+	EXPECT_EQ(ended->sid, 2);
+	EXPECT_EQ(ended->seq, 7);
+
+	// An error needs no id, sid, or seq, and members this SDK does not model are skipped.
+	const kalshi::detail::Frame error = kalshi::detail::parse_frame(
+		R"({"type":"error","msg":{"code":10,"msg":"Channel error","market_ticker":"KXA"},"new":1})");
+	const kalshi::detail::ErrorFrame* failure = std::get_if<kalshi::detail::ErrorFrame>(&error);
+	ASSERT_NE(failure, nullptr);
+	EXPECT_FALSE(failure->id.has_value());
+	EXPECT_FALSE(failure->sid.has_value());
+	EXPECT_EQ(failure->code, 10);
+
+	// The spec requires nothing but `type` in an `ok`; no payload is invented for it.
+	const kalshi::detail::Frame bare = kalshi::detail::parse_frame(R"({"type":"ok","id":4})");
+	const kalshi::detail::OkFrame* ok = std::get_if<kalshi::detail::OkFrame>(&bare);
+	ASSERT_NE(ok, nullptr);
+	EXPECT_EQ(ok->id, 4);
+	EXPECT_TRUE(ok->msg.empty());
+	EXPECT_TRUE(kalshi::detail::parse_updated(ok->msg).market_tickers.empty());
+}
+
+TEST(WsFrames, SubscriptionListsRejectEntriesMissingRequiredMembers) {
+	EXPECT_TRUE(kalshi::detail::parse_subscription_list("[]").has_value());
+	for (const std::string_view msg :
+		 {std::string_view{}, std::string_view{"{}"}, std::string_view{"null"},
+		  std::string_view{R"([{"channel":"ticker"}])"}, std::string_view{R"([{"sid":2}])"},
+		  std::string_view{R"([{"channel":"ticker","sid":0}])"},
+		  std::string_view{R"([{"channel":"ticker","sid":2},{"channel":"fill","sid":-3}])"}}) {
+		EXPECT_FALSE(kalshi::detail::parse_subscription_list(std::string{msg}).has_value()) << msg;
+	}
 }
 
 TEST(WsFrames, NumericSubscriptionIntervalsStayJsonNumbers) {

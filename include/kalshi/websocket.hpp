@@ -139,7 +139,8 @@ public:
 	[[nodiscard]] Result<void> request_snapshot(ws::Subscription subscription,
 												std::vector<std::string> market_tickers);
 	/// Asks the server for its view of this connection's subscriptions. The
-	/// reply arrives as `ws::SubscriptionList` carrying the returned ID.
+	/// reply arrives as `ws::SubscriptionList` carrying the returned ID, or as
+	/// a `WsError` carrying it when the reply is not a valid list.
 	[[nodiscard]] Result<std::int64_t> list_subscriptions();
 	/// The subscriptions this client holds.
 	[[nodiscard]] std::vector<ws::Subscription> subscriptions() const;

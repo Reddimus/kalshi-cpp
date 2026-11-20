@@ -450,6 +450,40 @@ TEST_F(WsClient, ServerErrorsNameTheirCommandAndSubscription) {
 	EXPECT_TRUE(ws.subscriptions().empty());
 }
 
+TEST_F(WsClient, AcksMissingRequiredMembersAreReportedAndNeverActedOn) {
+	Recorder recorder;
+	kalshi::WebSocketClient ws(kalshi::test::make_signer(), local(server));
+	recorder.attach(ws);
+	ASSERT_TRUE(ws.connect().has_value());
+
+	const kalshi::Result<kalshi::ws::Subscription> trades =
+		ws.subscribe(kalshi::ws::Channel::Trade);
+	ASSERT_TRUE(trades.has_value());
+	const std::optional<std::string> command = server.next_command();
+	ASSERT_TRUE(command.has_value());
+
+	// An ack nobody asked for is answered with an unsubscribe naming its sid, and
+	// an ack for the pending subscribe confirms it. Neither may happen without a sid.
+	server.send(R"({"id":999,"type":"subscribed"})");
+	server.send(R"({"id":)" + std::to_string(id_of(*command)) +
+				R"(,"type":"subscribed","msg":{"channel":"trade"}})");
+	for (int frame = 0; frame < 2; ++frame) {
+		const std::optional<kalshi::WsError> error = recorder.next_error();
+		ASSERT_TRUE(error.has_value());
+		EXPECT_EQ(error->message, "Could not parse a subscribed frame");
+	}
+	EXPECT_FALSE(recorder.next<kalshi::ws::Subscribed>(200ms).has_value());
+	const std::optional<std::string> reply = server.next_command(200ms);
+	EXPECT_FALSE(reply.has_value()) << *reply;
+
+	// The subscription is still waiting, so a well-formed ack completes it.
+	server.send(subscribed(id_of(*command), "trade", 7));
+	const std::optional<kalshi::ws::Subscribed> confirmed = recorder.next<kalshi::ws::Subscribed>();
+	ASSERT_TRUE(confirmed.has_value());
+	EXPECT_EQ(confirmed->subscription, *trades);
+	EXPECT_EQ(confirmed->sid, 7);
+}
+
 TEST_F(WsClient, ListSubscriptionsRepliesWithTheCommandId) {
 	Recorder recorder;
 	kalshi::WebSocketClient ws(kalshi::test::make_signer(), local(server));
