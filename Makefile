@@ -72,6 +72,7 @@ lint:
 	CLANG_FORMAT="$(CLANG_FORMAT)" $(PYTHON) tools/codegen/generate.py --check
 	$(PYTHON) -m unittest discover -q -s tools/codegen
 	$(PYTHON) tools/test_release_gate.py
+	$(PYTHON) tools/test_dependency_pins.py
 
 lint-docs:
 	markdownlint-cli2

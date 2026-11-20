@@ -125,10 +125,15 @@ if(KALSHI_USE_SYSTEM_GLAZE)
     endif()
 else()
     include(FetchContent)
+    # Downloads are release archives pinned by SHA-256, here and below. A git
+    # tag can be moved to another commit; with the hash, a changed archive
+    # fails the download instead of changing what is built. To update one, set
+    # the version in the URL and the comment, download that URL over HTTPS,
+    # and take the hash from `shasum -a 256`.
+    # Glaze v9.0.0 (commit d78832c82289c61a9315bfbc35332cec9f4e93ca)
     FetchContent_Declare(glaze
-        GIT_REPOSITORY https://github.com/stephenberry/glaze.git
-        GIT_TAG v9.0.0
-        GIT_SHALLOW TRUE)
+        URL https://github.com/stephenberry/glaze/archive/refs/tags/v9.0.0.tar.gz
+        URL_HASH SHA256=dd7b033c5bf6e4308615bb7834c541291d5b20f64121d9a68222a39414635517)
     FetchContent_MakeAvailable(glaze)
 endif()
 
@@ -149,10 +154,10 @@ endif()
 
 if(KALSHI_BUILD_TESTS)
     include(FetchContent)
+    # GoogleTest v1.18.0 (commit 063de7e9578f82b369302001269680b4b1553359)
     FetchContent_Declare(googletest
-        GIT_REPOSITORY https://github.com/google/googletest.git
-        GIT_TAG v1.18.0
-        GIT_SHALLOW TRUE)
+        URL https://github.com/google/googletest/archive/refs/tags/v1.18.0.tar.gz
+        URL_HASH SHA256=6e3191c1455468b3fc35a417fb565c1c5071aee1b7e7f85e30cf48a98d37d8b5)
     set(gtest_force_shared_crt ON CACHE BOOL "" FORCE)
     set(INSTALL_GTEST OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(googletest)
@@ -166,10 +171,10 @@ endif()
 
 if(KALSHI_BUILD_BENCHMARKS)
     include(FetchContent)
+    # Google Benchmark v1.9.5 (commit 192ef10025eb2c4cdd392bc502f0c852196baa48)
     FetchContent_Declare(benchmark
-        GIT_REPOSITORY https://github.com/google/benchmark.git
-        GIT_TAG v1.9.5
-        GIT_SHALLOW TRUE)
+        URL https://github.com/google/benchmark/archive/refs/tags/v1.9.5.tar.gz
+        URL_HASH SHA256=9631341c82bac4a288bef951f8b26b41f69021794184ece969f8473977eaa340)
     set(BENCHMARK_ENABLE_TESTING OFF CACHE BOOL "" FORCE)
     set(BENCHMARK_ENABLE_INSTALL OFF CACHE BOOL "" FORCE)
     FetchContent_MakeAvailable(benchmark)
