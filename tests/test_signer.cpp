@@ -2,6 +2,8 @@
 #include "kalshi/http_client.hpp"
 #include "kalshi/signer.hpp"
 
+#include <atomic>
+#include <chrono>
 #include <cstddef>
 #include <fstream>
 #include <gtest/gtest.h>
@@ -11,7 +13,17 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
 #include <vector>
+
+#ifndef _WIN32
+#include <cerrno>
+#include <csignal>
+#include <fcntl.h>
+#include <pthread.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 #include "support/scratch_directory.hpp"
 #include "test_signer_fixture.hpp"
@@ -367,6 +379,118 @@ TEST(SignerKeyFile, EndlessDevicesAreRejectedInsteadOfReadForever) {
 	EXPECT_EQ(signer.error().code, kalshi::ErrorCode::InvalidKey);
 	EXPECT_NE(signer.error().message.find("larger than"), std::string::npos)
 		<< signer.error().message;
+}
+
+namespace {
+
+std::atomic<int> interruptions{0};
+
+void count_interruption(int /*signal*/) {
+	interruptions.fetch_add(1, std::memory_order_relaxed);
+}
+
+/// Opens the FIFO's write end once a reader has it open, or returns -1 after
+/// `deadline`, so a reader that gave up fails the test instead of hanging it.
+int open_fifo_writer(const std::string& path, std::chrono::steady_clock::time_point deadline) {
+	while (std::chrono::steady_clock::now() < deadline) {
+		const int fd = ::open(path.c_str(), O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+		if (fd >= 0) {
+			const int flags = ::fcntl(fd, F_GETFL);
+			if (flags >= 0 && ::fcntl(fd, F_SETFL, flags & ~O_NONBLOCK) == 0) {
+				return fd;
+			}
+			(void)::close(fd);
+			return -1;
+		}
+		std::this_thread::sleep_for(std::chrono::milliseconds{5});
+	}
+	return -1;
+}
+
+bool write_all(int fd, std::string_view bytes) {
+	while (!bytes.empty()) {
+		const ssize_t written = ::write(fd, bytes.data(), bytes.size());
+		if (written < 0 && errno == EINTR) {
+			continue;
+		}
+		if (written <= 0) {
+			return false;
+		}
+		bytes.remove_prefix(static_cast<std::size_t>(written));
+	}
+	return true;
+}
+
+/// Loads a key through a FIFO, the way a secrets manager or a shell's process
+/// substitution hands one over, while SIGUSR1, handled without SA_RESTART,
+/// interrupts the reader `open_signals` times as it waits in open() for a
+/// writer and `read_signals` times as it waits in read() for the rest of the
+/// key. Each interrupted call fails with EINTR, and the load must retry it.
+void expect_key_loads_through_fifo(int open_signals, int read_signals) {
+	const kalshi::test::ScratchDirectory scratch;
+	const std::string path = scratch.path() + "/kalshi.pem";
+	ASSERT_EQ(::mkfifo(path.c_str(), 0600), 0) << "mkfifo failed with errno " << errno;
+
+	struct sigaction interrupt {};
+	interrupt.sa_handler = count_interruption;
+	sigemptyset(&interrupt.sa_mask);
+	interrupt.sa_flags = 0; // no SA_RESTART, so blocked calls return EINTR
+	struct sigaction previous_usr1 {};
+	ASSERT_EQ(::sigaction(SIGUSR1, &interrupt, &previous_usr1), 0);
+	// A reader that gives up early would turn the writer's next write into
+	// SIGPIPE, which on macOS goes to the whole process.
+	struct sigaction ignore {};
+	ignore.sa_handler = SIG_IGN;
+	sigemptyset(&ignore.sa_mask);
+	struct sigaction previous_pipe {};
+	ASSERT_EQ(::sigaction(SIGPIPE, &ignore, &previous_pipe), 0);
+	interruptions = 0;
+
+	const std::string& pem = kalshi::test::private_key_pem();
+	const pthread_t reader = ::pthread_self();
+	bool delivered = false;
+	std::thread writer{[&] {
+		const std::chrono::milliseconds pause{30};
+		// No writer yet, so the reader is blocked in open().
+		for (int i = 0; i < open_signals; ++i) {
+			std::this_thread::sleep_for(pause);
+			(void)::pthread_kill(reader, SIGUSR1);
+		}
+		const int fd =
+			open_fifo_writer(path, std::chrono::steady_clock::now() + std::chrono::seconds{10});
+		if (fd < 0) {
+			return;
+		}
+		const std::string_view text{pem};
+		const std::size_t half = text.size() / 2;
+		bool written = write_all(fd, text.substr(0, half));
+		// The reader has the first half and is blocked in read() for the rest.
+		for (int i = 0; i < read_signals && written; ++i) {
+			std::this_thread::sleep_for(pause);
+			(void)::pthread_kill(reader, SIGUSR1);
+		}
+		written = written && write_all(fd, text.substr(half));
+		delivered = ::close(fd) == 0 && written;
+	}};
+	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem_file("key", path);
+	writer.join();
+	(void)::sigaction(SIGPIPE, &previous_pipe, nullptr);
+	(void)::sigaction(SIGUSR1, &previous_usr1, nullptr);
+
+	ASSERT_TRUE(signer.has_value()) << signer.error().message;
+	EXPECT_TRUE(delivered);
+	EXPECT_EQ(interruptions.load(), open_signals + read_signals);
+	EXPECT_TRUE(signer->sign("GET", "/trade-api/v2/markets").has_value());
+}
+
+} // namespace
+
+TEST(SignerKeyFile, SignalsInterruptingAFifoReadDoNotFailTheLoad) {
+	expect_key_loads_through_fifo(0, 2);
+}
+
+TEST(SignerKeyFile, SignalsInterruptingAFifoOpenDoNotFailTheLoad) {
+	expect_key_loads_through_fifo(2, 0);
 }
 #endif
 

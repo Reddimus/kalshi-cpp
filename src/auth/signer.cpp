@@ -4,7 +4,6 @@
 #include <cerrno>
 #include <chrono>
 #include <cstddef>
-#include <cstdio>
 #include <limits>
 #include <memory>
 #include <openssl/crypto.h>
@@ -15,6 +14,16 @@
 #include <string>
 #include <string_view>
 #include <vector>
+
+#ifdef _WIN32
+#include <fcntl.h>
+#include <io.h>
+#include <share.h>
+#include <sys/stat.h>
+#else
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 namespace kalshi {
 
@@ -30,14 +39,9 @@ struct BioDeleter {
 	void operator()(BIO* bio) const noexcept { BIO_free(bio); }
 };
 
-struct FileCloser {
-	void operator()(std::FILE* file) const noexcept { (void)std::fclose(file); }
-};
-
 using PkeyPtr = std::unique_ptr<EVP_PKEY, PkeyDeleter>;
 using MdCtxPtr = std::unique_ptr<EVP_MD_CTX, MdCtxDeleter>;
 using BioPtr = std::unique_ptr<BIO, BioDeleter>;
-using FilePtr = std::unique_ptr<std::FILE, FileCloser>;
 
 /// PEM keys are a few kilobytes. The limit keeps a device or a mistaken path
 /// from being read without end.
@@ -59,6 +63,61 @@ public:
 
 private:
 	std::unique_ptr<char[]> bytes_;
+};
+
+/// Owns a file descriptor and closes it on every path. Key files are read with
+/// the descriptor calls, not stdio, because a stdio stream can read ahead into
+/// a buffer of its own that fclose() frees without wiping.
+class KeyFile {
+public:
+	/// Opens `path` for reading, or holds -1 on failure. A signal can interrupt
+	/// the open while a FIFO waits for its writer; that open is retried.
+	explicit KeyFile(const char* path) noexcept {
+#ifdef _WIN32
+		// Binary, not inherited by child processes, and the narrow path is read
+		// in the active code page, as fopen() reads it.
+		if (_sopen_s(&fd_, path, _O_RDONLY | _O_BINARY | _O_NOINHERIT, _SH_DENYNO, _S_IREAD) != 0) {
+			fd_ = -1;
+		}
+#else
+		do {
+			fd_ = ::open(path, O_RDONLY | O_CLOEXEC);
+		} while (fd_ < 0 && errno == EINTR);
+#endif
+	}
+	~KeyFile() {
+		if (fd_ >= 0) {
+			// Not retried on EINTR: the descriptor is released either way.
+#ifdef _WIN32
+			(void)_close(fd_);
+#else
+			(void)::close(fd_);
+#endif
+		}
+	}
+	KeyFile(const KeyFile&) = delete;
+	KeyFile& operator=(const KeyFile&) = delete;
+
+	[[nodiscard]] bool is_open() const noexcept { return fd_ >= 0; }
+
+	/// Reads up to `size` bytes into `data`. Returns the count read, 0 at end of
+	/// file, or -1 on an error. A signal that interrupts a read from a pipe or a
+	/// FIFO before any byte arrives loses nothing, so that read is retried.
+	[[nodiscard]] std::ptrdiff_t read_some(char* data, std::size_t size) const noexcept {
+		std::ptrdiff_t count = -1;
+		do {
+#ifdef _WIN32
+			// Callers ask for at most KeyFileBuffer::kCapacity bytes.
+			count = _read(fd_, data, static_cast<unsigned int>(size));
+#else
+			count = ::read(fd_, data, size);
+#endif
+		} while (count < 0 && errno == EINTR);
+		return count;
+	}
+
+private:
+	int fd_{-1};
 };
 
 /// Drains OpenSSL's thread-local error queue into one message.
@@ -216,40 +275,31 @@ Result<Signer> Signer::from_pem(std::string_view api_key_id, std::string_view pe
 }
 
 Result<Signer> Signer::from_pem_file(std::string_view api_key_id, std::string_view file_path) {
-	// Nothing may escape: the path string, the buffer, and from_pem() allocate.
+	// The path string, the buffer, and from_pem() allocate; the catch blocks
+	// turn std::bad_alloc into an error. See the innermost one for its limit.
 	try {
 		const std::string path{file_path};
-		const FilePtr file{std::fopen(path.c_str(), "rb")};
-		if (!file) {
+		const KeyFile file{path.c_str()};
+		if (!file.is_open()) {
 			return std::unexpected(
 				Error{ErrorCode::InvalidKey, "Failed to open key file '" + path + "'"});
 		}
-		// Unbuffered, so the stream keeps no copy of the key: each read goes
-		// straight into `buffer`, which is wiped when this function returns.
-		if (std::setvbuf(file.get(), nullptr, _IONBF, 0) != 0) {
-			return std::unexpected(
-				Error{ErrorCode::InvalidKey, "Failed to read key file '" + path + "'"});
-		}
+		// Each read copies straight from the kernel into `buffer`, which is
+		// wiped when this function returns. No library buffer holds a copy.
 		KeyFileBuffer buffer;
 		std::size_t size = 0;
 		while (size < KeyFileBuffer::kCapacity) {
-			errno = 0;
-			const std::size_t count =
-				std::fread(buffer.data() + size, 1, KeyFileBuffer::kCapacity - size, file.get());
-			size += count;
-			if (std::ferror(file.get()) != 0 && errno == EINTR) {
-				// A signal interrupted a read from a pipe; nothing was lost.
-				std::clearerr(file.get());
-				continue;
+			const std::ptrdiff_t count =
+				file.read_some(buffer.data() + size, KeyFileBuffer::kCapacity - size);
+			if (count < 0) {
+				// A directory or a device can open and then fail to read.
+				return std::unexpected(
+					Error{ErrorCode::InvalidKey, "Failed to read key file '" + path + "'"});
 			}
 			if (count == 0) {
-				break; // end of file, or an error that ferror() reports below
+				break;
 			}
-		}
-		// A directory or a device can open and then fail to read.
-		if (std::ferror(file.get()) != 0) {
-			return std::unexpected(
-				Error{ErrorCode::InvalidKey, "Failed to read key file '" + path + "'"});
+			size += static_cast<std::size_t>(count);
 		}
 		if (size > kMaxKeyFileBytes) {
 			return std::unexpected(
@@ -262,8 +312,13 @@ Result<Signer> Signer::from_pem_file(std::string_view api_key_id, std::string_vi
 																	std::string(file_path) + "'"});
 		} catch (...) {
 			// Out of memory even for the message. This one fits the small-string
-			// storage of libstdc++, libc++, and MSVC's release library, so
-			// building it does not allocate.
+			// storage of libstdc++'s C++11 ABI, libc++, and MSVC's library, and
+			// the Error's other string is empty, so building and returning it
+			// does not allocate there. It still can, and so can throw
+			// std::bad_alloc, when every std::string allocates: MSVC with a
+			// nonzero _ITERATOR_DEBUG_LEVEL (the Debug default) gives each one a
+			// heap-allocated proxy, and libstdc++'s old copy-on-write ABI has no
+			// small-string storage.
 			return std::unexpected(Error{ErrorCode::InvalidKey, "Key read failed"});
 		}
 	}

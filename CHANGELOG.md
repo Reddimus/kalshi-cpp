@@ -11,6 +11,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Finish an unsubscribe when the `unsubscribed` confirmation has no `seq`. The confirmation was
   dropped as malformed, so the subscription never ended and a new `orderbook_delta`
   subscription was refused until the next reconnect.
+- Load a key from a FIFO or pipe when a signal interrupts `Signer::from_pem_file` while it waits
+  for a writer to open the other end. Only an interrupted read was retried before.
+- Keep the key file's descriptor out of child processes started while `Signer::from_pem_file`
+  reads it.
+
+### Changed
+
+- `Signer::from_pem_file` reads with the operating system's file calls instead of C stdio, so
+  no stream buffer outside its own, which it wipes, can hold key bytes.
 
 ## [0.9.0] - 2026-11-20
 
