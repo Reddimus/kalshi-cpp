@@ -74,6 +74,21 @@ bool has_markets(const ws::SubscribeParams& params) {
 		   !params.market_ids.empty();
 }
 
+/// Kalshi selects markets by ID only on the ticker channel. Elsewhere an ID
+/// filter is acknowledged but selects nothing, so an orderbook would never
+/// receive its snapshots.
+Result<void> check_market_ids(ws::Channel channel, const std::optional<std::string>& market_id,
+							  const std::vector<std::string>& market_ids) {
+	if (channel != ws::Channel::Ticker && (market_id || !market_ids.empty())) {
+		return std::unexpected(Error{ErrorCode::InvalidRequest,
+									 "market_id and market_ids select markets only on the ticker "
+									 "channel; use market tickers",
+									 0,
+									 {}});
+	}
+	return {};
+}
+
 Error unknown_subscription(ws::Subscription subscription) {
 	return Error{ErrorCode::InvalidRequest,
 				 "Unknown subscription " + std::to_string(subscription.id),
@@ -95,6 +110,9 @@ Result<ws::Subscription> SubscriptionRegistry::subscribe(ws::Channel channel,
 									 "SubscribeParams.update_interval_ms must be 0, 100, or 1000",
 									 0,
 									 {}});
+	}
+	if (Result<void> ids = check_market_ids(channel, params.market_id, params.market_ids); !ids) {
+		return std::unexpected(std::move(ids.error()));
 	}
 	if (channel == ws::Channel::OrderbookDelta &&
 		std::any_of(entries_.begin(), entries_.end(),
@@ -155,6 +173,23 @@ Result<void> SubscriptionRegistry::update(ws::Subscription subscription,
 	if (entry->unsubscribe_held || entry->state == State::Unsubscribing) {
 		return std::unexpected(Error{
 			ErrorCode::InvalidRequest, "Subscription is awaiting unsubscribe confirmation", 0, {}});
+	}
+	if (Result<void> ids =
+			check_market_ids(entry->handle.channel, params.market_id, params.market_ids);
+		!ids) {
+		return std::unexpected(std::move(ids.error()));
+	}
+	const bool changes_markets = params.action == ws::UpdateAction::AddMarkets ||
+								 params.action == ws::UpdateAction::DeleteMarkets;
+	if (entry->handle.channel == ws::Channel::Ticker && !entry->filtered && changes_markets &&
+		entry->state != State::Unsent) {
+		// Kalshi answers with error 13 and keeps streaming every market. An
+		// unsent subscription has no server state yet, so the change is its filter.
+		return std::unexpected(Error{ErrorCode::InvalidRequest,
+									 "A ticker subscription made without markets cannot change; "
+									 "unsubscribe, then subscribe with markets",
+									 0,
+									 {}});
 	}
 	switch (entry->state) {
 		case State::Unsent:
@@ -248,6 +283,12 @@ Reaction SubscriptionRegistry::on_subscribed(const SubscribedFrame& frame) {
 		entry->unsubscribe_held = false;
 		reaction.frames.push_back(unsubscribe_frame(*entry));
 		return reaction;
+	}
+	if (!entry->match_ids.empty()) {
+		ws::UpdateSubscriptionParams matches;
+		matches.action = ws::UpdateAction::SubscribeMatches;
+		matches.match_ids = entry->match_ids;
+		reaction.frames.push_back(update_frame(*entry, matches));
 	}
 	for (const ws::UpdateSubscriptionParams& params : entry->held) {
 		reaction.frames.push_back(update_frame(*entry, params));
@@ -407,6 +448,11 @@ SubscriptionRegistry::Entry* SubscriptionRegistry::find(std::int64_t subscriptio
 void SubscriptionRegistry::record_update(Entry& entry, const ws::UpdateSubscriptionParams& params) {
 	apply(entry.params, params);
 	entry.filtered = entry.filtered || has_markets(entry.params);
+	if (params.action == ws::UpdateAction::SubscribeMatches ||
+		params.action == ws::UpdateAction::UnsubscribeMatches) {
+		merge(entry.match_ids, params.match_ids, std::nullopt,
+			  params.action == ws::UpdateAction::SubscribeMatches);
+	}
 }
 
 void SubscriptionRegistry::erase(std::int64_t subscription) {
@@ -465,8 +511,8 @@ std::string SubscriptionRegistry::update_frame(Entry& entry,
 											   const ws::UpdateSubscriptionParams& params) {
 	const std::int64_t id = next_id();
 	commands_[id] = InFlight{Kind::Update, entry.handle.id, params};
-	return render_command(Command<UpdateSubscriptionWire>{
-		id, "update_subscription", to_wire(std::vector<std::int64_t>{entry.sid}, params)});
+	return render_command(
+		Command<UpdateSubscriptionWire>{id, "update_subscription", to_wire(entry.sid, params)});
 }
 
 std::string SubscriptionRegistry::unsubscribe_frame(Entry& entry) {

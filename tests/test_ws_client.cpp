@@ -377,7 +377,7 @@ TEST_F(WsClient, ReconnectsAndResubscribesWithTheCurrentMarkets) {
 	const std::optional<std::string> update = server.next_command();
 	ASSERT_TRUE(update.has_value());
 	EXPECT_TRUE(
-		has(*update, R"("params":{"sids":[1],"market_tickers":["KXB"],"action":"add_markets"})"))
+		has(*update, R"("params":{"sid":1,"market_tickers":["KXB"],"action":"add_markets"})"))
 		<< *update;
 
 	recorder.forget_states();
@@ -424,7 +424,7 @@ TEST_F(WsClient, SequenceGapsAreReportedAndResynced) {
 
 	const std::optional<std::string> resync = server.next_command();
 	ASSERT_TRUE(resync.has_value());
-	EXPECT_TRUE(has(*resync, R"("sids":[3],"market_tickers":["KXA"],"action":"get_snapshot")"))
+	EXPECT_TRUE(has(*resync, R"("sid":3,"market_tickers":["KXA"],"action":"get_snapshot")"))
 		<< *resync;
 }
 

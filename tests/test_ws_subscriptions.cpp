@@ -49,7 +49,7 @@ TEST(WsSubscriptions, CommandsKeepKalshisKeyOrderAndOmitUnsetOptions) {
 	EXPECT_EQ(
 		frames,
 		(std::vector<std::string>{
-			R"({"id":3,"cmd":"update_subscription","params":{"sids":[9],"market_ticker":"C","action":"add_markets"}})",
+			R"({"id":3,"cmd":"update_subscription","params":{"sid":9,"market_ticker":"C","action":"add_markets"}})",
 			R"({"id":4,"cmd":"unsubscribe","params":{"sids":[9]}})"}));
 }
 
@@ -87,7 +87,7 @@ TEST(WsSubscriptions, CommandsBeforeTheAckWaitForTheServersSid) {
 
 	const Reaction ack = registry.on_subscribed({2, "orderbook_delta", 55});
 	ASSERT_EQ(ack.frames.size(), 1U);
-	EXPECT_NE(ack.frames[0].find(R"("sids":[55])"), std::string::npos) << ack.frames[0];
+	EXPECT_NE(ack.frames[0].find(R"("sid":55)"), std::string::npos) << ack.frames[0];
 	ASSERT_TRUE(ack.message.has_value());
 	EXPECT_EQ(std::get<kalshi::ws::Subscribed>(*ack.message).subscription, book);
 }
@@ -197,7 +197,7 @@ TEST(WsSubscriptions, GapsAreReportedAndOrderbookGapsRequestSnapshots) {
 	ASSERT_TRUE(gap.error.has_value());
 	EXPECT_EQ(gap.error->subscription, book);
 	ASSERT_EQ(gap.frames.size(), 1U);
-	EXPECT_NE(gap.frames[0].find(R"("sids":[3],"market_tickers":["A"],"action":"get_snapshot")"),
+	EXPECT_NE(gap.frames[0].find(R"("sid":3,"market_tickers":["A"],"action":"get_snapshot")"),
 			  std::string::npos)
 		<< gap.frames[0];
 
@@ -456,7 +456,7 @@ TEST(WsSubscriptions, UpdatesRejectClosingHandlesAndCanRetryAfterUnsubscribeReje
 		ASSERT_EQ(frames.size(), 1U);
 		EXPECT_EQ(
 			frames[0],
-			R"({"id":4,"cmd":"update_subscription","params":{"sids":[9],"market_ticker":"B","action":"add_markets"}})");
+			R"({"id":4,"cmd":"update_subscription","params":{"sid":9,"market_ticker":"B","action":"add_markets"}})");
 	}
 }
 
@@ -524,4 +524,134 @@ TEST(WsSubscriptions, NonterminalChannelErrorsKeepTheActiveHandle) {
 	kalshi::WsMessage message = update;
 	registry.on_data(message, false);
 	EXPECT_EQ(std::get<kalshi::ws::Update<kalshi::ws::Ticker>>(message).subscription, ticker.id);
+}
+
+// Kalshi selects markets by ID only on the ticker channel; elsewhere an ID
+// filter is acknowledged but selects nothing, so an orderbook never resyncs.
+TEST(WsSubscriptions, MarketIdsAreRejectedOutsideTheTickerChannel) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	for (const Channel channel :
+		 {Channel::OrderbookDelta, Channel::Trade, Channel::MarketPositions}) {
+		const kalshi::Result<kalshi::ws::Subscription> ids =
+			registry.subscribe(channel, {.market_ids = {"M1"}}, true, frames);
+		ASSERT_FALSE(ids.has_value());
+		EXPECT_EQ(ids.error().code, kalshi::ErrorCode::InvalidRequest);
+		EXPECT_FALSE(registry.subscribe(channel, {.market_id = "M1"}, true, frames).has_value());
+	}
+	EXPECT_TRUE(frames.empty());
+	EXPECT_TRUE(registry.subscriptions().empty());
+
+	const kalshi::ws::Subscription book =
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames).value();
+	registry.on_subscribed({2, "orderbook_delta", 3});
+	frames.clear();
+	EXPECT_FALSE(registry
+					 .update(book,
+							 {.market_ids = {"M2"}, .action = kalshi::ws::UpdateAction::AddMarkets},
+							 true, frames)
+					 .has_value());
+	EXPECT_FALSE(registry
+					 .update(book,
+							 {.market_id = "M2", .action = kalshi::ws::UpdateAction::GetSnapshot},
+							 true, frames)
+					 .has_value());
+	EXPECT_TRUE(frames.empty());
+
+	ASSERT_TRUE(registry.subscribe(Channel::Ticker, {.market_ids = {"M1"}}, true, frames));
+	ASSERT_EQ(frames.size(), 1U);
+	EXPECT_NE(frames[0].find(R"("channels":["ticker"],"market_ids":["M1"])"), std::string::npos)
+		<< frames[0];
+}
+
+// Kalshi answers a market change on a ticker subscription made without markets
+// with error 13 and keeps streaming every market.
+TEST(WsSubscriptions, AnUnfilteredTickerSubscriptionCannotChangeMarkets) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription all =
+		registry.subscribe(Channel::Ticker, {}, true, frames).value();
+	const kalshi::ws::UpdateSubscriptionParams add{.market_tickers = {"A"},
+												   .action = kalshi::ws::UpdateAction::AddMarkets};
+	const kalshi::ws::UpdateSubscriptionParams remove{
+		.market_tickers = {"A"}, .action = kalshi::ws::UpdateAction::DeleteMarkets};
+	EXPECT_FALSE(registry.update(all, add, true, frames).has_value()); // pending
+	registry.on_subscribed({2, "ticker", 4});
+	EXPECT_FALSE(registry.update(all, add, true, frames).has_value());
+	EXPECT_FALSE(registry.update(all, remove, true, frames).has_value());
+	EXPECT_EQ(frames.size(), 1U); // only the subscribe
+
+	SubscriptionRegistry filtered_registry;
+	std::vector<std::string> filtered_frames;
+	const kalshi::ws::Subscription filtered =
+		filtered_registry.subscribe(Channel::Ticker, {.market_ticker = "B"}, true, filtered_frames)
+			.value();
+	filtered_registry.on_subscribed({2, "ticker", 5});
+	filtered_frames.clear();
+	ASSERT_TRUE(filtered_registry.update(filtered, add, true, filtered_frames).has_value());
+	EXPECT_EQ(filtered_frames.size(), 1U);
+}
+
+// A subscribe carries no match IDs, so matches follow every confirmation.
+TEST(WsSubscriptions, EbattleMatchesAreAddedAgainAfterEachConfirmation) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription scores =
+		registry.subscribe(Channel::EbattleScores, {}, true, frames).value();
+	ASSERT_EQ(frames.size(), 1U);
+	EXPECT_EQ(frames[0], R"({"id":2,"cmd":"subscribe","params":{"channels":["ebattle_scores"]}})");
+	frames.clear();
+	ASSERT_TRUE(registry
+					.update(scores,
+							{.action = kalshi::ws::UpdateAction::SubscribeMatches,
+							 .match_ids = {"m1", "m2"}},
+							true, frames)
+					.has_value());
+	EXPECT_TRUE(frames.empty()); // waits for the sid
+
+	const Reaction ack = registry.on_subscribed({2, "ebattle_scores", 6});
+	ASSERT_EQ(ack.frames.size(), 1U);
+	EXPECT_EQ(
+		ack.frames[0],
+		R"({"id":3,"cmd":"update_subscription","params":{"sid":6,"action":"subscribe_matches","match_ids":["m1","m2"]}})");
+	registry.on_ok({3, 6});
+	ASSERT_TRUE(
+		registry
+			.update(scores,
+					{.action = kalshi::ws::UpdateAction::UnsubscribeMatches, .match_ids = {"m1"}},
+					true, frames)
+			.has_value());
+	registry.on_ok({4, 6});
+
+	frames.clear();
+	registry.on_connected(frames);
+	ASSERT_EQ(frames.size(), 1U);
+	EXPECT_EQ(frames[0], R"({"id":5,"cmd":"subscribe","params":{"channels":["ebattle_scores"]}})");
+	const Reaction again = registry.on_subscribed({5, "ebattle_scores", 8});
+	ASSERT_EQ(again.frames.size(), 1U);
+	EXPECT_EQ(
+		again.frames[0],
+		R"({"id":6,"cmd":"update_subscription","params":{"sid":8,"action":"subscribe_matches","match_ids":["m2"]}})");
+}
+
+TEST(WsSubscriptions, EbattleMatchesChosenBeforeConnectingFollowTheFirstConfirmation) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription scores =
+		registry.subscribe(Channel::EbattleScores, {}, false, frames).value();
+	ASSERT_TRUE(
+		registry
+			.update(scores,
+					{.action = kalshi::ws::UpdateAction::SubscribeMatches, .match_ids = {"all"}},
+					false, frames)
+			.has_value());
+	EXPECT_TRUE(frames.empty());
+
+	registry.on_connected(frames);
+	ASSERT_EQ(frames.size(), 1U);
+	const Reaction ack = registry.on_subscribed({2, "ebattle_scores", 3});
+	ASSERT_EQ(ack.frames.size(), 1U);
+	EXPECT_NE(ack.frames[0].find(R"("sid":3,"action":"subscribe_matches","match_ids":["all"])"),
+			  std::string::npos)
+		<< ack.frames[0];
 }

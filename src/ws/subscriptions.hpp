@@ -29,8 +29,9 @@ struct Reaction {
 /// WebSocketClient guards it with its mutex.
 class SubscriptionRegistry {
 public:
-	/// Adds a subscription, rejecting invalid intervals and duplicate orderbook handles.
-	/// Frames to send are appended only when connected.
+	/// Adds a subscription, rejecting invalid intervals, duplicate orderbook handles,
+	/// and market IDs outside the ticker channel. Frames to send are appended only
+	/// when connected.
 	Result<ws::Subscription> subscribe(ws::Channel channel, ws::SubscribeParams params,
 									   bool connected, std::vector<std::string>& frames);
 	Result<void> unsubscribe(ws::Subscription subscription, std::vector<std::string>& frames);
@@ -76,6 +77,9 @@ private:
 		/// Has used a market filter. Once every market is removed, it is
 		/// not resubscribed, which would stream every market instead.
 		bool filtered{false};
+		/// Matches added with subscribe_matches. A subscribe carries none, so
+		/// they are sent again each time the server confirms the subscription.
+		std::vector<std::string> match_ids;
 	};
 
 	struct InFlight {
