@@ -9,8 +9,10 @@ Mapping rules:
 - Messages that share a `type` are told apart by a `msg` property with a
   `const` value (`market_lifecycle_v2` frames with `event_type:
   metadata_updated` are `ws::MarketMetadataUpdated`).
+- A channel's `address`, not its key in `channels`, is its `ws::Channel` value
+  and the name subscribe sends.
 - Subscribe and update_subscription parameters become `ws::SubscribeParams`
-  and `ws::UpdateSubscriptionParams`; the client adds the channel and `sids`.
+  and `ws::UpdateSubscriptionParams`; the client adds the channel and `sid`.
 """
 
 from __future__ import annotations
@@ -39,7 +41,7 @@ ENUM_NAMES_BY_VALUES = {
 
 # The update_subscription payload variants, merged into one parameter struct.
 UPDATE_PAYLOADS = ("updateSubscriptionCommandPayload", "cfbenchmarksUpdateSubscriptionCommandPayload",
-                   "pythUpdateSubscriptionCommandPayload")
+                   "pythUpdateSubscriptionCommandPayload", "ebattleUpdateSubscriptionCommandPayload")
 
 # The envelope fields Update<T> carries. Any other field on a data message would be dropped.
 ENVELOPE_FIELDS = {"type", "sid", "seq", "id", "msg", "sending_ts_ms"}
@@ -86,20 +88,26 @@ class WsGenerator:
             if found != expected:
                 raise SystemExit(f"{cmd} command payloads are {sorted(found)}; expected {sorted(expected)}. "
                                  "Update UPDATE_PAYLOADS in tools/codegen/ws.py")
+        # The client names the subscription with `sid`, the one form every variant accepts.
+        for name in UPDATE_PAYLOADS:
+            if "sid" not in self.schemas[name]["properties"]["params"].get("properties", {}):
+                raise SystemExit(f"{name} has no `sid`; the client sends `sid` in every update_subscription")
         subscribe = self.schemas["subscribeCommandPayload"]["properties"]["params"]
         self.channels = list(subscribe["properties"]["channels"]["items"]["enum"])
+        # Channel keys are document identifiers; the address is the name on the wire.
+        addresses = {channel: self.channel_address(channel, spec) for channel, spec in self.spec["channels"].items()
+                     if channel not in CONTROL_CHANNELS}
         # The channel declarations can precede updates to the command's enum.
-        for channel, spec in self.spec["channels"].items():
-            if channel not in CONTROL_CHANNELS and channel not in self.channels:
-                self.channels.append(channel)
+        for address in addresses.values():
+            if address not in self.channels:
+                self.channels.append(address)
         self.enums["Channel"] = EnumType("Channel", self.channels, "A WebSocket channel.")
 
-        for channel, spec in self.spec["channels"].items():
-            if channel in CONTROL_CHANNELS:
-                continue
-            self.channel_docs[channel] = first_sentence(spec.get("description"))
+        for channel, address in addresses.items():
+            spec = self.spec["channels"][channel]
+            self.channel_docs[address] = first_sentence(spec.get("description"))
             for ref in spec.get("messages", {}).values():
-                self.data_message(ref_name(ref["$ref"]), channel)
+                self.data_message(ref_name(ref["$ref"]), address)
         self.discriminate()
 
         self.subscribe_params = self.params_struct("SubscribeParams", [subscribe], skip={"channels"},
@@ -110,6 +118,17 @@ class WsGenerator:
             skip={"sid", "sids"}, doc="Options for update_subscription; the client sets the subscription.")
         self.error_codes = [(c["code"], c["name"]) for c in self.spec.get("x-error-codes", {}).get("codes", [])]
         check_enums(self.enums)
+
+    @staticmethod
+    def channel_address(channel: str, spec: dict) -> str:
+        """The channel's wire name. AsyncAPI 3 reads a missing or null `address` as unknown."""
+        address = spec.get("address")
+        if not isinstance(address, str) or not address:
+            raise SystemExit(f"{channel}: a channel needs an `address`; it is the name subscribe sends")
+        if "{" in address:
+            raise SystemExit(f"{channel}: channel address {address!r} has parameters; "
+                             "subscribe sends fixed channel names")
+        return address
 
     def data_message(self, key: str, channel: str) -> None:
         existing = next((m for m in self.messages if m.key == key), None)
@@ -340,10 +359,11 @@ class WsGenerator:
         for enum in sorted(self.enums.values(), key=lambda e: e.name):
             out.append(emit_enum_parser(enum, f"ws::{enum.name}", prefix="ws_"))
         for struct, extra, extra_type in ((self.subscribe_params, "channels", "std::vector<ws::Channel>"),
-                                          (self.update_params, "sids", "std::vector<std::int64_t>")):
+                                          (self.update_params, "sid", "std::int64_t")):
             wire = struct.name.replace("Params", "Wire")
+            scalar = not extra_type.startswith("std::vector")
             out.append(f"/// `{struct.name}` plus the `{extra}` the client fills in, in wire order.\n"
-                       f"struct {wire} {{\n\t{extra_type} {extra};\n")
+                       f"struct {wire} {{\n\t{extra_type} {extra}{'{0}' if scalar else ''};\n")
             for m in struct.members:
                 cpp = self.qualified(m.cpp_type)
                 if m.base_kind == "vector":
@@ -352,7 +372,7 @@ class WsGenerator:
                 out.append(f"\t{cpp} {m.json_name}{init};\n")
             out.append("};\n\n")
             out.append(f"inline {wire} to_wire({extra_type} {extra}, const ws::{struct.name}& params) {{\n"
-                       f"\t{wire} wire;\n\twire.{extra} = std::move({extra});\n")
+                       f"\t{wire} wire;\n\twire.{extra} = {extra if scalar else f'std::move({extra})'};\n")
             for m in struct.members:
                 if m.base_kind == "vector":
                     out.append(f"\tif (!params.{m.json_name}.empty()) {{\n\t\twire.{m.json_name} = params.{m.json_name};\n\t}}\n")
@@ -441,6 +461,9 @@ class WsGenerator:
                "pending; if the server rejects unsubscribe, retry the update on the same handle.\n"
                "Terminal channel errors 10 and 25 also remove the handle; subscribe again\n"
                "from `on_error` when ready to resume.\n"
+               "`market_id` and `market_ids` select markets only on `Ticker`; other channels\n"
+               "reject them. Matches added to an `EbattleScores` subscription are added again\n"
+               "after a reconnect.\n"
                "Set `update_interval_ms` to `V0`, `V100`, or `V1000`, or omit it for zero milliseconds.\n\n",
                "| Channel | `ws::Channel` | Messages |\n| --- | --- | --- |\n"]
         from common import enumerator

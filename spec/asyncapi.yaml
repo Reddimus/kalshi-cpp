@@ -22,11 +22,11 @@ info:
     | 4 | Subscription IDs required | Missing sids in unsubscribe |
     | 5 | Unknown command | Invalid command name |
     | 6 | Retired | Not emitted. The number stays reserved. |
-    | 7 | Unknown subscription ID | Subscription ID not found |
+    | 7 | Unknown subscription ID | Subscription ID not found. An `unsubscribe` listing several `sids` still unsubscribes the ones that exist, then returns this error for the rest |
     | 8 | Unknown channel name | Invalid channel in subscribe |
-    | 9 | Authentication required | Channel requires authenticated connection |
+    | 9 | Authentication required | Channel requires authentication, or your API key is not entitled to this channel: a key limited to market data on `fill`, `market_positions`, `order_group_updates` or `user_orders`, or a key without access to a restricted data feed |
     | 10 | Channel error | Channel-specific error |
-    | 11 | Invalid parameter | Malformed parameter value, or update_interval_ms differs from the existing orderbook subscription |
+    | 11 | Invalid parameter | Malformed parameter value, or update_interval_ms differs from the existing orderbook subscription (the message is then `update_interval_ms cannot change on an existing subscription`) |
     | 12 | Exactly one subscription ID is required | For update_subscription |
     | 13 | Unsupported action | Invalid action for update_subscription |
     | 14 | Market Ticker required | Missing market specification (market_ticker or market_id) |
@@ -38,8 +38,10 @@ info:
     | 20 | shard_factor is required when shard_key is set | Missing shard_factor when shard_key is set |
     | 21 | shard_key must be >= 0 and < shard_factor | Invalid shard_key |
     | 22 | shard_factor must be <= 100 | shard_factor too large |
-    | 26 | Subscription market limit exceeded | Adding markets would exceed the per-subscription market limit |
-    | 27 | Too many requests | The subscription exceeded its command rate limit |
+    | 23 | Match IDs required | Missing match_ids for subscribe_matches/unsubscribe_matches on ebattle_scores |
+    | 24 | Index IDs required | Missing index_ids for subscribe_indices/unsubscribe_indices on cfbenchmarks_value / cfbenchmarks_value_5hz |
+    | 26 | Subscription market limit exceeded | Adding markets would take an `orderbook_delta` subscription over 500,000 markets. No markets from the command are added |
+    | 27 | Too many requests | `subscribe` / `add_markets` commands for an `orderbook_delta` subscription were sent too fast. The command is not applied; wait briefly and send it again |
     | 28 | Underlying tickers required | Missing underlying_tickers for subscribe_underlyings/unsubscribe_underlyings on pyth_value |
     | 29 | update_interval_ms must be 0, 100 or 1000 | Invalid update_interval_ms on orderbook_delta |
 
@@ -51,6 +53,26 @@ info:
     |------|-------|
     | 10 | Channel error |
     | 25 | Subscription buffer overflow |
+
+    A terminal error on a running subscription ends that subscription, not the connection. The server sends
+    the `error` with that subscription's `sid` and no `id`, then an `unsubscribed` message for the same `sid`.
+    Your other subscriptions keep running. Subscribe to the channel again to get a new `sid`.
+
+    Code 10 can also answer a `subscribe` that could not be opened. That `error` carries the command's `id`
+    and no `sid`, no subscription was created, and no `unsubscribed` follows.
+
+    ## Disconnects
+
+    The server can close the connection at any time. Reconnect with exponential backoff and subscribe again;
+    subscriptions and `sid` values do not carry over to a new connection.
+
+    - **Slow reader:** if a message is still waiting to be written to your socket 15 seconds after the
+      server received it, the server closes the connection with close code `1008` and reason
+      `WebSocket server delivery exceeded 15 seconds`. A socket that stops accepting writes is also closed.
+      Read from the socket continuously and move slow work off the reading path.
+    - **Normal closure:** close code `1000` is a normal closure and does not identify a cause. A graceful
+      server shutdown, such as during a release, is one cause. An abrupt failure may close the connection
+      without any close frame.
   contact:
     name: Kalshi Support
     url: https://kalshi.com
@@ -90,6 +112,16 @@ channels:
       Authentication is required to establish the connection; include API key headers during the WebSocket handshake.
       Some channels carry only public market data, but the connection itself still requires authentication.
       Use the subscribe command to subscribe to specific data channels. For more information, see the [Getting Started](https://docs.kalshi.com/getting_started/quick_start_websockets) guide.
+
+      **Handshake errors:** a rejected handshake returns an HTTP error instead of upgrading. `429 Too Many Requests` with code
+      `too_many_requests` has two causes: you have reached your tier's [concurrent connection limit](https://docs.kalshi.com/getting_started/rate_limits#websocket-connection-limits),
+      or you are opening connections too quickly. The HTTP status and error code are the same for both, so reconnect with
+      exponential backoff rather than in a tight loop, and close connections you no longer use.
+
+      **One subscription per channel:** a connection holds at most one subscription to each channel. A `subscribe` naming a channel
+      you are already subscribed to does not create a second subscription or return `subscribed`. It is applied to the existing `sid`:
+      on channels with a market filter it adds the listed markets and returns `ok`, or returns an `error`. To change other parameters,
+      `unsubscribe`, wait for `unsubscribed`, then `subscribe` again.
     bindings:
       ws:
         method: GET
@@ -105,6 +137,8 @@ channels:
         $ref: '#/components/messages/updateSubscriptionDeleteCommand'
       updateSubscriptionSingleSidCommand:
         $ref: '#/components/messages/updateSubscriptionSingleSidCommand'
+      ebattleUpdateSubscriptionCommand:
+        $ref: '#/components/messages/ebattleUpdateSubscriptionCommand'
       cfbenchmarksUpdateSubscriptionCommand:
         $ref: '#/components/messages/cfbenchmarksUpdateSubscriptionCommand'
       pythUpdateSubscriptionCommand:
@@ -118,6 +152,8 @@ channels:
         $ref: '#/components/messages/listSubscriptionsResponse'
       unsubscribedResponse:
         $ref: '#/components/messages/unsubscribedResponse'
+      subscribedMatchesResponse:
+        $ref: '#/components/messages/subscribedMatchesResponse'
       subscribedIndicesResponse:
         $ref: '#/components/messages/subscribedIndicesResponse'
       subscribedUnderlyingsResponse:
@@ -133,7 +169,10 @@ channels:
     description: |
       WebSocket control frames for connection management.
 
-      Kalshi sends Ping frames (`0x9`) every 10 seconds with body `heartbeat` to maintain the connection.
+      Kalshi sends a Ping frame (`0x9`) with body `heartbeat` after 10 seconds without sending a data message (a JSON text frame) on the connection.
+      Every data message Kalshi sends, and each heartbeat Ping, restarts that 10 seconds, so a connection that is receiving data can go a long time without a Ping.
+      Pong frames Kalshi sends in reply to your Pings do not restart it.
+      Do not treat a missing Ping as a dead connection; treat the connection as idle only when neither messages nor Pings arrive.
       Clients should respond with Pong frames (`0xA`). Clients may also send Ping frames to which Kalshi will respond with Pong.
     messages:
       incomingPing:
@@ -156,11 +195,13 @@ channels:
       - Market specification required:
         - Use `market_ticker` (string) for a single market
         - Use `market_tickers` (array of strings) for multiple markets
-        - `market_id`/`market_ids` are not supported for this channel
+        - `market_id`/`market_ids` are not supported for this channel and never select a market. A first `subscribe` that gives only `market_id`/`market_ids` is acknowledged with `subscribed` but receives no snapshots or deltas. On an existing subscription, a `subscribe`, `add_markets` or `delete_markets` that gives only IDs returns `ok` and changes nothing, so the markets already subscribed keep streaming; `get_snapshot` with only IDs returns error code 14
       - Sends `orderbook_snapshot` first, then incremental `orderbook_delta` updates
       - Supports `update_subscription` with `add_markets` / `delete_markets` / `get_snapshot` actions
       - `get_snapshot` returns an `orderbook_snapshot` for the requested `market_tickers` without changing the subscribed markets. Apply every returned snapshot as a replacement for that market's local book
       - Each connection has one `orderbook_delta` subscription. A repeated `subscribe` adds new markets to its existing `sid`; it does not resend snapshots for markets already subscribed
+      - A subscription holds at most 500,000 markets. A `subscribe` or `add_markets` that would exceed this returns error code 26 and adds none of its markets
+      - When a market is determined, the server sends an empty `orderbook_snapshot` for it and removes it from the subscription. No further messages follow for that market and there is no separate notification; replace your local book with the empty snapshot
       - A repeated `subscribe` must use the existing `update_interval_ms` (omitting it means `0`). A different valid interval returns error code 11 without adding markets. Use `update_subscription` with `add_markets` to add markets without respecifying the interval. To change the interval, `unsubscribe`, wait for `unsubscribed`, then `subscribe` again
 
       **Matching real-time updates across connections:**
@@ -199,9 +240,10 @@ channels:
 
       **Requirements:**
       - No additional channel-level authentication beyond the authenticated WebSocket connection
-      - Market specification optional (omit to receive all markets)
+      - Market specification optional (omit to receive all markets except those whose ticker starts with `KXRFQ`, which are sent only to subscriptions that name them)
       - Supports `market_ticker`/`market_tickers` and `market_id`/`market_ids`
-      - Updates sent whenever any ticker field changes
+      - Changes are combined and sent on a flush scheduled every second: each flush sends one message per changed market, carrying its current values, so intermediate values are not sent. This is a schedule, not a guaranteed minimum gap; two updates for one market can arrive less than a second apart. For every trade or book change, use the `trade` or `orderbook_delta` channel
+      - A subscription created without a market filter cannot be changed: `update_subscription` and a repeated `subscribe` return error code 13. To filter, or to receive `KXRFQ` markets, `unsubscribe` and `subscribe` again with a market filter
 
       **Use case:** Displaying current market prices and statistics
     messages:
@@ -218,6 +260,7 @@ channels:
       - No additional channel-level authentication beyond the authenticated WebSocket connection
       - Market specification optional (omit to receive all trades)
       - Updates sent immediately after trade execution
+      - A repeated `subscribe` or an `update_subscription` without `market_ticker`/`market_tickers` returns error code 14. That error and error code 13 on this channel carry no `id`
 
       **Use case:** Trade feed, volume analysis
     messages:
@@ -252,6 +295,7 @@ channels:
       - Market specification optional (omit to receive all positions)
       - Filters are by `market_ticker`/`market_tickers` only; `market_id`/`market_ids` are not supported
       - Updates sent when your position changes due to trades, settlements, etc.
+      - Messages carry no `seq` and are not ordered against the `fill` channel: the position update for a trade can arrive after its `fill` message. Do not assume your position is current when a fill arrives
 
       **Monetary Values:**
       All monetary values are returned as fixed-point dollar strings (`_dollars` suffix).
@@ -380,6 +424,38 @@ channels:
     messages:
       userOrder:
         $ref: '#/components/messages/userOrder'
+
+  ebattle_scores:
+    address: ebattle_scores
+    title: eBattle Scores
+    description: |
+      Live eSoccer/eFootball and eBasketball score updates. Authentication is required.
+      Public access is temporary and can return to individual approval; subscriptions
+      without approval then end. Other sports and esports feeds are excluded.
+
+      Subscribe with `{"id":1,"cmd":"subscribe","params":{"channels":["ebattle_scores"]}}`.
+      After receiving the assigned `sid`, request matches with
+      `{"id":2,"cmd":"update_subscription","params":{"sid":1,"action":"subscribe_matches","match_ids":["all"]}}`.
+      Replace `1` with the assigned subscription ID. Match IDs are Kalshi milestone IDs.
+      Use specific IDs instead of `all` to filter; `unsubscribe_matches` removes IDs.
+      `matchlist` returns IDs seen within the past two hours, not a complete fixture catalog.
+      A new subscription is empty until `subscribe_matches` is sent. There is no initial
+      snapshot or replay; subsequent updates contain the current full score state.
+
+      `msg.data` is a JSON-encoded string with `game`, `status`, and available score/clock
+      fields: `home_score`, `away_score`, `home_periods`, `away_periods`, `score_format`,
+      `period_unit`, `clock_ticking`, `duration_seconds`, `current_game_duration_seconds`,
+      `last_updated_ts`, and `live_data_delayed`. A home/away side follows the milestone's orientation.
+      `live_data_delayed: true` means the score source has stopped updating and the scores
+      may be stale; the same scores can be resent with only this flag changed.
+      eBasketball scores are points per quarter; eSoccer/eFootball scores are goals per half.
+      Period maps use keys such as `period_1`. Missing fields mean unavailable data.
+      `received_at` is the publication timestamp in milliseconds; it is not a vendor timestamp.
+    messages:
+      ebattleScores:
+        $ref: '#/components/messages/ebattleScores'
+      ebattleScoresMatchlist:
+        $ref: '#/components/messages/ebattleScoresMatchlist'
 
   cfbenchmarks_value:
     address: cfbenchmarks_value
@@ -543,7 +619,7 @@ channels:
 
       ## Underlying tickers
 
-      The reference table below lists supported underlyings: spot metals, metal and commodity indices, an equity index, FX pairs, and Treasury yields. Index descriptions note Pyth's publishing schedule (24/7, 24/5, or 23/5); spot metals, FX pairs, and Treasury yields follow their market sessions.
+      The reference table below lists supported underlyings: spot metals, metal, commodity and agriculture indices, an equity index, FX pairs, and Treasury yields. Index descriptions note Pyth's publishing schedule (24/7, 24/5, or 23/5); spot metals, agriculture indices, FX pairs, and Treasury yields follow their market sessions. Agriculture indices marked `/USc` are quoted in US cents.
 
       | Pyth feed ID | Pyth symbol                     | Description                                             |
       |--------------|---------------------------------|---------------------------------------------------------|
@@ -560,9 +636,16 @@ channels:
       | 3265         | `Commodities.Index.NATGAS/USD`  | Natural Gas Index in USD (24/7)                         |
       | 3525         | `Commodities.Index.CU/USD`      | Copper Index in USD (24/7)                              |
       | 3266         | `Commodities.Index.COPPER/USD`  | Copper Index in USD (23/5)                              |
+      | 3967         | `Commodities.Index.RCOFFEE/USc` | Coffee Index in US cents (exchange session hours)       |
+      | 3977         | `Commodities.Index.RCOCOA/USD`  | Cocoa Index in USD (exchange session hours)             |
+      | 3978         | `Commodities.Index.RCORN/USc`   | Corn Index in US cents (exchange session hours)         |
+      | 3979         | `Commodities.Index.RWHEAT/USc`  | Wheat Index in US cents (exchange session hours)        |
+      | 3980         | `Commodities.Index.RSOYBEANS/USc` | Soybeans Index in US cents (exchange session hours)   |
+      | 3981         | `Commodities.Index.RLIVECATTLE/USc` | Live Cattle Index in US cents (exchange session hours) |
       | 3292         | `Equity.Index.US30/USD`         | US30 (Dow Jones Industrial Average) Index in USD (24/5) |
       | 1530         | `InterestRate.US2Y`             | US 2-year Treasury yield in percent                     |
       | 1534         | `InterestRate.US5Y`             | US 5-year Treasury yield in percent                     |
+      | 1536         | `InterestRate.US7Y`             | US 7-year Treasury yield in percent                     |
       | 1527         | `InterestRate.US10Y`            | US 10-year Treasury yield in percent                    |
       | 1531         | `InterestRate.US30Y`            | US 30-year Treasury yield in percent                    |
       | 327          | `FX.EUR/USD`                    | Euro / US Dollar                                        |
@@ -582,7 +665,7 @@ channels:
 
       Use `underlying_list` to discover recently streamed tickers on your connection. Availability can change, including as futures contracts expire; the table does not guarantee that every feed is streaming in every environment.
 
-      Treasury yields use the exact symbols above, without a `/USD` suffix. They are included in `["all"]` subscriptions and can also be requested individually, for example with `underlying_tickers: ["InterestRate.US2Y"]`. These are the yield feeds behind the `KX{2,5,10,30}YRRATE15M` and `KX{2,5,10,30}YRRATEH` markets; `/USD` symbols identify separate bond-price feeds.
+      Treasury yields use the exact symbols above, without a `/USD` suffix. They are included in `["all"]` subscriptions and can also be requested individually, for example with `underlying_tickers: ["InterestRate.US2Y"]`. These are the yield feeds behind the `KX{2,5,10,30}YRRATE15M` and `KX{2,5,7,10,30}YRRATEH` markets; `/USD` symbols identify separate bond-price feeds.
 
       ## Requirements
 
@@ -691,6 +774,30 @@ channels:
         $ref: '#/components/messages/pythUnderlyingList'
 
 operations:
+  sendEbattleUpdateSubscription:
+    action: receive
+    title: Update eBattle Match Subscription
+    channel:
+      $ref: '#/channels/root'
+    messages:
+      - $ref: '#/channels/root/messages/ebattleUpdateSubscriptionCommand'
+
+  receiveEbattleScores:
+    action: send
+    title: ebattleScores
+    channel:
+      $ref: '#/channels/ebattle_scores'
+    messages:
+      - $ref: '#/channels/ebattle_scores/messages/ebattleScores'
+
+  receiveEbattleScoresMatchlist:
+    action: send
+    title: ebattleScoresMatchlist
+    channel:
+      $ref: '#/channels/ebattle_scores'
+    messages:
+      - $ref: '#/channels/ebattle_scores/messages/ebattleScoresMatchlist'
+
   sendPing:
     action: receive
     title: Send Ping
@@ -856,6 +963,7 @@ operations:
       - $ref: '#/channels/root/messages/okResponse'
       - $ref: '#/channels/root/messages/subscribedUnderlyingsResponse'
       - $ref: '#/channels/root/messages/subscribedIndicesResponse'
+      - $ref: '#/channels/root/messages/subscribedMatchesResponse'
     tags:
       - name: responses
 
@@ -1230,6 +1338,27 @@ operations:
 
 components:
   messages:
+    ebattleScores:
+      name: ebattle_scores
+      title: ebattleScores
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ebattleScoresPayload'
+
+    ebattleScoresMatchlist:
+      name: ebattle_scores_matchlist
+      title: ebattleScoresMatchlist
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ebattleScoresMatchlistPayload'
+
+    ebattleUpdateSubscriptionCommand:
+      name: update_subscription_ebattle
+      title: ebattleUpdateSubscriptionCommand
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/ebattleUpdateSubscriptionCommandPayload'
+
     # Control Frame Messages (Client -> Server)
     incomingPing:
       name: ping
@@ -1595,6 +1724,14 @@ components:
             type: unsubscribed
             sending_ts_ms: 1669149841234
 
+    subscribedMatchesResponse:
+      name: ok
+      title: Subscribed Matches
+      summary: Current eBattle match filter after an update; all-mode is ["all"]
+      contentType: application/json
+      payload:
+        $ref: '#/components/schemas/subscribedMatchesResponsePayload'
+
     subscribedIndicesResponse:
       name: ok
       title: Subscribed Indices
@@ -1669,9 +1806,9 @@ components:
         | 4 | Subscription IDs required | Missing sids in unsubscribe |
         | 5 | Unknown command | Invalid command name |
         | 6 | Retired | Not emitted. The number stays reserved. |
-        | 7 | Unknown subscription ID | Subscription ID not found |
+        | 7 | Unknown subscription ID | Subscription ID not found. An `unsubscribe` listing several `sids` still unsubscribes the ones that exist, then returns this error for the rest |
         | 8 | Unknown channel name | Invalid channel in subscribe |
-        | 9 | Authentication required | Channel requires authenticated connection |
+        | 9 | Authentication required | Channel requires authentication, or your API key is not entitled to this channel: a key limited to market data on `fill`, `market_positions`, `order_group_updates` or `user_orders`, or a key without access to a restricted data feed |
         | 10 | Channel error | Channel-specific error |
         | 11 | Invalid parameter | Malformed parameter value, or update_interval_ms differs from the existing orderbook subscription |
         | 12 | Exactly one subscription ID is required | For update_subscription |
@@ -1688,8 +1825,8 @@ components:
         | 23 | Match IDs required | Missing match_ids for the channel/action |
         | 24 | Index IDs required | Missing index_ids for subscribe_indices/unsubscribe_indices on cfbenchmarks_value / cfbenchmarks_value_5hz |
         | 25 | Subscription buffer overflow | The subscription's outbound buffer was exceeded |
-        | 26 | Subscription market limit exceeded | Adding markets would exceed the per-subscription market limit |
-        | 27 | Too many requests | The subscription exceeded its command rate limit |
+        | 26 | Subscription market limit exceeded | Adding markets would take an `orderbook_delta` subscription over 500,000 markets. No markets from the command are added |
+        | 27 | Too many requests | `subscribe` / `add_markets` commands for an `orderbook_delta` subscription were sent too fast. The command is not applied; wait briefly and send it again |
         | 28 | Underlying tickers required | Missing underlying_tickers for subscribe_underlyings/unsubscribe_underlyings on pyth_value |
         | 29 | update_interval_ms must be 0, 100 or 1000 | Invalid update_interval_ms on orderbook_delta |
       contentType: application/json
@@ -1791,6 +1928,16 @@ components:
               clock: 4182057
               yes_dollars_fp: [["0.0800", "300.00"], ["0.2200", "333.00"]]
               no_dollars_fp: [["0.5400", "20.00"], ["0.5600", "146.00"]]
+        - name: marketWithNoRecordedChange
+          summary: Orderbook snapshot for a market with no recorded change
+          payload:
+            type: orderbook_snapshot
+            sid: 2
+            seq: 3
+            msg:
+              market_ticker: "FED-23DEC-T3.25"
+              market_id: ""
+              clock: 0
 
     orderbookDelta:
       name: orderbook_delta
@@ -2715,6 +2862,85 @@ components:
               subaccount: 2
 
   schemas:
+    ebattleUpdateSubscriptionCommandPayload:
+      type: object
+      required: [id, cmd, params]
+      properties:
+        id:
+          $ref: '#/components/schemas/commandId'
+        cmd:
+          type: string
+          const: update_subscription
+        params:
+          type: object
+          required: [sid, action]
+          properties:
+            sid:
+              $ref: '#/components/schemas/subscriptionId'
+            action:
+              type: string
+              enum: [subscribe_matches, unsubscribe_matches, matchlist]
+            match_ids:
+              type: array
+              description: Required for subscribe_matches and unsubscribe_matches. Use ["all"] to select all matches.
+              items:
+                type: string
+
+    ebattleScoresPayload:
+      type: object
+      required: [type, sid, seq, msg]
+      properties:
+        type:
+          type: string
+          const: ebattle_scores
+        id:
+          $ref: '#/components/schemas/commandId'
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: [event_id, match_id, received_at, data]
+          properties:
+            event_id:
+              type: string
+            match_id:
+              type: string
+              description: Kalshi milestone ID.
+            received_at:
+              type: integer
+              format: int64
+            data:
+              type: string
+              description: JSON-encoded full score state, as described by the channel.
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
+
+    ebattleScoresMatchlistPayload:
+      type: object
+      required: [type, sid, seq, msg]
+      properties:
+        type:
+          type: string
+          const: ebattle_scores_matchlist
+        id:
+          $ref: '#/components/schemas/commandId'
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: [match_ids]
+          properties:
+            match_ids:
+              type: array
+              items:
+                type: string
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
+
     sendingTimestampMs:
       type: integer
       format: int64
@@ -2790,7 +3016,7 @@ components:
               description: List of channels to subscribe to
               items:
                 type: string
-                enum: ["orderbook_delta", "ticker", "trade", "fill", "market_positions", "market_lifecycle_v2", "multivariate_market_lifecycle", "communications", "order_group_updates", "user_orders", "cfbenchmarks_value", "cfbenchmarks_value_5hz", "pyth_value"]
+                enum: ["orderbook_delta", "ticker", "trade", "fill", "market_positions", "market_lifecycle_v2", "multivariate_market_lifecycle", "communications", "order_group_updates", "user_orders", "cfbenchmarks_value", "cfbenchmarks_value_5hz", "pyth_value", "ebattle_scores"]
               minItems: 1
             market_ticker:
               description: 'Subscribe to a single market. Type: string. Example: "KXBTCD-25AUG0517-T114999.99" (mutually exclusive with market_tickers)'
@@ -3052,6 +3278,31 @@ components:
           $ref: '#/components/schemas/subscriptionId'
         seq:
           $ref: '#/components/schemas/sequenceNumber'
+        sending_ts_ms:
+          $ref: '#/components/schemas/sendingTimestampMs'
+
+    subscribedMatchesResponsePayload:
+      type: object
+      required: ["type", "sid", "seq", "msg"]
+      properties:
+        type:
+          type: string
+          const: "ok"
+        id:
+          $ref: '#/components/schemas/commandId'
+        sid:
+          $ref: '#/components/schemas/subscriptionId'
+        seq:
+          $ref: '#/components/schemas/sequenceNumber'
+        msg:
+          type: object
+          required: ["match_ids"]
+          properties:
+            match_ids:
+              type: array
+              description: Current eBattle match filter after an update; all-mode is ["all"]
+              items:
+                type: string
         sending_ts_ms:
           $ref: '#/components/schemas/sendingTimestampMs'
 
@@ -3399,7 +3650,7 @@ components:
               description: Qualified Pyth underlying ticker
             value_usd:
               type: string
-              description: 'Value formatted to 8 decimal places in the underlying''s quoted units. For Treasury yields (InterestRate.US2Y, InterestRate.US5Y, InterestRate.US10Y, InterestRate.US30Y), this is percent: "4.25000000" means 4.25%. The field name is retained for compatibility.'
+              description: 'Value formatted to 8 decimal places in the underlying''s quoted units. For Treasury yields (InterestRate.US2Y, InterestRate.US5Y, InterestRate.US7Y, InterestRate.US10Y, InterestRate.US30Y), this is percent: "4.25000000" means 4.25%. The field name is retained for compatibility.'
             source_ts_ms:
               type: integer
               description: Pyth source timestamp (unix ms)
@@ -3455,7 +3706,9 @@ components:
             market_ticker:
               $ref: '#/components/schemas/marketTicker'
             market_id:
-              $ref: '#/components/schemas/marketId'
+              type: string
+              description: Unique market UUID. Can be an empty string for a market with no recorded change.
+              pattern: '^$|^[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
             clock:
               type: integer
               format: int64

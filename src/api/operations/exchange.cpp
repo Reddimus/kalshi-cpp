@@ -7,8 +7,8 @@
 namespace kalshi {
 
 Result<ExchangeStatus> KalshiClient::get_exchange_status() {
-	return detail::decode<ExchangeStatus>(
-		impl_->send(HttpMethod::GET, std::string{"/exchange/status"}, {}, "get_exchange_status"));
+	return detail::decode<ExchangeStatus>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::string{"/exchange/status"}, {}, "get_exchange_status"));
 }
 
 Result<std::vector<SeriesFeeChange>>
@@ -16,8 +16,9 @@ KalshiClient::get_series_fee_changes(const GetSeriesFeeChangesParams& params) {
 	detail::Query query(std::string{"/series/fee_changes"});
 	query.add("series_ticker", params.series_ticker);
 	query.add("show_historical", params.show_historical);
-	Result<GetSeriesFeeChangesResponse> response = detail::decode<GetSeriesFeeChangesResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_series_fee_changes"));
+	Result<GetSeriesFeeChangesResponse> response =
+		detail::decode<GetSeriesFeeChangesResponse>(Impl::send(
+			impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_series_fee_changes"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -25,9 +26,9 @@ KalshiClient::get_series_fee_changes(const GetSeriesFeeChangesParams& params) {
 }
 
 Result<Schedule> KalshiClient::get_exchange_schedule() {
-	Result<GetExchangeScheduleResponse> response =
-		detail::decode<GetExchangeScheduleResponse>(impl_->send(
-			HttpMethod::GET, std::string{"/exchange/schedule"}, {}, "get_exchange_schedule"));
+	Result<GetExchangeScheduleResponse> response = detail::decode<GetExchangeScheduleResponse>(
+		Impl::send(impl_.get(), HttpMethod::GET, std::string{"/exchange/schedule"}, {},
+				   "get_exchange_schedule"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -36,8 +37,8 @@ Result<Schedule> KalshiClient::get_exchange_schedule() {
 
 Result<std::string> KalshiClient::get_user_data_timestamp() {
 	Result<GetUserDataTimestampResponse> response = detail::decode<GetUserDataTimestampResponse>(
-		impl_->send(HttpMethod::GET, std::string{"/exchange/user_data_timestamp"}, {},
-					"get_user_data_timestamp"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::string{"/exchange/user_data_timestamp"}, {},
+				   "get_user_data_timestamp"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}

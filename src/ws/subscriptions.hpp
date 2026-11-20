@@ -29,8 +29,9 @@ struct Reaction {
 /// WebSocketClient guards it with its mutex.
 class SubscriptionRegistry {
 public:
-	/// Adds a subscription, rejecting invalid intervals and duplicate orderbook handles.
-	/// Frames to send are appended only when connected.
+	/// Adds a subscription, rejecting invalid intervals, duplicate orderbook handles,
+	/// and market IDs outside the ticker channel. Frames to send are appended only
+	/// when connected.
 	Result<ws::Subscription> subscribe(ws::Channel channel, ws::SubscribeParams params,
 									   bool connected, std::vector<std::string>& frames);
 	Result<void> unsubscribe(ws::Subscription subscription, std::vector<std::string>& frames);
@@ -46,15 +47,19 @@ public:
 	void on_connected(std::vector<std::string>& frames);
 	/// Forgets the server's state; subscriptions resend on the next connection.
 	/// Changes still awaiting confirmation are kept, since their outcome is unknown.
-	void on_disconnected();
+	/// Returns the subscriptions being unsubscribed, which end with the connection.
+	std::vector<ws::Subscription> on_disconnected();
 	void clear();
 
 	Reaction on_subscribed(const SubscribedFrame& frame);
 	Reaction on_unsubscribed(const UnsubscribedFrame& frame);
-	Reaction on_ok(const OkFrame& frame);
-	Reaction on_error(const ErrorFrame& frame);
-	/// Fills in Update::subscription and reports sequence gaps. On an
-	/// orderbook_delta gap, `resync` requests fresh snapshots.
+	/// `ok` and `error` frames on sequenced channels share the data's `seq`,
+	/// so they are checked for gaps like data.
+	Reaction on_ok(const OkFrame& frame, bool resync = false);
+	Reaction on_error(const ErrorFrame& frame, bool resync = false);
+	/// Fills in Update::subscription and reports sequence gaps, snapshots
+	/// included. On an orderbook_delta gap, `resync` requests fresh snapshots.
+	/// A reply carrying a command ID, such as a get_snapshot snapshot, completes it.
 	Reaction on_data(WsMessage& message, bool resync);
 
 	[[nodiscard]] std::vector<ws::Subscription> subscriptions() const;
@@ -76,6 +81,9 @@ private:
 		/// Has used a market filter. Once every market is removed, it is
 		/// not resubscribed, which would stream every market instead.
 		bool filtered{false};
+		/// Matches added with subscribe_matches. A subscribe carries none, so
+		/// they are sent again each time the server confirms the subscription.
+		std::vector<std::string> match_ids;
 	};
 
 	struct InFlight {
@@ -90,8 +98,15 @@ private:
 	void erase(std::int64_t subscription);
 	static void record_update(Entry& entry, const ws::UpdateSubscriptionParams& params);
 	std::optional<InFlight> take(std::optional<std::int64_t> command);
-	/// Frames such as `ok` also take a sequence number on sequenced channels.
-	void note_seq(std::optional<std::int64_t> sid, std::optional<std::int64_t> seq);
+	Entry* find_by_sid(std::int64_t sid);
+	/// Records `seq` for the subscription and reports a gap, appending the
+	/// snapshot request an orderbook resync needs.
+	std::optional<WsError> check_seq(Entry& entry, std::int64_t sid, std::int64_t seq, bool resync,
+									 std::vector<std::string>& frames);
+	/// Checks the sequence number that frames such as `ok` carry.
+	std::optional<WsError> check_frame_seq(std::optional<std::int64_t> sid,
+										   std::optional<std::int64_t> seq, bool resync,
+										   std::vector<std::string>& frames);
 	std::string subscribe_frame(Entry& entry);
 	std::string update_frame(Entry& entry, const ws::UpdateSubscriptionParams& params);
 	std::string unsubscribe_frame(Entry& entry);

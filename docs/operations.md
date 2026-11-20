@@ -1,6 +1,6 @@
 # REST operations
 
-Covers Kalshi's Predictions OpenAPI 3.35.0 document (`spec/openapi.yaml`).
+Covers Kalshi's Predictions OpenAPI 3.37.0 document (`spec/openapi.yaml`).
 Each row is a `KalshiClient` method.
 
 ## account
@@ -28,7 +28,9 @@ Each row is a `KalshiClient` method.
 | GET | `/communications/id` | `get_communications_id` |
 | GET | `/communications/block-trade-proposals` | `get_block_trade_proposals` |
 | POST | `/communications/block-trade-proposals` | `propose_block_trade` |
+| DELETE | `/communications/block-trade-proposals/{block_trade_proposal_id}` | `cancel_block_trade_proposal` |
 | POST | `/communications/block-trade-proposals/{block_trade_proposal_id}/accept` | `accept_block_trade_proposal` |
+| POST | `/communications/block-trade-proposals/{block_trade_proposal_id}/reject` | `reject_block_trade_proposal` |
 | GET | `/communications/rfqs` | `get_rfqs` |
 | POST | `/communications/rfqs` | `create_rfq` |
 | GET | `/communications/rfqs/{rfq_id}` | `get_rfq` |
@@ -109,6 +111,7 @@ Each row is a `KalshiClient` method.
 | Method | Route | C++ |
 | --- | --- | --- |
 | GET | `/incentive_programs` | `get_incentive_programs` |
+| GET | `/incentive_schedules` | `get_incentive_schedules` |
 
 ## live-data
 
@@ -135,6 +138,20 @@ Each row is a `KalshiClient` method.
 | GET | `/markets` | `get_markets` |
 | GET | `/markets/{ticker}` | `get_market` |
 | GET | `/markets/candlesticks` | `batch_get_market_candlesticks` |
+
+## markets
+
+| Method | Route | C++ |
+| --- | --- | --- |
+| POST | `/weather_point_markets` | `create_weather_point_market` |
+| GET | `/weather_point_markets/availability` | `get_weather_point_availability` |
+| POST | `/concert_cancellation_markets` | `create_concert_cancellation_market` |
+| GET | `/concert_cancellation_markets/availability` | `get_concert_cancellation_availability` |
+| GET | `/concert_cancellation_markets/concerts` | `get_concerts` |
+| GET | `/concert_cancellation_markets/concerts/search` | `search_concerts` |
+| POST | `/flight_disruption_markets` | `create_flight_disruption_market` |
+| GET | `/flight_disruption_markets/availability` | `get_flight_disruption_availability` |
+| GET | `/flight_disruption_markets/flights` | `get_flights` |
 
 ## milestone
 

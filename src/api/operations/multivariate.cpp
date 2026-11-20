@@ -14,8 +14,8 @@ KalshiClient::get_multivariate_event_collection(std::string_view collection_tick
 		return std::unexpected(std::move(target.error()));
 	}
 	Result<GetMultivariateEventCollectionResponse> response =
-		detail::decode<GetMultivariateEventCollectionResponse>(
-			impl_->send(HttpMethod::GET, *target, {}, "get_multivariate_event_collection"));
+		detail::decode<GetMultivariateEventCollectionResponse>(Impl::send(
+			impl_.get(), HttpMethod::GET, *target, {}, "get_multivariate_event_collection"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -35,8 +35,8 @@ KalshiClient::create_market_in_multivariate_event_collection(
 		return std::unexpected(std::move(target.error()));
 	}
 	return detail::decode<CreateMarketInMultivariateEventCollectionResponse>(
-		impl_->send(HttpMethod::POST, *target, detail::encode(body),
-					"create_market_in_multivariate_event_collection"));
+		Impl::send(impl_.get(), HttpMethod::POST, *target, detail::encode(body),
+				   "create_market_in_multivariate_event_collection"));
 }
 
 Result<GetMultivariateEventCollectionsResponse> KalshiClient::get_multivariate_event_collections(
@@ -47,8 +47,9 @@ Result<GetMultivariateEventCollectionsResponse> KalshiClient::get_multivariate_e
 	query.add("series_ticker", params.series_ticker);
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
-	return detail::decode<GetMultivariateEventCollectionsResponse>(impl_->send(
-		HttpMethod::GET, std::move(query).str(), {}, "get_multivariate_event_collections"));
+	return detail::decode<GetMultivariateEventCollectionsResponse>(
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {},
+				   "get_multivariate_event_collections"));
 }
 
 } // namespace kalshi

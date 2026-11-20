@@ -6,6 +6,53 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Added
+
+- Follow Predictions OpenAPI 3.37.0: cancel and reject block-trade proposals, on-request weather
+  point, concert cancellation, and flight disruption markets, and incentive schedules.
+- Support the `ebattle_scores` WebSocket channel with `subscribe_matches`, `unsubscribe_matches`,
+  and `matchlist`. Matches are added again after each reconnect, since a subscribe carries none.
+- Add `RateLimitConfig::transfer` for intra-account transfers, which Kalshi meters in their own
+  bucket of 600 tokens per minute.
+- Add the `KALSHI_INSTALL` CMake option, on by default only for a top-level build.
+- Add [ARCHITECTURE.md](https://github.com/Reddimus/kalshi-cpp/blob/main/ARCHITECTURE.md), an
+  overview of the layers, request flow, and WebSocket lifecycle.
+
+### Changed
+
+- Remove `Market::expiration_time`, which the upstream contract no longer lists.
+- Name the subscription with `sid` in `update_subscription` commands. Every command variant
+  accepts it, and eBattle updates require it.
+- Reject market changes to a ticker subscription sent without markets, which Kalshi answers
+  with error 13 while it keeps streaming every market.
+- A FetchContent consumer's install no longer installs kalshi-cpp. Set `KALSHI_INSTALL=ON` to
+  keep the old behavior.
+- Build the static libraries as position-independent code unless
+  `CMAKE_POSITION_INDEPENDENT_CODE` is set, so they can link into shared libraries.
+- `WebSocketClient::connect()` rejects a non-positive `ping_interval` and an `idle_timeout` no
+  longer than it, which would drop healthy connections.
+
+### Fixed
+
+- Reject `market_id` and `market_ids` outside the ticker channel. An orderbook subscribed by ID
+  received no snapshots and could not recover from a gap
+  ([#85](https://github.com/Reddimus/kalshi-cpp/issues/85)).
+- Retry HTTP 408 responses like network errors: reads by default, writes only with
+  `retry_writes` ([#86](https://github.com/Reddimus/kalshi-cpp/issues/86)).
+- Keep public enum names stable when the upstream contract reorders its schemas.
+- Charge exit triggers, target balance allocation, API usage upgrades, block-trade accepts, and
+  weather point and concert market creation to the Write bucket, and block-trade proposals,
+  rejections, and cancels to Read, matching Kalshi's assignments.
+- Fail calls on a moved-from `KalshiClient` with `NetworkError`, and `scaled_integer` on a
+  moved-from `FixedPoint` with `InvalidRequest`, instead of crashing.
+- Bound the parallel jobs in `tools/test_consumers.sh` by `JOBS`.
+- Report sequence gaps that an orderbook snapshot or an `ok` or `error` frame reveals; they
+  share the subscription's sequence.
+- Complete `get_snapshot` and other commands whose reply is a data message, so they no longer
+  accumulate on a long-lived connection.
+- Treat error 7 on an unsubscribe as the end of the subscription, and deliver `Unsubscribed`
+  for unsubscribes still pending when the connection drops.
+
 ## [0.8.0] - 2026-11-03
 
 ### Added

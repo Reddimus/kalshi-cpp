@@ -33,6 +33,10 @@ bool should_retry(HttpMethod method, const HttpResponse& response,
 		return policy.retry_on_rate_limit;
 	}
 	const bool may_repeat = method == HttpMethod::GET || policy.retry_writes;
+	if (response.status_code == 408) {
+		// Error classifies 408 as NetworkError, so it follows the same rule.
+		return policy.retry_on_network_error && may_repeat;
+	}
 	return policy.retry_on_server_error && may_repeat && response.status_code >= 500 &&
 		   response.status_code <= 599;
 }

@@ -6,7 +6,9 @@
 #include "kalshi/websocket.hpp"
 
 #include <atomic>
+#include <chrono>
 #include <gtest/gtest.h>
+#include <string>
 #include <thread>
 #include <utility>
 #include <vector>
@@ -54,6 +56,29 @@ TEST(WsLifecycle, InvalidUrlReturnsErrorWithoutNetworkOrExceptions) {
 		EXPECT_NO_THROW(result = ws.connect()) << url;
 		ASSERT_FALSE(result.has_value()) << url;
 		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest) << url;
+	}
+}
+
+// An idle timeout no longer than the ping interval drops healthy connections.
+TEST(WsLifecycle, PingIntervalAndIdleTimeoutAreValidatedBeforeConnecting) {
+	kalshi::Signer signer = make_test_signer();
+	const std::vector<std::pair<std::chrono::seconds, std::chrono::seconds>> invalid{
+		{std::chrono::seconds{15}, std::chrono::seconds{15}},
+		{std::chrono::seconds{15}, std::chrono::seconds{5}},
+		{std::chrono::seconds{0}, std::chrono::seconds{30}},
+		{std::chrono::seconds{-1}, std::chrono::seconds{30}},
+		{std::chrono::seconds{70000}, std::chrono::seconds{80000}}, // both clamp to 65535
+	};
+	for (const auto& [ping, idle] : invalid) {
+		kalshi::WsConfig cfg;
+		cfg.url = "wss://127.0.0.1:1/trade-api/ws/v2";
+		cfg.ping_interval = ping;
+		cfg.idle_timeout = idle;
+		kalshi::WebSocketClient ws(signer, cfg);
+		const kalshi::Result<void> result = ws.connect();
+		ASSERT_FALSE(result.has_value()) << ping.count() << "/" << idle.count();
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+		EXPECT_NE(result.error().message.find("idle_timeout"), std::string::npos);
 	}
 }
 

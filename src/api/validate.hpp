@@ -27,8 +27,10 @@ inline Result<void> validate(const BatchCancelOrdersV2Request& value);
 inline Result<void> validate(const CreateOrderV2Request& value);
 inline Result<void> validate(const BatchCreateOrdersV2Request& value);
 inline Result<void> validate(const CreateApiKeyRequest& value);
+inline Result<void> validate(const CreateConcertCancellationMarketRequest& value);
 inline Result<void> validate(const CreateFCMPositionTransferRequest& value);
 inline Result<void> validate(const CreateFCMSubtraderRequest& value);
+inline Result<void> validate(const CreateFlightDisruptionMarketRequest& value);
 inline Result<void> validate(const TickerPair& value);
 inline Result<void> validate(const CreateMarketInMultivariateEventCollectionRequest& value);
 inline Result<void> validate(const CreateOrderGroupRequest& value);
@@ -39,6 +41,7 @@ inline Result<void> validate(const RFQBatchQuoteEntry& value);
 inline Result<void> validate(const CreateRFQBatchQuoteRequest& value);
 inline Result<void> validate(const CreateRFQBatchRequest& value);
 inline Result<void> validate(const CreateRFQRequest& value);
+inline Result<void> validate(const CreateWeatherPointMarketRequest& value);
 inline Result<void> validate(const DecreaseOrderV2Request& value);
 inline Result<void> validate(const GenerateApiKeyRequest& value);
 inline Result<void> validate(const IntraExchangeInstanceTransferRequest& value);
@@ -187,6 +190,19 @@ inline Result<void> validate(const CreateApiKeyRequest& value) {
 	return {};
 }
 
+inline Result<void> validate(const CreateConcertCancellationMarketRequest& value) {
+	if (value.jambase_event_id.empty()) {
+		return invalid("CreateConcertCancellationMarketRequest", "jambase_event_id", "is required");
+	}
+	if (value.scheduled_date.empty()) {
+		return invalid("CreateConcertCancellationMarketRequest", "scheduled_date", "is required");
+	}
+	if (value.cover == ConcertCover::Unknown) {
+		return invalid("CreateConcertCancellationMarketRequest", "cover", "is required");
+	}
+	return {};
+}
+
 inline Result<void> validate(const CreateFCMPositionTransferRequest& value) {
 	if (value.source_subtrader_id.empty()) {
 		return invalid("CreateFCMPositionTransferRequest", "source_subtrader_id", "is required");
@@ -203,6 +219,28 @@ inline Result<void> validate(const CreateFCMPositionTransferRequest& value) {
 inline Result<void> validate(const CreateFCMSubtraderRequest& value) {
 	if (value.subtrader_suffix.empty()) {
 		return invalid("CreateFCMSubtraderRequest", "subtrader_suffix", "is required");
+	}
+	return {};
+}
+
+inline Result<void> validate(const CreateFlightDisruptionMarketRequest& value) {
+	if (value.carrier.empty()) {
+		return invalid("CreateFlightDisruptionMarketRequest", "carrier", "is required");
+	}
+	if (value.flight_number.empty()) {
+		return invalid("CreateFlightDisruptionMarketRequest", "flight_number", "is required");
+	}
+	if (value.departure_airport.empty()) {
+		return invalid("CreateFlightDisruptionMarketRequest", "departure_airport", "is required");
+	}
+	if (value.arrival_airport.empty()) {
+		return invalid("CreateFlightDisruptionMarketRequest", "arrival_airport", "is required");
+	}
+	if (value.scheduled_date.empty()) {
+		return invalid("CreateFlightDisruptionMarketRequest", "scheduled_date", "is required");
+	}
+	if (value.cover == FlightCover::Unknown) {
+		return invalid("CreateFlightDisruptionMarketRequest", "cover", "is required");
 	}
 	return {};
 }
@@ -343,6 +381,22 @@ inline Result<void> validate(const CreateRFQRequest& value) {
 	}
 	if ((value.target_cost_dollars && !FixedPoint::parse(*value.target_cost_dollars))) {
 		return invalid("CreateRFQRequest", "target_cost_dollars", "is not a fixed-point decimal");
+	}
+	return {};
+}
+
+inline Result<void> validate(const CreateWeatherPointMarketRequest& value) {
+	if (value.variable == WeatherPointVariable::Unknown) {
+		return invalid("CreateWeatherPointMarketRequest", "variable", "is required");
+	}
+	if (value.strike_type == WeatherPointStrikeType::Unknown) {
+		return invalid("CreateWeatherPointMarketRequest", "strike_type", "is required");
+	}
+	if (value.date.empty()) {
+		return invalid("CreateWeatherPointMarketRequest", "date", "is required");
+	}
+	if (value.timezone.empty()) {
+		return invalid("CreateWeatherPointMarketRequest", "timezone", "is required");
 	}
 	return {};
 }

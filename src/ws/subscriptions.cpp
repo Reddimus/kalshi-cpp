@@ -74,6 +74,21 @@ bool has_markets(const ws::SubscribeParams& params) {
 		   !params.market_ids.empty();
 }
 
+/// Kalshi selects markets by ID only on the ticker channel. Elsewhere an ID
+/// filter is acknowledged but selects nothing, so an orderbook would never
+/// receive its snapshots.
+Result<void> check_market_ids(ws::Channel channel, const std::optional<std::string>& market_id,
+							  const std::vector<std::string>& market_ids) {
+	if (channel != ws::Channel::Ticker && (market_id || !market_ids.empty())) {
+		return std::unexpected(Error{ErrorCode::InvalidRequest,
+									 "market_id and market_ids select markets only on the ticker "
+									 "channel; use market tickers",
+									 0,
+									 {}});
+	}
+	return {};
+}
+
 Error unknown_subscription(ws::Subscription subscription) {
 	return Error{ErrorCode::InvalidRequest,
 				 "Unknown subscription " + std::to_string(subscription.id),
@@ -95,6 +110,9 @@ Result<ws::Subscription> SubscriptionRegistry::subscribe(ws::Channel channel,
 									 "SubscribeParams.update_interval_ms must be 0, 100, or 1000",
 									 0,
 									 {}});
+	}
+	if (Result<void> ids = check_market_ids(channel, params.market_id, params.market_ids); !ids) {
+		return std::unexpected(std::move(ids.error()));
 	}
 	if (channel == ws::Channel::OrderbookDelta &&
 		std::any_of(entries_.begin(), entries_.end(),
@@ -156,6 +174,23 @@ Result<void> SubscriptionRegistry::update(ws::Subscription subscription,
 		return std::unexpected(Error{
 			ErrorCode::InvalidRequest, "Subscription is awaiting unsubscribe confirmation", 0, {}});
 	}
+	if (Result<void> ids =
+			check_market_ids(entry->handle.channel, params.market_id, params.market_ids);
+		!ids) {
+		return std::unexpected(std::move(ids.error()));
+	}
+	const bool changes_markets = params.action == ws::UpdateAction::AddMarkets ||
+								 params.action == ws::UpdateAction::DeleteMarkets;
+	if (entry->handle.channel == ws::Channel::Ticker && !entry->filtered && changes_markets &&
+		entry->state != State::Unsent) {
+		// Kalshi answers with error 13 and keeps streaming every market. An
+		// unsent subscription has no server state yet, so the change is its filter.
+		return std::unexpected(Error{ErrorCode::InvalidRequest,
+									 "A ticker subscription made without markets cannot change; "
+									 "unsubscribe, then subscribe with markets",
+									 0,
+									 {}});
+	}
 	switch (entry->state) {
 		case State::Unsent:
 			// No server subscription to change; the next subscribe carries it. A
@@ -185,7 +220,7 @@ std::int64_t SubscriptionRegistry::list_subscriptions(std::vector<std::string>& 
 }
 
 void SubscriptionRegistry::on_connected(std::vector<std::string>& frames) {
-	on_disconnected();
+	(void)on_disconnected();
 	for (std::pair<const std::int64_t, Entry>& item : entries_) {
 		Entry& entry = item.second;
 		if (!entry.filtered || has_markets(entry.params)) {
@@ -194,7 +229,7 @@ void SubscriptionRegistry::on_connected(std::vector<std::string>& frames) {
 	}
 }
 
-void SubscriptionRegistry::on_disconnected() {
+std::vector<ws::Subscription> SubscriptionRegistry::on_disconnected() {
 	// The server may have applied these before the connection dropped; keep
 	// what the caller asked for, in the order it was sent.
 	for (const std::pair<const std::int64_t, InFlight>& item : commands_) {
@@ -206,6 +241,12 @@ void SubscriptionRegistry::on_disconnected() {
 	}
 	commands_.clear();
 	by_sid_.clear();
+	std::vector<ws::Subscription> ended;
+	for (const std::pair<const std::int64_t, Entry>& item : entries_) {
+		if (item.second.state == State::Unsubscribing || item.second.unsubscribe_held) {
+			ended.push_back(item.second.handle);
+		}
+	}
 	std::erase_if(entries_, [](const std::pair<const std::int64_t, Entry>& item) {
 		return item.second.state == State::Unsubscribing || item.second.unsubscribe_held;
 	});
@@ -219,6 +260,7 @@ void SubscriptionRegistry::on_disconnected() {
 		}
 		entry.held.clear();
 	}
+	return ended;
 }
 
 void SubscriptionRegistry::clear() {
@@ -249,6 +291,12 @@ Reaction SubscriptionRegistry::on_subscribed(const SubscribedFrame& frame) {
 		reaction.frames.push_back(unsubscribe_frame(*entry));
 		return reaction;
 	}
+	if (!entry->match_ids.empty()) {
+		ws::UpdateSubscriptionParams matches;
+		matches.action = ws::UpdateAction::SubscribeMatches;
+		matches.match_ids = entry->match_ids;
+		reaction.frames.push_back(update_frame(*entry, matches));
+	}
 	for (const ws::UpdateSubscriptionParams& params : entry->held) {
 		reaction.frames.push_back(update_frame(*entry, params));
 	}
@@ -273,8 +321,9 @@ Reaction SubscriptionRegistry::on_unsubscribed(const UnsubscribedFrame& frame) {
 	return reaction;
 }
 
-Reaction SubscriptionRegistry::on_ok(const OkFrame& frame) {
+Reaction SubscriptionRegistry::on_ok(const OkFrame& frame, bool resync) {
 	Reaction reaction;
+	reaction.error = check_frame_seq(frame.sid, frame.seq, resync, reaction.frames);
 	const std::optional<InFlight> command = take(frame.id);
 	if (!command) {
 		return reaction;
@@ -289,7 +338,6 @@ Reaction SubscriptionRegistry::on_ok(const OkFrame& frame) {
 	if (entry == nullptr) {
 		return reaction;
 	}
-	note_seq(frame.sid, frame.seq);
 	if (command->update) {
 		record_update(*entry, *command->update);
 	}
@@ -310,9 +358,10 @@ Reaction SubscriptionRegistry::on_ok(const OkFrame& frame) {
 	return reaction;
 }
 
-Reaction SubscriptionRegistry::on_error(const ErrorFrame& frame) {
+Reaction SubscriptionRegistry::on_error(const ErrorFrame& frame, bool resync) {
 	Reaction reaction;
-	note_seq(frame.sid, frame.seq);
+	// The server's error is reported; a gap it reveals still requests snapshots.
+	(void)check_frame_seq(frame.sid, frame.seq, resync, reaction.frames);
 	WsError error{frame.code, frame.message, frame.id,			 frame.sid,
 				  frame.seq,  std::nullopt,	 frame.sending_ts_ms};
 	if (error.message.empty()) {
@@ -329,6 +378,10 @@ Reaction SubscriptionRegistry::on_error(const ErrorFrame& frame) {
 		error.subscription = entry->handle;
 		if (frame.code == 10 || frame.code == 25 || (command && command->kind == Kind::Subscribe)) {
 			erase(subscription);
+		} else if (command && command->kind == Kind::Unsubscribe && frame.code == 7) {
+			// Unknown subscription ID: the server no longer has it.
+			reaction.message = ws::Unsubscribed{entry->handle, frame.sending_ts_ms};
+			erase(subscription);
 		} else if (command && command->kind == Kind::Unsubscribe) {
 			entry->state = State::Active; // rejection does not confirm removal
 		}
@@ -342,46 +395,24 @@ Reaction SubscriptionRegistry::on_data(WsMessage& message, bool resync) {
 	std::visit(
 		[&]<typename T>(T& update) {
 			if constexpr (IsUpdate<T>::value) {
-				const std::unordered_map<std::int64_t, std::int64_t>::const_iterator found =
-					by_sid_.find(update.sid);
-				Entry* entry = found == by_sid_.end() ? nullptr : find(found->second);
+				if (update.id) {
+					// Replies such as get_snapshot snapshots get no `ok`. Only an
+					// update completes this way, never a pending subscribe.
+					const std::map<std::int64_t, InFlight>::iterator command =
+						commands_.find(*update.id);
+					if (command != commands_.end() && command->second.kind == Kind::Update) {
+						commands_.erase(command);
+					}
+				}
+				Entry* entry = find_by_sid(update.sid);
 				if (entry == nullptr) {
 					return;
 				}
 				update.subscription = entry->handle.id;
-				if (!update.seq) {
-					return;
-				}
-				constexpr bool snapshot = std::is_same_v<T, ws::Update<ws::OrderbookSnapshot>>;
-				if (!snapshot && entry->last_seq &&
-					(*entry->last_seq == std::numeric_limits<std::int64_t>::max() ||
-					 *update.seq != *entry->last_seq + 1)) {
+				if (update.seq) {
 					reaction.error =
-						WsError{0,
-								"Missed messages on subscription " +
-									std::to_string(entry->handle.id) + ": expected seq " +
-									(*entry->last_seq == std::numeric_limits<std::int64_t>::max()
-										 ? std::string{"beyond INT64_MAX"}
-										 : std::to_string(*entry->last_seq + 1)) +
-									", got " + std::to_string(*update.seq),
-								std::nullopt,
-								update.sid,
-								update.seq,
-								entry->handle};
-					if (resync && entry->handle.channel == ws::Channel::OrderbookDelta &&
-						entry->state == State::Active) {
-						ws::UpdateSubscriptionParams snapshots;
-						snapshots.action = ws::UpdateAction::GetSnapshot;
-						snapshots.market_tickers = entry->params.market_tickers;
-						if (entry->params.market_ticker) {
-							snapshots.market_tickers.push_back(*entry->params.market_ticker);
-						}
-						if (!snapshots.market_tickers.empty()) {
-							reaction.frames.push_back(update_frame(*entry, snapshots));
-						}
-					}
+						check_seq(*entry, update.sid, *update.seq, resync, reaction.frames);
 				}
-				entry->last_seq = update.seq;
 			}
 		},
 		message);
@@ -407,6 +438,11 @@ SubscriptionRegistry::Entry* SubscriptionRegistry::find(std::int64_t subscriptio
 void SubscriptionRegistry::record_update(Entry& entry, const ws::UpdateSubscriptionParams& params) {
 	apply(entry.params, params);
 	entry.filtered = entry.filtered || has_markets(entry.params);
+	if (params.action == ws::UpdateAction::SubscribeMatches ||
+		params.action == ws::UpdateAction::UnsubscribeMatches) {
+		merge(entry.match_ids, params.match_ids, std::nullopt,
+			  params.action == ws::UpdateAction::SubscribeMatches);
+	}
 }
 
 void SubscriptionRegistry::erase(std::int64_t subscription) {
@@ -423,18 +459,53 @@ void SubscriptionRegistry::erase(std::int64_t subscription) {
 	});
 }
 
-void SubscriptionRegistry::note_seq(std::optional<std::int64_t> sid,
-									std::optional<std::int64_t> seq) {
+SubscriptionRegistry::Entry* SubscriptionRegistry::find_by_sid(std::int64_t sid) {
+	const std::unordered_map<std::int64_t, std::int64_t>::const_iterator found = by_sid_.find(sid);
+	return found == by_sid_.end() ? nullptr : find(found->second);
+}
+
+std::optional<WsError> SubscriptionRegistry::check_seq(Entry& entry, std::int64_t sid,
+													   std::int64_t seq, bool resync,
+													   std::vector<std::string>& frames) {
+	std::optional<WsError> gap;
+	constexpr std::int64_t kMaxSeq = std::numeric_limits<std::int64_t>::max();
+	if (entry.last_seq && (*entry.last_seq == kMaxSeq || seq != *entry.last_seq + 1)) {
+		gap = WsError{0,
+					  "Missed messages on subscription " + std::to_string(entry.handle.id) +
+						  ": expected seq " +
+						  (*entry.last_seq == kMaxSeq ? std::string{"beyond INT64_MAX"}
+													  : std::to_string(*entry.last_seq + 1)) +
+						  ", got " + std::to_string(seq),
+					  std::nullopt,
+					  sid,
+					  seq,
+					  entry.handle};
+		if (resync && entry.handle.channel == ws::Channel::OrderbookDelta &&
+			entry.state == State::Active) {
+			ws::UpdateSubscriptionParams snapshots;
+			snapshots.action = ws::UpdateAction::GetSnapshot;
+			snapshots.market_tickers = entry.params.market_tickers;
+			if (entry.params.market_ticker) {
+				snapshots.market_tickers.push_back(*entry.params.market_ticker);
+			}
+			if (!snapshots.market_tickers.empty()) {
+				frames.push_back(update_frame(entry, snapshots));
+			}
+		}
+	}
+	entry.last_seq = seq;
+	return gap;
+}
+
+std::optional<WsError> SubscriptionRegistry::check_frame_seq(std::optional<std::int64_t> sid,
+															 std::optional<std::int64_t> seq,
+															 bool resync,
+															 std::vector<std::string>& frames) {
 	if (!sid || !seq) {
-		return;
+		return std::nullopt;
 	}
-	const std::unordered_map<std::int64_t, std::int64_t>::const_iterator found = by_sid_.find(*sid);
-	if (found == by_sid_.end()) {
-		return;
-	}
-	if (Entry* entry = find(found->second)) {
-		entry->last_seq = seq;
-	}
+	Entry* entry = find_by_sid(*sid);
+	return entry == nullptr ? std::nullopt : check_seq(*entry, *sid, *seq, resync, frames);
 }
 
 std::optional<SubscriptionRegistry::InFlight>
@@ -465,8 +536,8 @@ std::string SubscriptionRegistry::update_frame(Entry& entry,
 											   const ws::UpdateSubscriptionParams& params) {
 	const std::int64_t id = next_id();
 	commands_[id] = InFlight{Kind::Update, entry.handle.id, params};
-	return render_command(Command<UpdateSubscriptionWire>{
-		id, "update_subscription", to_wire(std::vector<std::int64_t>{entry.sid}, params)});
+	return render_command(
+		Command<UpdateSubscriptionWire>{id, "update_subscription", to_wire(entry.sid, params)});
 }
 
 std::string SubscriptionRegistry::unsubscribe_frame(Entry& entry) {

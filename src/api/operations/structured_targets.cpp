@@ -14,8 +14,8 @@ KalshiClient::get_structured_targets(const GetStructuredTargetsParams& params) {
 	query.add("competition", params.competition);
 	query.add("page_size", params.page_size);
 	query.add("cursor", params.cursor);
-	return detail::decode<GetStructuredTargetsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_structured_targets"));
+	return detail::decode<GetStructuredTargetsResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_structured_targets"));
 }
 
 Result<std::optional<StructuredTarget>>
@@ -26,7 +26,7 @@ KalshiClient::get_structured_target(std::string_view structured_target_id) {
 		return std::unexpected(std::move(target.error()));
 	}
 	Result<GetStructuredTargetResponse> response = detail::decode<GetStructuredTargetResponse>(
-		impl_->send(HttpMethod::GET, *target, {}, "get_structured_target"));
+		Impl::send(impl_.get(), HttpMethod::GET, *target, {}, "get_structured_target"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}

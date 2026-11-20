@@ -12,7 +12,7 @@ Result<Milestone> KalshiClient::get_milestone(std::string_view milestone_id) {
 		return std::unexpected(std::move(target.error()));
 	}
 	Result<GetMilestoneResponse> response = detail::decode<GetMilestoneResponse>(
-		impl_->send(HttpMethod::GET, *target, {}, "get_milestone"));
+		Impl::send(impl_.get(), HttpMethod::GET, *target, {}, "get_milestone"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -31,7 +31,7 @@ Result<GetMilestonesResponse> KalshiClient::get_milestones(const GetMilestonesPa
 	query.add("cursor", params.cursor);
 	query.add("min_updated_ts", params.min_updated_ts);
 	return detail::decode<GetMilestonesResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_milestones"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_milestones"));
 }
 
 } // namespace kalshi

@@ -131,10 +131,14 @@ Error http_error(const HttpResponse& response, std::string_view operation) {
 
 } // namespace detail
 
-Result<HttpResponse> KalshiClient::Impl::send(HttpMethod method, const std::string& target,
-											  const std::string& body,
-											  std::string_view operation) const {
-	Result<HttpResponse> response = transport->request(method, target, body);
+Result<HttpResponse> KalshiClient::Impl::send(const Impl* impl, HttpMethod method,
+											  const std::string& target, const std::string& body,
+											  std::string_view operation) {
+	if (impl == nullptr) {
+		return std::unexpected(
+			Error::network(std::string(operation) + ": KalshiClient is empty (moved-from)"));
+	}
+	Result<HttpResponse> response = impl->transport->request(method, target, body);
 	if (!response) {
 		response.error().message = std::string(operation) + ": " + response.error().message;
 		return response;

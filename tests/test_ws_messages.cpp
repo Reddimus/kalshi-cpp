@@ -22,6 +22,18 @@ TEST(WsMessages, OrderbookSnapshotExample0) {
 	EXPECT_EQ(update->msg.market_ticker, "FED-23DEC-T3.00");
 }
 
+TEST(WsMessages, OrderbookSnapshotExample1) {
+	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
+		R"json({"type":"orderbook_snapshot","sid":2,"seq":3,"msg":{"market_ticker":"FED-23DEC-T3.25","market_id":"","clock":0}})json");
+	ASSERT_TRUE(message.has_value());
+	const kalshi::ws::Update<kalshi::ws::OrderbookSnapshot>* update =
+		std::get_if<kalshi::ws::Update<kalshi::ws::OrderbookSnapshot>>(&*message);
+	ASSERT_NE(update, nullptr);
+	EXPECT_EQ(update->sid, 2);
+	EXPECT_EQ(update->seq, 3);
+	EXPECT_EQ(update->msg.market_ticker, "FED-23DEC-T3.25");
+}
+
 TEST(WsMessages, OrderbookDeltaExample0) {
 	const std::optional<kalshi::WsMessage> message = kalshi::detail::parse_message(
 		R"json({"type":"orderbook_delta","sending_ts_ms":1669149841123,"sid":2,"seq":3,"msg":{"market_ticker":"FED-23DEC-T3.00","market_id":"9b0f6b43-5b68-4f9f-9f02-9a2d1b8ac1a1","clock":4182061,"price_dollars":"0.9600","delta_fp":"-54.00","side":"yes","ts":"2022-11-22T20:44:01Z","ts_ms":1669149841000}})json");

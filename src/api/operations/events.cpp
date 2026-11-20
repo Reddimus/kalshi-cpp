@@ -19,8 +19,9 @@ KalshiClient::get_market_candlesticks_by_event(std::string_view series_ticker,
 	query.add("start_ts", params.start_ts);
 	query.add("end_ts", params.end_ts);
 	query.add("period_interval", params.period_interval);
-	return detail::decode<GetEventCandlesticksResponse>(impl_->send(
-		HttpMethod::GET, std::move(query).str(), {}, "get_market_candlesticks_by_event"));
+	return detail::decode<GetEventCandlesticksResponse>(
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {},
+				   "get_market_candlesticks_by_event"));
 }
 
 Result<GetEventsResponse> KalshiClient::get_events(const GetEventsParams& params) {
@@ -35,7 +36,7 @@ Result<GetEventsResponse> KalshiClient::get_events(const GetEventsParams& params
 	query.add("min_close_ts", params.min_close_ts);
 	query.add("min_updated_ts", params.min_updated_ts);
 	return detail::decode<GetEventsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_events"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_events"));
 }
 
 Result<GetMultivariateEventsResponse>
@@ -47,8 +48,8 @@ KalshiClient::get_multivariate_events(const GetMultivariateEventsParams& params)
 	query.add("collection_ticker", params.collection_ticker);
 	query.add("tickers", params.tickers);
 	query.add("with_nested_markets", params.with_nested_markets);
-	return detail::decode<GetMultivariateEventsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_multivariate_events"));
+	return detail::decode<GetMultivariateEventsResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_multivariate_events"));
 }
 
 Result<GetEventFeeChangesResponse>
@@ -57,8 +58,8 @@ KalshiClient::get_event_fee_changes(const GetEventFeeChangesParams& params) {
 	query.add("event_ticker", params.event_ticker);
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
-	return detail::decode<GetEventFeeChangesResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_event_fee_changes"));
+	return detail::decode<GetEventFeeChangesResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_event_fee_changes"));
 }
 
 Result<GetEventResponse> KalshiClient::get_event(std::string_view event_ticker,
@@ -71,7 +72,7 @@ Result<GetEventResponse> KalshiClient::get_event(std::string_view event_ticker,
 	query.add("exclude_markets", params.exclude_markets);
 	query.add("with_nested_markets", params.with_nested_markets);
 	return detail::decode<GetEventResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_event"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_event"));
 }
 
 Result<GetEventMetadataResponse> KalshiClient::get_event_metadata(std::string_view event_ticker) {
@@ -81,7 +82,7 @@ Result<GetEventMetadataResponse> KalshiClient::get_event_metadata(std::string_vi
 		return std::unexpected(std::move(target.error()));
 	}
 	return detail::decode<GetEventMetadataResponse>(
-		impl_->send(HttpMethod::GET, *target, {}, "get_event_metadata"));
+		Impl::send(impl_.get(), HttpMethod::GET, *target, {}, "get_event_metadata"));
 }
 
 Result<std::vector<ForecastPercentilesPoint>> KalshiClient::get_event_forecast_percentiles_history(
@@ -99,8 +100,9 @@ Result<std::vector<ForecastPercentilesPoint>> KalshiClient::get_event_forecast_p
 	query.add("end_ts", params.end_ts);
 	query.add("period_interval", params.period_interval);
 	Result<GetEventForecastPercentilesHistoryResponse> response =
-		detail::decode<GetEventForecastPercentilesHistoryResponse>(impl_->send(
-			HttpMethod::GET, std::move(query).str(), {}, "get_event_forecast_percentiles_history"));
+		detail::decode<GetEventForecastPercentilesHistoryResponse>(
+			Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {},
+					   "get_event_forecast_percentiles_history"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}

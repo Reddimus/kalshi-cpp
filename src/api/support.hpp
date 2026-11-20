@@ -23,10 +23,12 @@ struct KalshiClient::Impl {
 	std::shared_ptr<const HttpTransport> transport;
 
 	/// Sends one request and turns transport failures and non-2xx statuses
-	/// into Errors, so callers only see successful responses.
-	[[nodiscard]] Result<HttpResponse> send(HttpMethod method, const std::string& target,
-											const std::string& body,
-											std::string_view operation) const;
+	/// into Errors, so callers only see successful responses. A moved-from
+	/// client has no Impl and fails with NetworkError, as HttpClient does.
+	[[nodiscard]] static Result<HttpResponse> send(const Impl* impl, HttpMethod method,
+												   const std::string& target,
+												   const std::string& body,
+												   std::string_view operation);
 };
 
 namespace detail {

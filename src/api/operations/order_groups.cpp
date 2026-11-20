@@ -11,7 +11,7 @@ KalshiClient::get_order_groups(const GetOrderGroupsParams& params) {
 	detail::Query query(std::string{"/portfolio/order_groups"});
 	query.add("subaccount", params.subaccount);
 	Result<GetOrderGroupsResponse> response = detail::decode<GetOrderGroupsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_order_groups"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_order_groups"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -24,8 +24,8 @@ KalshiClient::create_order_group(const CreateOrderGroupRequest& body) {
 		return std::unexpected(std::move(valid.error()));
 	}
 	return detail::decode<CreateOrderGroupResponse>(
-		impl_->send(HttpMethod::POST, std::string{"/portfolio/order_groups/create"},
-					detail::encode(body), "create_order_group"));
+		Impl::send(impl_.get(), HttpMethod::POST, std::string{"/portfolio/order_groups/create"},
+				   detail::encode(body), "create_order_group"));
 }
 
 Result<GetOrderGroupResponse> KalshiClient::get_order_group(std::string_view order_group_id,
@@ -38,7 +38,7 @@ Result<GetOrderGroupResponse> KalshiClient::get_order_group(std::string_view ord
 	detail::Query query(*target);
 	query.add("subaccount", params.subaccount);
 	return detail::decode<GetOrderGroupResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_order_group"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_order_group"));
 }
 
 Result<void> KalshiClient::delete_order_group(std::string_view order_group_id,
@@ -52,7 +52,7 @@ Result<void> KalshiClient::delete_order_group(std::string_view order_group_id,
 	query.add("subaccount", params.subaccount);
 	query.add("exchange_index", params.exchange_index);
 	return detail::expect_success(
-		impl_->send(HttpMethod::DEL, std::move(query).str(), {}, "delete_order_group"));
+		Impl::send(impl_.get(), HttpMethod::DEL, std::move(query).str(), {}, "delete_order_group"));
 }
 
 Result<void> KalshiClient::reset_order_group(std::string_view order_group_id,
@@ -65,8 +65,8 @@ Result<void> KalshiClient::reset_order_group(std::string_view order_group_id,
 	detail::Query query(*target);
 	query.add("subaccount", params.subaccount);
 	query.add("exchange_index", params.exchange_index);
-	return detail::expect_success(impl_->send(HttpMethod::PUT, std::move(query).str(),
-											  std::string{"{}"}, "reset_order_group"));
+	return detail::expect_success(Impl::send(impl_.get(), HttpMethod::PUT, std::move(query).str(),
+											 std::string{"{}"}, "reset_order_group"));
 }
 
 Result<void> KalshiClient::trigger_order_group(std::string_view order_group_id,
@@ -79,8 +79,8 @@ Result<void> KalshiClient::trigger_order_group(std::string_view order_group_id,
 	detail::Query query(*target);
 	query.add("subaccount", params.subaccount);
 	query.add("exchange_index", params.exchange_index);
-	return detail::expect_success(impl_->send(HttpMethod::PUT, std::move(query).str(),
-											  std::string{"{}"}, "trigger_order_group"));
+	return detail::expect_success(Impl::send(impl_.get(), HttpMethod::PUT, std::move(query).str(),
+											 std::string{"{}"}, "trigger_order_group"));
 }
 
 Result<void> KalshiClient::update_order_group_limit(std::string_view order_group_id,
@@ -97,8 +97,8 @@ Result<void> KalshiClient::update_order_group_limit(std::string_view order_group
 	detail::Query query(*target);
 	query.add("subaccount", params.subaccount);
 	query.add("exchange_index", params.exchange_index);
-	return detail::expect_success(impl_->send(HttpMethod::PUT, std::move(query).str(),
-											  detail::encode(body), "update_order_group_limit"));
+	return detail::expect_success(Impl::send(impl_.get(), HttpMethod::PUT, std::move(query).str(),
+											 detail::encode(body), "update_order_group_limit"));
 }
 
 } // namespace kalshi

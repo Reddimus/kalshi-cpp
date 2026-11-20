@@ -16,8 +16,8 @@ KalshiClient::get_live_data_by_milestone(std::string_view milestone_id,
 	}
 	detail::Query query(*target);
 	query.add("include_player_stats", params.include_player_stats);
-	Result<GetLiveDataResponse> response = detail::decode<GetLiveDataResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_live_data_by_milestone"));
+	Result<GetLiveDataResponse> response = detail::decode<GetLiveDataResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_live_data_by_milestone"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -34,7 +34,7 @@ Result<LiveData> KalshiClient::get_live_data(std::string_view type, std::string_
 	detail::Query query(*target);
 	query.add("include_player_stats", params.include_player_stats);
 	Result<GetLiveDataResponse> response = detail::decode<GetLiveDataResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_live_data"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_live_data"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -46,7 +46,7 @@ Result<std::vector<LiveData>> KalshiClient::get_live_datas(const GetLiveDatasPar
 	query.add("milestone_ids", params.milestone_ids);
 	query.add("include_player_stats", params.include_player_stats);
 	Result<GetLiveDatasResponse> response = detail::decode<GetLiveDatasResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_live_datas"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_live_datas"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -60,7 +60,7 @@ Result<std::optional<PlayByPlay>> KalshiClient::get_game_stats(std::string_view 
 		return std::unexpected(std::move(target.error()));
 	}
 	Result<GetGameStatsResponse> response = detail::decode<GetGameStatsResponse>(
-		impl_->send(HttpMethod::GET, *target, {}, "get_game_stats"));
+		Impl::send(impl_.get(), HttpMethod::GET, *target, {}, "get_game_stats"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -76,8 +76,8 @@ Result<EventLiveData> KalshiClient::get_event_live_data(std::string_view event_t
 	}
 	detail::Query query(*target);
 	query.add("range", params.range);
-	Result<GetEventLiveDataResponse> response = detail::decode<GetEventLiveDataResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_event_live_data"));
+	Result<GetEventLiveDataResponse> response = detail::decode<GetEventLiveDataResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_event_live_data"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -96,7 +96,7 @@ KalshiClient::get_weather_index(std::string_view city, const GetWeatherIndexPara
 	query.add("last_sec", params.last_sec);
 	query.add("detailed", params.detailed);
 	return detail::decode<GetWeatherIndexResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_weather_index"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_weather_index"));
 }
 
 Result<GetWeatherIndexCalibrationsResponse>
@@ -107,7 +107,7 @@ KalshiClient::get_weather_index_calibrations(std::string_view city) {
 		return std::unexpected(std::move(target.error()));
 	}
 	return detail::decode<GetWeatherIndexCalibrationsResponse>(
-		impl_->send(HttpMethod::GET, *target, {}, "get_weather_index_calibrations"));
+		Impl::send(impl_.get(), HttpMethod::GET, *target, {}, "get_weather_index_calibrations"));
 }
 
 } // namespace kalshi

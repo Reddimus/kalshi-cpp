@@ -27,6 +27,8 @@ option(KALSHI_WARNINGS_AS_ERRORS "Treat project warnings as errors" OFF)
 option(KALSHI_ENABLE_SANITIZERS "Enable AddressSanitizer and UndefinedBehaviorSanitizer" OFF)
 option(KALSHI_ENABLE_THREAD_SANITIZER "Enable ThreadSanitizer" OFF)
 option(KALSHI_ENABLE_COVERAGE "Enable gcov coverage instrumentation" OFF)
+# Off under FetchContent, so a consumer's install does not also install this SDK.
+option(KALSHI_INSTALL "Generate install rules and package files" ${PROJECT_IS_TOP_LEVEL})
 
 if(KALSHI_ENABLE_SANITIZERS AND KALSHI_ENABLE_THREAD_SANITIZER)
     message(FATAL_ERROR "AddressSanitizer and ThreadSanitizer require separate builds")
@@ -174,33 +176,35 @@ if(KALSHI_BUILD_BENCHMARKS)
     add_subdirectory(benchmarks)
 endif()
 
-set(KALSHI_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/kalshi")
+if(KALSHI_INSTALL)
+    set(KALSHI_INSTALL_CMAKEDIR "${CMAKE_INSTALL_LIBDIR}/cmake/kalshi")
 
-install(TARGETS kalshi_core kalshi_auth kalshi_http kalshi_models kalshi_ws kalshi_api kalshi
-    EXPORT kalshiTargets
-    ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
-    RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
-    INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
-install(DIRECTORY include/kalshi DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
-    PATTERN "*.in" EXCLUDE)
-install(FILES ${CMAKE_CURRENT_BINARY_DIR}/include/kalshi/version.hpp
-    DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/kalshi)
+    install(TARGETS kalshi_core kalshi_auth kalshi_http kalshi_models kalshi_ws kalshi_api kalshi
+        EXPORT kalshiTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        LIBRARY DESTINATION ${CMAKE_INSTALL_LIBDIR}
+        RUNTIME DESTINATION ${CMAKE_INSTALL_BINDIR}
+        INCLUDES DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
+    install(DIRECTORY include/kalshi DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}
+        PATTERN "*.in" EXCLUDE)
+    install(FILES ${CMAKE_CURRENT_BINARY_DIR}/include/kalshi/version.hpp
+        DESTINATION ${CMAKE_INSTALL_INCLUDEDIR}/kalshi)
 
-configure_package_config_file(
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/kalshiConfig.cmake.in
-    ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfig.cmake
-    INSTALL_DESTINATION ${KALSHI_INSTALL_CMAKEDIR})
-write_basic_package_version_file(
-    ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfigVersion.cmake
-    VERSION ${PROJECT_VERSION}
-    COMPATIBILITY SameMinorVersion)
-install(EXPORT kalshiTargets
-    FILE kalshiTargets.cmake
-    NAMESPACE kalshi::
-    DESTINATION ${KALSHI_INSTALL_CMAKEDIR})
-install(FILES
-    ${CMAKE_CURRENT_SOURCE_DIR}/cmake/KalshiWebsockets.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfig.cmake
-    ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfigVersion.cmake
-    DESTINATION ${KALSHI_INSTALL_CMAKEDIR})
+    configure_package_config_file(
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/kalshiConfig.cmake.in
+        ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfig.cmake
+        INSTALL_DESTINATION ${KALSHI_INSTALL_CMAKEDIR})
+    write_basic_package_version_file(
+        ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfigVersion.cmake
+        VERSION ${PROJECT_VERSION}
+        COMPATIBILITY SameMinorVersion)
+    install(EXPORT kalshiTargets
+        FILE kalshiTargets.cmake
+        NAMESPACE kalshi::
+        DESTINATION ${KALSHI_INSTALL_CMAKEDIR})
+    install(FILES
+        ${CMAKE_CURRENT_SOURCE_DIR}/cmake/KalshiWebsockets.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfig.cmake
+        ${CMAKE_CURRENT_BINARY_DIR}/kalshiConfigVersion.cmake
+        DESTINATION ${KALSHI_INSTALL_CMAKEDIR})
+endif()

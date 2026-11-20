@@ -277,3 +277,23 @@ TEST(ApiSupport, ValidOrderWithExitTriggerUsesPost) {
 	EXPECT_NE(transport->body.find(R"("exit_trigger":{"stop_loss_price":"0.20"})"),
 			  std::string::npos);
 }
+
+TEST(ApiSupport, AMovedFromClientFailsWithoutTouchingTheTransport) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	kalshi::KalshiClient moved(std::move(client));
+	ASSERT_TRUE(moved.get_balance({}).has_value());
+	EXPECT_EQ(transport->calls, 1);
+
+	// NOLINTBEGIN(bugprone-use-after-move): moved-from must stay safe
+	const kalshi::Result<kalshi::GetBalanceResponse> balance = client.get_balance({});
+	ASSERT_FALSE(balance.has_value());
+	EXPECT_EQ(balance.error().code, kalshi::ErrorCode::NetworkError);
+	EXPECT_NE(balance.error().message.find("moved-from"), std::string::npos);
+	const kalshi::Result<kalshi::HttpResponse> direct = client.transport().get("/markets");
+	// NOLINTEND(bugprone-use-after-move)
+	ASSERT_FALSE(direct.has_value());
+	EXPECT_EQ(direct.error().code, kalshi::ErrorCode::NetworkError);
+	EXPECT_EQ(transport->calls, 1);
+}

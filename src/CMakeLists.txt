@@ -1,6 +1,11 @@
 # Targets are layered: core <- auth <- http <- api, and core <- models <- ws, api.
 # kalshi::kalshi links all of them.
 
+# The static libraries can end up inside a consumer's shared library.
+if(NOT DEFINED CMAKE_POSITION_INDEPENDENT_CODE)
+    set(CMAKE_POSITION_INDEPENDENT_CODE ON)
+endif()
+
 # Header-only: errors, fixed-point values, environments, and the version.
 add_library(kalshi_core INTERFACE)
 target_compile_features(kalshi_core INTERFACE cxx_std_23)

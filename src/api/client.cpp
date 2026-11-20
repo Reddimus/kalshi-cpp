@@ -4,6 +4,21 @@
 
 namespace kalshi {
 
+namespace {
+
+/// What transport() returns once the client has been moved from.
+class MovedFromTransport final : public HttpTransport {
+public:
+	[[nodiscard]] Result<HttpResponse> request(HttpMethod /*method*/, std::string_view /*path*/,
+											   std::string_view /*body*/) const override {
+		return std::unexpected(Error::network("KalshiClient is empty (moved-from)"));
+	}
+};
+
+const MovedFromTransport kMovedFromTransport;
+
+} // namespace
+
 KalshiClient::KalshiClient(HttpClient client)
 	: impl_(std::make_unique<Impl>(Impl{std::make_shared<const HttpClient>(std::move(client))})) {}
 
@@ -16,7 +31,7 @@ KalshiClient::KalshiClient(KalshiClient&&) noexcept = default;
 KalshiClient& KalshiClient::operator=(KalshiClient&&) noexcept = default;
 
 const HttpTransport& KalshiClient::transport() const noexcept {
-	return *impl_->transport;
+	return impl_ ? *impl_->transport : kMovedFromTransport;
 }
 
 RateLimitConfig rate_limit_config(const GetAccountApiLimitsResponse& limits,

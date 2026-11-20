@@ -31,6 +31,7 @@ public:
 	explicit KalshiClient(std::shared_ptr<const HttpTransport> transport);
 	~KalshiClient();
 
+	/// A moved-from client stays safe: every call fails with NetworkError.
 	KalshiClient(KalshiClient&&) noexcept;
 	KalshiClient& operator=(KalshiClient&&) noexcept;
 	KalshiClient(const KalshiClient&) = delete;
@@ -91,11 +92,21 @@ public:
 	/// `POST /communications/block-trade-proposals`
 	[[nodiscard]] Result<std::string> propose_block_trade(const ProposeBlockTradeRequest& body);
 
+	/// Cancel Block Trade Proposal
+	/// `DELETE /communications/block-trade-proposals/{block_trade_proposal_id}`
+	[[nodiscard]] Result<void>
+	cancel_block_trade_proposal(std::string_view block_trade_proposal_id);
+
 	/// Accept Block Trade Proposal
 	/// `POST /communications/block-trade-proposals/{block_trade_proposal_id}/accept`
 	[[nodiscard]] Result<void>
 	accept_block_trade_proposal(std::string_view block_trade_proposal_id,
 								const AcceptBlockTradeProposalRequest& body);
+
+	/// Reject Block Trade Proposal
+	/// `POST /communications/block-trade-proposals/{block_trade_proposal_id}/reject`
+	[[nodiscard]] Result<void>
+	reject_block_trade_proposal(std::string_view block_trade_proposal_id);
 
 	/// Get RFQs
 	/// `GET /communications/rfqs`
@@ -364,6 +375,10 @@ public:
 	[[nodiscard]] Result<GetIncentiveProgramsResponse>
 	get_incentive_programs(const GetIncentiveProgramsParams& params = {});
 
+	/// Get Incentive Schedules
+	/// `GET /incentive_schedules`
+	[[nodiscard]] Result<std::vector<IncentiveSchedule>> get_incentive_schedules();
+
 	// ----- live-data ---------------------------------------------------------
 
 	/// Get Live Data
@@ -445,6 +460,50 @@ public:
 	/// `GET /markets/candlesticks`
 	[[nodiscard]] Result<std::vector<MarketCandlesticksResponse>>
 	batch_get_market_candlesticks(const BatchGetMarketCandlesticksParams& params);
+
+	// ----- markets -----------------------------------------------------------
+
+	/// Create Weather Point Market
+	/// `POST /weather_point_markets`
+	[[nodiscard]] Result<CreateWeatherPointMarketResponse>
+	create_weather_point_market(const CreateWeatherPointMarketRequest& body);
+
+	/// Get Weather Point Market Availability
+	/// `GET /weather_point_markets/availability`
+	[[nodiscard]] Result<GetWeatherPointAvailabilityResponse> get_weather_point_availability();
+
+	/// Create Concert Cancellation Market
+	/// `POST /concert_cancellation_markets`
+	[[nodiscard]] Result<CreateConcertCancellationMarketResponse>
+	create_concert_cancellation_market(const CreateConcertCancellationMarketRequest& body);
+
+	/// Get Concert Cancellation Market Availability
+	/// `GET /concert_cancellation_markets/availability`
+	[[nodiscard]] Result<GetConcertCancellationAvailabilityResponse>
+	get_concert_cancellation_availability(
+		const GetConcertCancellationAvailabilityParams& params = {});
+
+	/// Get Concerts
+	/// `GET /concert_cancellation_markets/concerts`
+	[[nodiscard]] Result<GetConcertsResponse> get_concerts(const GetConcertsParams& params);
+
+	/// Search Concerts
+	/// `GET /concert_cancellation_markets/concerts/search`
+	[[nodiscard]] Result<std::vector<Concert>> search_concerts(const SearchConcertsParams& params);
+
+	/// Create Flight Disruption Market
+	/// `POST /flight_disruption_markets`
+	[[nodiscard]] Result<CreateFlightDisruptionMarketResponse>
+	create_flight_disruption_market(const CreateFlightDisruptionMarketRequest& body);
+
+	/// Get Flight Disruption Market Availability
+	/// `GET /flight_disruption_markets/availability`
+	[[nodiscard]] Result<GetFlightDisruptionAvailabilityResponse>
+	get_flight_disruption_availability();
+
+	/// Get Flights
+	/// `GET /flight_disruption_markets/flights`
+	[[nodiscard]] Result<std::vector<Flight>> get_flights(const GetFlightsParams& params);
 
 	// ----- milestone ---------------------------------------------------------
 

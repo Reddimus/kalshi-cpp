@@ -1,7 +1,7 @@
 openapi: 3.0.0
 info:
   title: Kalshi Trade API Manual Endpoints
-  version: 3.35.0
+  version: 3.37.0
   description: Manually defined OpenAPI spec for endpoints being migrated to spec-first approach
 
 servers:
@@ -154,7 +154,12 @@ paths:
     get:
       operationId: GetExchangeStatus
       summary: Get Exchange Status
-      description: ' Endpoint for getting the exchange status.'
+      description: |
+        Endpoint for getting the exchange status.
+
+        The top-level fields describe the default exchange index (0). Read the flags only from a 200 response. When the status of the default index cannot be read, the response is a 500, 503 or 504; its body can be an `ExchangeStatus` with `exchange_active` and `trading_active` set to `false`, or an error object, and in neither case does it mean the exchange is paused.
+
+        In `exchange_index_statuses` on a 200 response, an index other than 0 whose status request failed or timed out is reported with all of its flags `false`. Read the status again before treating a single `false` reading for one index as a pause.
       tags:
         - exchange
       responses:
@@ -256,6 +261,10 @@ paths:
       description: |
         Time period length of each candlestick in minutes. Valid values: 1 (1 minute), 60 (1 hour), 1440 (1 day).
         Candlesticks for markets that settled before the historical cutoff are only available via `GET /historical/markets/{ticker}/candlesticks`. See [Historical Data](https://docs.kalshi.com/getting_started/historical_data) for details.
+
+        One request can span at most 5,000 periods. If the minutes between `start_ts` and `end_ts` divided by `period_interval` exceed 5,000, the request is rejected with 400 `bad_request` and the `details` field gives the requested and maximum counts. For example, 1-minute candlesticks are limited to about 3.5 days per request; split a longer range into several requests. `start_ts` and `end_ts` must be in seconds; millisecond values are rejected with 400 `bad_request`.
+
+        The most recent candlesticks can be a few seconds behind the latest trades and quotes.
       tags:
         - market
       parameters:
@@ -329,6 +338,8 @@ paths:
       summary: Get Trades
       description: |
         Endpoint for getting all trades for all markets. A trade represents a completed transaction between two users on a specific market. Each trade includes the market ticker, price, quantity, and timestamp information. Block trades are included in the response by default and identified by the `is_block_trade` field; use the `is_block_trade` query parameter to filter by block / non-block. This endpoint returns a paginated response. Use the 'limit' parameter to control page size (1-1000, defaults to 100). The response includes a 'cursor' field - pass this value in the 'cursor' parameter of your next request to get the next page. An empty cursor indicates no more pages are available.
+
+        A `ticker` that does not match any market returns 200 with an empty `trades` list, not 404. A `cursor` that cannot be decoded is ignored and the first page is returned, so pass the cursor exactly as it was returned. `min_ts` and `max_ts` must be in seconds; millisecond values are rejected with 400 `bad_request`.
       tags:
         - market
       parameters:
@@ -354,14 +365,14 @@ paths:
     get:
       operationId: GetMarketOrderbook
       summary: Get Market Orderbook
-      description: ' Endpoint for getting the current order book for a specific market.  The order book shows all active bid orders for both yes and no sides of a binary market. It returns yes bids and no bids only (no asks are returned). This is because in binary markets, a bid for yes at price X is equivalent to an ask for no at price (100-X). For example, a yes bid at 7¢ is the same as a no ask at 93¢, with identical contract sizes.  Each side shows price levels with their corresponding quantities and order counts, organized from best to worst prices.'
+      description: ' Endpoint for getting the current order book for a specific market.  The order book shows all active bid orders for both yes and no sides of a binary market. It returns yes bids and no bids only (no asks are returned). This is because in binary markets, a bid for yes at price X is equivalent to an ask for no at price (100-X). For example, a yes bid at 7¢ is the same as a no ask at 93¢, with identical contract sizes.  Each side lists price levels as [price, quantity] pairs sorted by price in ascending order, so the best (highest) bid is the last element. Order counts are not returned. When `depth` is set, the best `depth` levels of each side are returned. A ticker that has no order book, including a ticker that does not match any market, returns 200 with empty arrays rather than 404.'
       tags:
         - market
       parameters:
         - $ref: '#/components/parameters/TickerPath'
         - name: depth
           in: query
-          description: Depth of the orderbook to retrieve (0 or negative means all levels, 1-100 for specific depth)
+          description: Number of price levels to return per side, counted from the best bid. Omit it or pass 0 for all levels; pass 1-100 for a specific depth. Values below 0 or above 100 are rejected with 400.
           required: false
           schema:
             type: integer
@@ -388,7 +399,7 @@ paths:
     get:
       operationId: GetMarketOrderbooks
       summary: Get Multiple Market Orderbooks
-      description: 'Endpoint for getting the current order books for multiple markets in a single request. The order book shows all active bid orders for both yes and no sides of a binary market. It returns yes bids and no bids only (no asks are returned). This is because in binary markets, a bid for yes at price X is equivalent to an ask for no at price (100-X). For example, a yes bid at 7¢ is the same as a no ask at 93¢, with identical contract sizes. Each side shows price levels with their corresponding quantities and order counts, organized from best to worst prices. Returns one orderbook per requested market ticker.'
+      description: 'Endpoint for getting the current order books for multiple markets in a single request. The order book shows all active bid orders for both yes and no sides of a binary market. It returns yes bids and no bids only (no asks are returned). This is because in binary markets, a bid for yes at price X is equivalent to an ask for no at price (100-X). For example, a yes bid at 7¢ is the same as a no ask at 93¢, with identical contract sizes. Each side lists price levels as [price, quantity] pairs sorted by price in ascending order, so the best (highest) bid is the last element. Order counts are not returned. Returns one orderbook per requested market ticker, in request order. A ticker that has no order book, including a ticker that does not match any market, is returned with empty arrays.'
       tags:
         - market
       parameters:
@@ -529,6 +540,14 @@ paths:
 
         Markets that settled before the historical cutoff are only available via `GET /historical/markets`. See [Historical Data](https://docs.kalshi.com/getting_started/historical_data) for details.
 
+        Paging and ordering:
+        - When `event_ticker` or `tickers` is the only filter (no `status`, `series_ticker`, timestamp filter, `mve_filter` or `cursor`), every matching market is returned in one response, in no guaranteed order. `limit` is not applied and the returned `cursor` is empty.
+        - Otherwise results are sorted by creation time, newest first, with these exceptions. With `min_updated_ts` or `max_updated_ts` they are sorted by last update time, oldest first. When neither `event_ticker` nor `tickers` is supplied, `status=closed`, `min_close_ts` or `max_close_ts` sorts by close time, latest first, and `min_settled_ts` or `max_settled_ts` sorts by settlement time, latest first. A request that supplies `event_ticker` or `tickers` together with another filter is sorted by creation time, even when that filter is `status=closed` or a close-time or settlement-time filter. The unpaged case above, where `event_ticker` or `tickers` is the only filter, has no guaranteed order.
+        - A market whose close time changes while you page through a listing sorted by close time can be skipped or returned twice. Deduplicate by `ticker`.
+        - A `cursor` that cannot be decoded is ignored and the first page is returned, with no error. Pass the cursor exactly as it was returned, and stop when the returned `cursor` is empty.
+
+        Responses are cached for a short time, so prices, sizes and `status` can lag the exchange by several seconds, and filtered listings can lag longer than a read of a single market. Use the [WebSocket API](https://docs.kalshi.com/websockets/websocket-connection) when you need current state.
+
       tags:
         - market
       parameters:
@@ -565,7 +584,7 @@ paths:
     get:
       operationId: GetMarket
       summary: Get Market
-      description: ' Endpoint for getting data about a specific market by its ticker. A market represents a specific binary outcome within an event that users can trade on (e.g., "Will candidate X win?"). Markets have yes/no positions, current prices, volume, and settlement rules.'
+      description: ' Endpoint for getting data about a specific market by its ticker. A market represents a specific binary outcome within an event that users can trade on (e.g., "Will candidate X win?"). Markets have yes/no positions, current prices, volume, and settlement rules. The response is cached for a short time, so prices, sizes and `status` can lag the exchange by a few seconds; use the WebSocket API when you need current state.'
       tags:
         - market
       parameters:
@@ -592,7 +611,7 @@ paths:
         Endpoint for retrieving candlestick data for multiple markets.
 
         - Accepts up to 100 market tickers per request
-        - Returns up to 10,000 candlesticks total across all markets
+        - The request may cover at most 10,000 candlestick periods in total: the minutes between `start_ts` and `end_ts`, divided by `period_interval`, multiplied by the number of tickers. A larger request is rejected with 400 `bad_request` (the `details` field gives the requested and maximum counts) even if fewer candlesticks exist; the response is never truncated
         - Returns candlesticks grouped by market_id
         - Optionally includes a synthetic initial candlestick for price continuity (see `include_latest_before_start` parameter)
       tags:
@@ -1066,7 +1085,7 @@ paths:
     get:
       operationId: GetOrder
       summary: Get Order
-      description: ' Endpoint for getting a single order.'
+      description: ' Endpoint for getting a single order. Order reads are updated asynchronously after the matching engine processes a write, so an order created, amended or cancelled moments ago can briefly return `404 not_found` or its previous state. The response of the write itself is the only immediate result; the `user_orders` WebSocket channel is also asynchronous and is the stream to wait on for updates.'
       x-mint:
         content: |
           <Note>
@@ -1162,7 +1181,7 @@ paths:
     post:
       operationId: CreateOrderV2
       summary: Create Order (V2)
-      description: 'Endpoint for submitting event-market orders using the V2 request/response shape (single-book `bid`/`ask` side and fixed-point dollar prices). The legacy `/portfolio/orders` endpoint will be deprecated no earlier than May 6, 2026 — clients should migrate to this path.'
+      description: 'Endpoint for submitting event-market orders using the V2 request/response shape (single-book `bid`/`ask` side and fixed-point dollar prices). The legacy `/portfolio/orders` write endpoints (create, cancel, amend, decrease and their batch forms) have been removed and now return `410 Gone` with code `deprecated_v1_order_endpoint`; use this path instead. A `201` means the order was accepted, not that it is resting: check `remaining_count`. See [Order Errors](/getting_started/order_errors) for the error codes this endpoint returns.'
       tags:
         - orders
       security:
@@ -1228,7 +1247,7 @@ paths:
     post:
       operationId: BatchCreateOrdersV2
       summary: Batch Create Orders (V2)
-      description: 'Endpoint for submitting a batch of event-market orders using the V2 request/response shape. The maximum batch size scales with your tier''s write budget — see [Rate Limits and Tiers](/getting_started/rate_limits).'
+      description: 'Endpoint for submitting a batch of event-market orders using the V2 request/response shape. The maximum batch size scales with your tier''s write budget — see [Rate Limits and Tiers](/getting_started/rate_limits). Orders are processed one at a time in request order and the batch is not atomic: a `201` response carries one entry per order, and an order that failed has an `error` object (`code`, `message`, `details`) in place of `order_id`. An entry error with a timeout or unavailable code does not prove the order was not placed. Some checks reject the whole batch before any order is sent. See [Order Errors](/getting_started/order_errors#batch-requests) for those cases and for the error body.'
       x-mint:
         content: |
           <Note>
@@ -1265,7 +1284,7 @@ paths:
     delete:
       operationId: BatchCancelOrdersV2
       summary: Batch Cancel Orders (V2)
-      description: 'Endpoint for cancelling a batch of event-market orders using the V2 response shape. To auto-route a cancellation, provide its `market_ticker` and omit `exchange_index` or set it to `-1`. The maximum batch size scales with your tier''s write budget — see [Rate Limits and Tiers](/getting_started/rate_limits).'
+      description: 'Endpoint for cancelling a batch of event-market orders using the V2 response shape. To auto-route a cancellation, provide its `market_ticker` and omit `exchange_index` or set it to `-1`. The maximum batch size scales with your tier''s write budget — see [Rate Limits and Tiers](/getting_started/rate_limits). The batch is not atomic: the `200` response carries one entry per order, and a cancellation that failed has an `error` object and `reduced_by` of `0.00`. An entry error with a timeout or unavailable code does not prove the order was not cancelled. Some checks reject the whole batch before any cancellation is sent. See [Order Errors](/getting_started/order_errors#batch-requests).'
       x-mint:
         content: |
           <Warning>
@@ -1348,7 +1367,7 @@ paths:
     delete:
       operationId: CancelOrderV2
       summary: Cancel Order (V2)
-      description: 'Endpoint for cancelling event-market orders using the V2 response shape. To auto-route the cancellation, provide `market_ticker` and omit `exchange_index` or set it to `-1`. Returns `{order_id, client_order_id, reduced_by}` rather than a full order object.'
+      description: 'Endpoint for cancelling event-market orders using the V2 response shape. To auto-route the cancellation, provide `market_ticker` and omit `exchange_index` or set it to `-1`. Returns `{order_id, client_order_id, reduced_by}` rather than a full order object. A cancellation sent to an exchange shard other than the one the order rests on returns `404`, even though the order is still resting; see [Order Errors](/getting_started/order_errors#requests-sent-to-the-wrong-exchange-shard).'
       x-mint:
         content: |
           <Warning>
@@ -1396,7 +1415,7 @@ paths:
     post:
       operationId: AmendOrderV2
       summary: Amend Order (V2)
-      description: 'Endpoint for amending the price, max fillable count, and/or expiration time of an existing event-market order. The request `count` is the updated total/max fillable count, equal to already filled count plus desired resting remaining count. This behavior matches the v1 amend endpoints; only the request/response shape differs.'
+      description: 'Endpoint for amending the price, max fillable count, and/or expiration time of an existing event-market order. The request `count` is the updated total/max fillable count, equal to already filled count plus desired resting remaining count. An amend that changes nothing returns `400` with code `AMEND_ORDER_NO_OP`. See [Order Errors](/getting_started/order_errors).'
       x-mint:
         content: |
           <Note>
@@ -1701,6 +1720,8 @@ paths:
       description: |
         Returns the balance and portfolio value for a member. Both values include all exchange indexes unless `exchange_index` is provided. Pass `subaccount` to use a subaccount instead of the primary account. This endpoint also accepts API keys with the 'read::portfolio_balance' scope.
 
+        For per-subaccount balances, use `GET /portfolio/subaccounts/balances`. It returns existing subaccount and exchange index pairs, so its entry count can differ from `balance_breakdown`. The breakdown uses portfolio valuation snapshots; separate requests may reflect different stages of transfer processing.
+
         **Rate limit:** this endpoint has its own bucket, separate from the Read budget. Basic and Advanced tiers may call it **1 time per second**; all higher tiers may call it **5 times per second**. The bucket holds one second of budget, so there is no burst. Calls to this endpoint do not draw down the Read budget, and other reads do not draw down this bucket. Balance only changes on fills, settlements and transfers, so react to those (for example the user fills websocket channel) instead of polling this endpoint.
       tags:
         - portfolio
@@ -1739,6 +1760,10 @@ paths:
         When `source_exchange_shard` and `destination_exchange_shard` are the same, Kalshi treats the request as a subaccount transfer. The returned transfer ID appears in the subaccount transfer history.
 
         Cross-exchange-index subaccount transfers run in up to three non-atomic steps. If a later step fails, completed steps are not undone, so funds may remain in the primary account on the source or destination exchange index.
+
+        Naming a numbered subaccount requires the Advanced API tier or above; on the Basic tier the request returns 403 with code `subaccount_creation_requires_advanced_api_usage_level`.
+
+        **Rate limit:** this endpoint has its own bucket, separate from the Read and Write budgets and the same on every tier. It refills at 600 tokens per minute and holds 600 tokens; at the default cost of 10 tokens that is 60 transfers per minute. A request over the limit returns 429.
       tags:
         - portfolio
       security:
@@ -1833,7 +1858,7 @@ paths:
     post:
       operationId: CreateSubaccount
       summary: Create Subaccount
-      description: 'Creates a new subaccount for the authenticated user. This endpoint is available to all users on the Advanced API tier and above. Subaccounts are numbered sequentially starting from 1. Maximum 63 numbered subaccounts per user (64 including the primary account).'
+      description: 'Creates a new subaccount for the authenticated user. This endpoint is available to all users on the Advanced API tier and above; on the Basic tier it returns 403 with code `subaccount_creation_requires_advanced_api_usage_level`. The demo environment does not enforce the tier requirement. Subaccounts are numbered sequentially starting from 1. Maximum 63 numbered subaccounts per user (64 including the primary account).'
       tags:
         - portfolio
       security:
@@ -1895,7 +1920,7 @@ paths:
     get:
       operationId: GetSubaccountBalances
       summary: Get All Subaccount Balances
-      description: "Gets balances for all subaccounts including the primary account. For an API key restricted to a subaccount, returns only that subaccount's balances across exchange indices."
+      description: "Returns balances for all subaccounts, including the primary account. Only existing subaccount and exchange index pairs are returned, including pairs with a zero balance. A pair can exist before it is funded. For an API key restricted to a subaccount, returns only that subaccount's balances."
       tags:
         - portfolio
       security:
@@ -1993,9 +2018,12 @@ paths:
       operationId: GetPositions
       summary: Get Positions
       description: |
-        Returns unsettled positions by default. Set `settlement_status=settled` to page through settled positions that are still in the live data set, or `settlement_status=all` for both live states. Positions already archived are available via `GET /historical/positions`.
-        Settled and all-state positions are paginated by event ticker to keep large histories bounded. Cursors are specific to the selected settlement status.
-        `count_filter` restricts positions to those with a non-zero position or total traded count.
+        Returns unsettled positions by default, including closed markets awaiting determination or settlement. These may retain non-zero quantities and cost basis. Check the market's `status` via `GET /markets/{ticker}` for trading status.
+
+        Set `settlement_status=settled` for unarchived settled positions or `all` for both states. These results paginate by event ticker; cursors are specific to settlement status. Archived positions are available via `GET /historical/positions`.
+
+        Use `count_filter=position` for non-zero net holdings, including closed, unsettled markets. Without a count filter, results may include fully exited positions with trading history, realized P&L or fees.
+
         Registered partners may also use a user OAuth access token with the explicitly granted read::compliance_partner scope.
       tags:
         - portfolio
@@ -2031,13 +2059,17 @@ paths:
     get:
       operationId: GetSettlements
       summary: Get Settlements
-      description: 'Returns settlement records still in the live data set. Archived positions are available via `GET /historical/positions`, which has different fields; this endpoint does not return archived settlement records.'
+      description: |
+        Returns settlement records still in the live data set. Archived positions are available via `GET /historical/positions`, which has different fields; this endpoint does not return archived settlement records.
+        Resource-bound MCP OAuth tokens may read the owner's settlements with read::mcp_portfolio.
+        Available to direct member accounts. FCM member accounts receive 403 with code `permission_denied`.
       tags:
         - portfolio
       security:
         - kalshiAccessKey: []
           kalshiAccessSignature: []
           kalshiAccessTimestamp: []
+        - kalshiOauthAccessToken: []
       parameters:
         - $ref: '#/components/parameters/LimitQuery'
         - $ref: '#/components/parameters/CursorQuery'
@@ -2181,6 +2213,7 @@ paths:
         Endpoint for getting all fills for the member. A fill is when a trade you have is matched.
         Registered partners may also use a user OAuth access token with the explicitly granted read::compliance_partner scope.
         Fills that occurred before the historical cutoff are only available via `GET /historical/fills`. See [Historical Data](https://docs.kalshi.com/getting_started/historical_data) for details.
+        Available to direct member accounts. FCM member accounts receive 403 with code `permission_denied` here and use `GET /fcm/fills` instead.
       tags:
         - portfolio
       security:
@@ -2313,11 +2346,41 @@ paths:
         '500':
           $ref: '#/components/responses/InternalServerError'
 
+  /communications/block-trade-proposals/{block_trade_proposal_id}:
+    delete:
+      operationId: CancelBlockTradeProposal
+      summary: Cancel Block Trade Proposal
+      description: ' Endpoint for cancelling a pending block trade proposal. Only the proposer can cancel it.'
+      tags:
+        - communications
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - name: block_trade_proposal_id
+          in: path
+          required: true
+          description: Block trade proposal ID
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Block trade proposal cancelled successfully
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
   /communications/block-trade-proposals/{block_trade_proposal_id}/accept:
     post:
       operationId: AcceptBlockTradeProposal
       summary: Accept Block Trade Proposal
-      description: ' Endpoint for accepting a block trade proposal.'
+      description: ' Endpoint for accepting a block trade proposal. The caller accepts as whichever side it is named on, and may book that side onto any of its own subaccounts, including one the proposal did not name. Without a subaccount, the side keeps the one the proposal named. A side that has already accepted may accept again to move to another subaccount until the trade executes.'
       tags:
         - communications
       security:
@@ -2346,6 +2409,38 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '404':
           $ref: '#/components/responses/NotFoundError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /communications/block-trade-proposals/{block_trade_proposal_id}/reject:
+    post:
+      operationId: RejectBlockTradeProposal
+      summary: Reject Block Trade Proposal
+      description: ' Endpoint for rejecting a pending block trade proposal. Either counterparty can reject it, but not the proposer, which cancels it instead.'
+      tags:
+        - communications
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - name: block_trade_proposal_id
+          in: path
+          required: true
+          description: Block trade proposal ID
+          schema:
+            type: string
+      responses:
+        '204':
+          description: Block trade proposal rejected successfully
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -2413,7 +2508,7 @@ paths:
     post:
       operationId: CreateRFQ
       summary: Create RFQ
-      description: ' Endpoint for creating a new RFQ. You can have a maximum of 100 open RFQs at a time.'
+      description: ' Endpoint for creating a new RFQ. You can have a maximum of 100 open RFQs at a time. Creating one more returns 429 with code `open_rfq_limit_exceeded`; unlike request-rate limiting, retrying does not help until some of your RFQs close or expire. An RFQ on a market that is not open returns 400 with code `rfq_market_not_open`.'
       tags:
         - communications
       security:
@@ -2439,6 +2534,8 @@ paths:
           $ref: '#/components/responses/UnauthorizedError'
         '409':
           $ref: '#/components/responses/ConflictError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
         '500':
           $ref: '#/components/responses/InternalServerError'
 
@@ -3375,7 +3472,7 @@ paths:
     post:
       operationId: CreateApiKey
       summary: Create API Key
-      description: ' Endpoint for creating a new API key with a user-provided public key.  This endpoint allows users with Premier or Market Maker API usage levels to create API keys by providing their own RSA or Ed25519 public key in PEM format. The platform will use this public key to verify signatures on API requests: RSA-PSS with SHA-256 for RSA keys, Ed25519 for Ed25519 keys.'
+      description: ' Endpoint for creating a new API key with a user-provided public key.  This endpoint is available on every API usage tier. Provide your own RSA or Ed25519 public key in PEM format. The platform will use this public key to verify signatures on API requests: RSA-PSS with SHA-256 for RSA keys, Ed25519 for Ed25519 keys. In production, an account can hold up to 100 directly managed API keys (keys created on the account settings page or through the API key endpoints).'
       tags:
         - api-keys
       security:
@@ -3400,9 +3497,9 @@ paths:
         '401':
           description: Unauthorized
         '403':
-          description: Forbidden - insufficient API usage level, or fcm_subtrader_id from a non-FCM caller
+          description: Forbidden - the calling API key lacks the `write` scope, or fcm_subtrader_id from a non-FCM caller
         '409':
-          description: Conflict - the bound FCM subtrader is not yet visible in the credential registry; retry after the subtrader create propagates
+          description: Conflict - the account already holds the maximum number of directly managed API keys, 100 in production (code `MAXIMUM_NUMBER_OF_API_KEYS_REACHED`); or the bound FCM subtrader is not yet visible in the credential registry, in which case retry after the subtrader create propagates
         '500':
           description: Internal server error
 
@@ -3410,7 +3507,7 @@ paths:
     post:
       operationId: GenerateApiKey
       summary: Generate API Key
-      description: ' Endpoint for generating a new API key with an automatically created key pair.  This endpoint generates a key pair of the requested key_type (RSA when omitted). The public key is stored on the platform, while the private key is returned to the user and must be stored securely. The private key cannot be retrieved again.'
+      description: ' Endpoint for generating a new API key with an automatically created key pair.  This endpoint generates a key pair of the requested key_type (RSA when omitted). The public key is stored on the platform, while the private key is returned to the user and must be stored securely. The private key cannot be retrieved again. In production, an account can hold up to 100 directly managed API keys (keys created on the account settings page or through the API key endpoints).'
       tags:
         - api-keys
       security:
@@ -3435,9 +3532,9 @@ paths:
         '401':
           description: Unauthorized
         '403':
-          description: Forbidden - fcm_subtrader_id requires an FCM member caller
+          description: Forbidden - the calling API key lacks the `write` scope, or fcm_subtrader_id requires an FCM member caller
         '409':
-          description: Conflict - the bound FCM subtrader is not yet visible in the credential registry; retry after the subtrader create propagates
+          description: Conflict - the account already holds the maximum number of directly managed API keys, 100 in production (code `MAXIMUM_NUMBER_OF_API_KEYS_REACHED`); or the bound FCM subtrader is not yet visible in the credential registry, in which case retry after the subtrader create propagates
         '500':
           description: Internal server error
 
@@ -4112,6 +4209,590 @@ paths:
           description: Internal Server Error
 
   # Communications endpoints
+  /weather_point_markets:
+    post:
+      operationId: CreateWeatherPointMarket
+      summary: Create Weather Point Market
+      description: |
+        Returns the on-request weather market for a location, time window and
+        threshold, creating it if it doesn't exist yet. The same request always
+        returns the same market, so call this before sending an RFQ for a
+        market you haven't seen. `created` tells you whether the market is new.
+        An existing market is normally returned until its window ends, even
+        where new markets like it are no longer offered. If weather markets
+        are switched off entirely, the request can be refused whether or not
+        the market exists.
+
+        The market's location is the requested coordinates rounded to three
+        decimal places; requests that agree to three decimal places share a
+        market. A rounded location exactly on the boundary between two NOAA
+        MRMS grid cells is moved 0.001° north or east, into one of them. The
+        response carries the market's coordinates. Markets are only offered
+        where `GET /weather_point_markets/availability` says so, and only
+        where the market's grid cell touches land in a US state or territory:
+        a cell entirely over open water or outside the US is refused, while
+        any point in a coastal cell that touches land is accepted.
+
+        The window is whole local hours, on one calendar day or, with
+        `end_date` set to the day after `date`, from one day into the next.
+        A window that crosses midnight is at most 24 hours long, and only
+        offered where `GET /weather_point_markets/availability` returns
+        `max_window_days: 2`. A new market's window must start at least 6
+        hours from now (15 minutes on demo) and within 365 days.
+
+        `timezone` only says which span of time `date` and the hours mean. The
+        market is described in the IANA time zone of its location, which
+        Kalshi determines from the coordinates: its title and `rules_primary`
+        give the window there, with the weekday and the zone abbreviation in
+        force (`on Thu, Nov 19, 2026, 8pm–12am PST`), whatever zone the
+        request used. The limits on a window's dates go by the location's
+        zone as well: where `max_window_days` is 1, a new market whose window
+        crosses midnight at the location is refused even when the request
+        names one date in another zone, and one within one date at the
+        location is accepted even with `end_date`; and a window that crosses
+        midnight at the location is at most 24 hours long there. A market
+        that already exists is returned either way. An event created before
+        this applied keeps its description and its dates, in the time zone of
+        its first request, and so do thresholds added to it later: for those,
+        the `max_window_days` limit goes by the dates the event stores.
+
+        A market is traded through RFQs: pass the returned `market_ticker` to
+        `POST /communications/rfqs`. These markets are in series starting with
+        `KXRFQ` and are left out of unscoped market listings.
+
+        A market created a moment ago may not be readable yet: if
+        `GET /markets/{ticker}` returns 404 right after creation, retry.
+
+        Errors carry the specific reason in `details`:
+
+        | Status | `code` | When |
+        | --- | --- | --- |
+        | 400 | `bad_request` | The body isn't valid JSON, or a field has the wrong type. |
+        | 400 | `missing_parameters` | A required field is missing or empty. |
+        | 400 | `invalid_parameters` | A field is present but unusable, or the request can't define a market: a latitude or hour out of range, an `end_hour` not after `start_hour` on one day, an `end_date` other than `date` or the day after it, a window across midnight, in `timezone` or at the location, longer than 24 hours, an unknown variable or strike type, thresholds that don't fit the strike type or the variable's range, a location outside NOAA MRMS coverage, an unknown time zone, a window that doesn't start and end on whole UTC hours, has already ended or starts more than 365 days out, or an hour that a clock change skips or repeats in `timezone`. |
+        | 409 | `weather_point_market_unavailable` | The request is valid but the market isn't offered: the variable isn't offered at that location, the market's grid cell is entirely over open water or outside US land, the window starts in less than 6 hours (15 minutes on demo), the market's window crosses midnight in the location's time zone where `max_window_days` is 1, or the location's time zone can't be determined. |
+        | 429 | `weather_point_market_limit_exceeded` | A creation limit was reached: the daily limit on new weather markets across all users, or 40 markets for one variable, location and window. Retrying at once doesn't help. |
+        | 429 | `too_many_requests` | Your API rate limit. This endpoint is charged against your write budget. |
+      tags:
+        - markets
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateWeatherPointMarketRequest'
+      responses:
+        '200':
+          description: Market returned or created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateWeatherPointMarketResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /weather_point_markets/availability:
+    get:
+      operationId: GetWeatherPointAvailability
+      summary: Get Weather Point Market Availability
+      description: |
+        Returns which on-request weather markets can be created: whether
+        creation is on, the NOAA MRMS domains a location may lie in, and the
+        domains each offered variable may use. A variable missing from
+        `variables` can't be created. `max_window_days` and
+        `max_window_hours` say whether a window may cross midnight and how
+        long it may then be. Existing markets are unaffected.
+
+        A location inside an offered domain can still be refused at creation
+        when its grid cell is entirely over open water or outside US land.
+      tags:
+        - markets
+      responses:
+        '200':
+          description: Availability retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetWeatherPointAvailabilityResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /concert_cancellation_markets:
+    post:
+      operationId: CreateConcertCancellationMarket
+      summary: Create Concert Cancellation Market
+      description: |
+        Returns the on-request market on whether a concert is called off,
+        creating it if it doesn't exist yet. A market is defined by the show
+        (`jambase_event_id`), the date it is scheduled for and the `cover`:
+        `postponed`, `cancelled` or `either`. The same request always returns
+        the same market, so call this before sending an RFQ for a market you
+        haven't seen. `created` tells you whether the market is new.
+
+        Take `jambase_event_id` and `scheduled_date` from
+        `GET /concert_cancellation_markets/concerts` or
+        `GET /concert_cancellation_markets/concerts/search`. A new market is
+        created from the show's listing as it stands now, so the request is
+        refused when the show has moved to another date or has already been
+        canceled or postponed.
+
+        A new market's show must start more than 24 hours from now and within
+        the `max_days_ahead` that
+        `GET /concert_cancellation_markets/availability` reports. An existing
+        market is returned only while its show is more than 24 hours away too:
+        inside that, counted to the market's close time or the show's start as
+        now listed, whichever is earlier, the request returns 409. Further
+        out, an existing market is usually returned even when new markets are
+        no longer offered; where creation or its cover is switched off, the
+        request returns 409. A 409 here changes nothing about the market
+        itself, which stays open until its close time and is still returned by
+        `GET /markets/{ticker}`.
+
+        A market is traded through RFQs: pass the returned `market_ticker` to
+        `POST /communications/rfqs`. These markets are in series starting with
+        `KXRFQ` and are left out of unscoped market listings.
+
+        A market created a moment ago may not be readable yet: if
+        `GET /markets/{ticker}` returns 404 right after creation, retry.
+
+        Errors carry the specific reason in `details`:
+
+        | Status | `code` | When |
+        | --- | --- | --- |
+        | 400 | `bad_request` | The body isn't valid JSON, or a field has the wrong type. |
+        | 400 | `missing_parameters` | A required field is missing or empty. |
+        | 400 | `invalid_parameters` | A field is present but unusable: an unknown cover, a `jambase_event_id` that isn't `jambase:<id>`, a `scheduled_date` that isn't YYYY-MM-DD, or a show scheduled further ahead than `max_days_ahead`. |
+        | 404 | `not_found` | The listing source has no show with that id. |
+        | 409 | `concert_cancellation_market_unavailable` | The request is valid but the market isn't offered: concert markets or the cover are switched off, the show is now listed on another date, has already been canceled or postponed, starts in 24 hours or less (whether or not its market already exists), isn't a concert, or its market has closed. |
+        | 429 | `concert_cancellation_market_limit_exceeded` | The daily limit on new concert markets across all users was reached. Retrying at once doesn't help. |
+        | 429 | `too_many_requests` | Your API rate limit. This endpoint is charged against your write budget. |
+      tags:
+        - markets
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateConcertCancellationMarketRequest'
+      responses:
+        '200':
+          description: Market returned or created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateConcertCancellationMarketResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableError'
+
+  /concert_cancellation_markets/availability:
+    get:
+      operationId: GetConcertCancellationAvailability
+      summary: Get Concert Cancellation Market Availability
+      description: |
+        Returns which on-request concert markets are offered: whether they
+        are listed, the covers offered, how far ahead a show may be
+        scheduled, and the metros whose concerts
+        `GET /concert_cancellation_markets/concerts` lists. A cover missing
+        from `covers` can't be created. Where concerts are listed before
+        markets are offered, `enabled` is true and every create request
+        returns 409. Existing markets are unaffected.
+
+        Each metro carries the number of upcoming shows listed for it. Pass
+        `date_from` and `date_to` to count only the shows a listing with the
+        same dates would return.
+      tags:
+        - markets
+      parameters:
+        - name: date_from
+          in: query
+          required: false
+          description: Count shows from this venue-local date, as YYYY-MM-DD. Omitted counts from today.
+          schema:
+            type: string
+          x-oapi-codegen-extra-tags:
+            validate: omitempty,datetime=2006-01-02
+        - name: date_to
+          in: query
+          required: false
+          description: Count shows up to this venue-local date, inclusive, as YYYY-MM-DD. Omitted for no end.
+          schema:
+            type: string
+          x-oapi-codegen-extra-tags:
+            validate: omitempty,datetime=2006-01-02
+      responses:
+        '200':
+          description: Availability retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetConcertCancellationAvailabilityResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /concert_cancellation_markets/concerts:
+    get:
+      operationId: GetConcerts
+      summary: Get Concerts
+      description: |
+        Lists a metro's upcoming concerts that a cancellation market can still
+        be created for, soonest first, 50 to a page and at most 20 pages.
+        Narrow the dates to reach later shows. Each concert carries the
+        `jambase_event_id` and `scheduled_date` that
+        `POST /concert_cancellation_markets` takes, and the event and market
+        tickers it has or would get for each offered cover. A ticker listed
+        here names a market that may not exist yet: create it before sending
+        an RFQ.
+
+        Dates and times are local to the venue.
+      tags:
+        - markets
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - name: metro_id
+          in: query
+          required: true
+          description: One of the metros from `GET /concert_cancellation_markets/availability`, such as `jambase:1`.
+          schema:
+            type: string
+          x-oapi-codegen-extra-tags:
+            validate: required
+        - name: date_from
+          in: query
+          required: false
+          description: List shows from this venue-local date, as YYYY-MM-DD. Omitted, or a date that has passed, lists from today. Pages count from it.
+          schema:
+            type: string
+          x-oapi-codegen-extra-tags:
+            validate: omitempty,datetime=2006-01-02
+        - name: date_to
+          in: query
+          required: false
+          description: List shows up to this venue-local date, inclusive, as YYYY-MM-DD. Must not be before `date_from`. Omitted for no end.
+          schema:
+            type: string
+          x-oapi-codegen-extra-tags:
+            validate: omitempty,datetime=2006-01-02
+        - name: page
+          in: query
+          required: false
+          description: Page to return, starting at 1.
+          schema:
+            type: integer
+            format: int32
+            minimum: 1
+            maximum: 20
+            default: 1
+          x-oapi-codegen-extra-tags:
+            validate: omitempty,min=1,max=20
+      responses:
+        '200':
+          description: Concerts retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetConcertsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableError'
+
+  /concert_cancellation_markets/concerts/search:
+    get:
+      operationId: SearchConcerts
+      summary: Search Concerts
+      description: |
+        Lists upcoming concerts matching a name, across the metros that
+        availability lists, that a
+        cancellation market can still be created for: up to 50, in the same
+        shape as `GET /concert_cancellation_markets/concerts`. The name is
+        matched against the acts on the bill, and may also match venues and
+        cities.
+
+        Searches can be limited across all users. When the limit is reached
+        the request returns 429 `concert_search_limit_exceeded`; browse by
+        metro instead, or retry later.
+      tags:
+        - markets
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - name: q
+          in: query
+          required: true
+          description: The name to search for, or part of one. 2 to 80 characters; some searches need at least 3.
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 80
+          x-oapi-codegen-extra-tags:
+            validate: required,min=2,max=80
+      responses:
+        '200':
+          description: Concerts retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/SearchConcertsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableError'
+
+  /flight_disruption_markets:
+    post:
+      operationId: CreateFlightDisruptionMarket
+      # Hidden from the published docs until flight disruption markets launch.
+      x-excluded: true
+      summary: Create Flight Disruption Market
+      description: |
+        Returns the on-request market on whether a flight is canceled or
+        delayed, creating it if it doesn't exist yet. A market is defined by
+        the flight (`carrier`, `flight_number`, `departure_airport`,
+        `arrival_airport` and `scheduled_date`), the `cover` (`cancelled`,
+        `delayed` or `either`) and, for `delayed` and `either`, the
+        `delay_basis` and `delay_minutes`. The same request always returns the
+        same market, so call this before sending an RFQ for a market you
+        haven't seen. `created` tells you whether the market is new.
+
+        Take the flight's five fields from
+        `GET /flight_disruption_markets/flights`. A flight is one nonstop leg:
+        a flight number that flies several legs in a day is several flights.
+        `carrier` and `flight_number` are the operating carrier's, which the
+        lookup returns even when you searched by a codeshare number.
+
+        `delay_minutes` is a multiple of `delay_step_minutes`, up to
+        `max_delay_minutes`, both from
+        `GET /flight_disruption_markets/availability`. A `cancelled` market
+        takes neither `delay_basis` nor `delay_minutes`.
+
+        An existing market is returned until it closes, even when new markets
+        are no longer offered. A new market's flight must be scheduled to
+        leave more than `min_lead_minutes` from now and within
+        `max_days_ahead` days, from an airport in one of
+        `departure_countries`.
+
+        A market is traded through RFQs: pass the returned `market_ticker` to
+        `POST /communications/rfqs`. These markets are in series starting with
+        `KXRFQ` and are left out of unscoped market listings.
+
+        A market created a moment ago may not be readable yet: if
+        `GET /markets/{ticker}` returns 404 right after creation, retry.
+
+        Errors carry the specific reason in `details`:
+
+        | Status | `code` | When |
+        | --- | --- | --- |
+        | 400 | `bad_request` | The body isn't valid JSON, or a field has the wrong type. |
+        | 400 | `missing_parameters` | A required field is missing or empty. |
+        | 400 | `invalid_parameters` | A field is present but unusable: an unknown cover or delay basis, a carrier, flight number or airport code of the wrong form, a `scheduled_date` that isn't YYYY-MM-DD, a `delayed` or `either` request without `delay_basis` and `delay_minutes`, a `cancelled` request with either of them, a `delay_minutes` that isn't a multiple of `delay_step_minutes` or is above `max_delay_minutes`, or a flight scheduled further ahead than `max_days_ahead`. |
+        | 404 | `not_found` | No such flight is scheduled on that date. |
+        | 409 | `flight_disruption_market_unavailable` | The request is valid but the market isn't offered: flight markets or the cover are switched off, the flight leaves too soon, departs from a country that isn't offered, or its market has closed. |
+        | 429 | `flight_disruption_market_limit_exceeded` | A limit on new flight markets was reached. Retrying at once doesn't help. |
+        | 429 | `too_many_requests` | Your API rate limit. This endpoint is charged against your write budget. |
+      tags:
+        - markets
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateFlightDisruptionMarketRequest'
+      responses:
+        '200':
+          description: Market returned or created successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/CreateFlightDisruptionMarketResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '403':
+          $ref: '#/components/responses/ForbiddenError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableError'
+
+  /flight_disruption_markets/availability:
+    get:
+      operationId: GetFlightDisruptionAvailability
+      # Hidden from the published docs until flight disruption markets launch.
+      x-excluded: true
+      summary: Get Flight Disruption Market Availability
+      description: |
+        Returns which on-request flight markets can be created: whether
+        creation is on, the covers and delay bases offered, the delay
+        thresholds a market may use, how soon and how far ahead a flight may
+        be scheduled, and the countries it may depart from. A cover missing
+        from `covers` can't be created. Existing markets are unaffected.
+      tags:
+        - markets
+      responses:
+        '200':
+          description: Availability retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetFlightDisruptionAvailabilityResponse'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+
+  /flight_disruption_markets/flights:
+    get:
+      operationId: GetFlights
+      # Hidden from the published docs until flight disruption markets launch.
+      x-excluded: true
+      summary: Get Flights
+      description: |
+        Looks up a flight number on a departure date and returns the flights
+        a disruption market can still be created for, in departure order. A
+        flight is one nonstop leg, so a number that flies several legs that
+        day returns several flights, and one that flies none returns an empty
+        list.
+
+        `carrier` and `flight_number` may be the operating carrier's or a
+        codeshare number. Each flight returned is the operating flight, with
+        the number you asked for in `requested_carrier` and
+        `requested_flight_number` when it differs.
+
+        Each flight carries the five fields
+        `POST /flight_disruption_markets` takes, and the series and event
+        tickers it has or would get for each offered cover. A ticker listed
+        here names an event or market that may not exist yet: create the
+        market before sending an RFQ.
+
+        Lookups can be limited across all users. When the limit is reached
+        the request returns 429 `flight_lookup_limit_exceeded`; retry later.
+      tags:
+        - markets
+      security:
+        - kalshiAccessKey: []
+          kalshiAccessSignature: []
+          kalshiAccessTimestamp: []
+      parameters:
+        - name: carrier
+          in: query
+          required: true
+          description: The airline's 2-character code, such as `AA`. The operating carrier's or a codeshare partner's.
+          schema:
+            type: string
+            minLength: 2
+            maxLength: 2
+          x-oapi-codegen-extra-tags:
+            validate: required,alphanum,len=2
+        - name: flight_number
+          in: query
+          required: true
+          description: The flight number without the airline code, 1 to 4 digits, such as `100`.
+          schema:
+            type: string
+            minLength: 1
+            maxLength: 4
+          x-oapi-codegen-extra-tags:
+            validate: required,number,max=4
+        - name: date
+          in: query
+          required: true
+          description: The scheduled departure date at the departure airport, as YYYY-MM-DD.
+          schema:
+            type: string
+          x-oapi-codegen-extra-tags:
+            validate: required,datetime=2006-01-02
+      responses:
+        '200':
+          description: Flights retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetFlightsResponse'
+        '400':
+          $ref: '#/components/responses/BadRequestError'
+        '401':
+          $ref: '#/components/responses/UnauthorizedError'
+        '404':
+          $ref: '#/components/responses/NotFoundError'
+        '409':
+          $ref: '#/components/responses/ConflictError'
+        '429':
+          $ref: '#/components/responses/RateLimitError'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
+        '503':
+          $ref: '#/components/responses/ServiceUnavailableError'
+
   /multivariate_event_collections/{collection_ticker}:
     get:
       operationId: GetMultivariateEventCollection
@@ -4142,7 +4823,7 @@ paths:
     post:
       operationId: CreateMarketInMultivariateEventCollection
       summary: Create Market In Multivariate Event Collection
-      description: 'Endpoint for creating an individual market in a multivariate event collection. This endpoint must be hit at least once before trading or looking up a market. Users are limited to 5000 creations per week.'
+      description: 'Endpoint for creating an individual market in a multivariate event collection. This endpoint must be hit at least once before a combo market can be quoted or traded. If the same legs were created before, it returns the existing market, which does not count toward the limit; the legs are still validated again, so a selection that worked before can later be rejected. On the production API, the standard limit is 5000 new markets per user per rolling 7 days, counted both across all collections and within each collection; over either limit the endpoint returns 429 `too_many_requests` until earlier creations pass the 7-day mark. Ordinary request-rate limiting returns the same status and code. A leg selection that cannot be combined returns 400 with `code` `conflicting_leg_outcomes`, `duplicated_legs` or `invalid_market_combination`.'
       tags:
         - multivariate
       security:
@@ -4255,6 +4936,18 @@ paths:
           description: Filter by exact incentive description.
           schema:
             type: string
+        - name: series_ticker
+          in: query
+          required: false
+          description: Filter to one series' incentives.
+          schema:
+            type: string
+        - name: event_ticker
+          in: query
+          required: false
+          description: Filter to one event's incentives. A perpetual's incentives belong to no event.
+          schema:
+            type: string
         - name: limit
           in: query
           required: false
@@ -4288,6 +4981,23 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/ErrorResponse'
+
+  /incentive_schedules:
+    get:
+      operationId: GetIncentiveSchedules
+      summary: Get Incentive Schedules
+      description: ' Recurring incentives: what each market of a series, or of one event, can expect to earn window after window. A schedule is anticipated, not promised, unless `all_markets` is true. The incentives themselves are listed by Get Incentives.'
+      tags:
+        - incentive-programs
+      responses:
+        '200':
+          description: Incentive schedules retrieved successfully
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/GetIncentiveSchedulesResponse'
+        '500':
+          $ref: '#/components/responses/InternalServerError'
 
   /fcm/fills:
     get:
@@ -4471,7 +5181,7 @@ paths:
         Returns the event-contract daily premium cap configured for an FCM member's subtrader,
         together with its live utilization. Executed utilization is the net premium deployed by
         fills today (sells and settlements credit back); resting and pending utilization reserve
-        open and in-flight orders at their full worst-case cost plus fees. Executed utilization
+        open orders and orders still being placed at their full worst-case cost plus fees. Executed utilization
         resets at midnight New York time on the returned cap date; resting and pending
         reservations persist for as long as their orders remain open, including across the reset.
         Returns 404 when the subtrader has no cap configured — in that state every order placed
@@ -4917,7 +5627,7 @@ paths:
     get:
       operationId: GetMarketCandlesticksHistorical
       summary: Get Historical Market Candlesticks
-      description: ' Endpoint for fetching historical candlestick data for markets that have been archived from the live data set. Time period length of each candlestick in minutes. Valid values: 1 (1 minute), 60 (1 hour), 1440 (1 day).'
+      description: ' Endpoint for fetching historical candlestick data for markets that have been archived from the live data set. Time period length of each candlestick in minutes. Valid values: 1 (1 minute), 60 (1 hour), 1440 (1 day). One request can span at most 5,000 periods: if the minutes between `start_ts` and `end_ts` divided by `period_interval` exceed 5,000, the request is rejected with 400 `bad_request`. Split a longer range into several requests.'
       tags:
         - historical
       parameters:
@@ -4980,7 +5690,12 @@ paths:
           kalshiAccessTimestamp: []
         - kalshiOauthAccessToken: []
       parameters:
-        - $ref: '#/components/parameters/TickerQuery'
+        - name: ticker
+          in: query
+          description: Filter by market ticker. Accepts a comma-separated list of up to 100 market tickers.
+          schema:
+            type: string
+            x-go-type-skip-optional-pointer: true
         - $ref: '#/components/parameters/MinTsQuery'
         - $ref: '#/components/parameters/MaxTsQuery'
         - $ref: '#/components/parameters/LimitQuery'
@@ -5385,14 +6100,15 @@ components:
     CountFilterQuery:
       name: count_filter
       in: query
-      description: Restricts the positions to those with any of following fields with non-zero values, as a comma separated list. The following values are accepted - position, total_traded
+      description: |
+        Comma-separated filters combined with OR: `position` (non-zero net contracts), `total_traded` (any contracts traded, including fully exited positions). Omit for no count filter.
       schema:
         type: string
 
     PositionSettlementStatusQuery:
       name: settlement_status
       in: query
-      description: Return unsettled positions by default, settled positions that have not yet been archived, or all positions in the live data set.
+      description: 'Filters settlement state, not trading status: `unsettled` (default), `settled` (not yet archived), or `all` (both live states).'
       schema:
         type: string
         enum: [unsettled, settled, all]
@@ -5881,6 +6597,10 @@ components:
         name:
           type: string
           description: User-provided name for the API key
+        key_type:
+          allOf:
+            - $ref: '#/components/schemas/ApiKeyType'
+          description: Signing algorithm of this key, derived from its stored public key. Present for RSA and Ed25519 keys, including existing keys. Omitted when the algorithm is unknown.
         scopes:
           type: array
           description: List of scopes granted to this API key.
@@ -7105,7 +7825,7 @@ components:
           type: array
           items:
             $ref: '#/components/schemas/IndexedBalance'
-          description: 'User balance breakdown per exchange instance, omitted only when using a subaccount-restricted API key.'
+          description: 'Balance for every exchange index, summed across all subaccounts, including zero balances. Unaffected by the `subaccount` and `exchange_index` parameters. Omitted when access is restricted to a subaccount.'
 
     CreateSubaccountRequest:
       type: object
@@ -7362,7 +8082,7 @@ components:
           description: The event ticker symbol of the market that was settled.
         market_result:
           type: string
-          enum: ['yes', 'no', 'scalar']
+          enum: ['yes', 'no', 'scalar', '']
           description: The outcome of the market settlement. 'yes' = market resolved to YES, 'no' = market resolved to NO, 'scalar' = scalar market settled at a specific value.
         yes_count_fp:
           $ref: '#/components/schemas/FixedPointCount'
@@ -7831,13 +8551,13 @@ components:
           $ref: '#/components/schemas/ExchangeIndex'
         total_traded_dollars:
           $ref: '#/components/schemas/FixedPointDollars'
-          description: Total spent on this market in dollars
+          description: Total spent trading this market in dollars, including past trades; not the remaining position's cost or value.
         position_fp:
           $ref: '#/components/schemas/FixedPointCount'
-          description: String representation of the number of contracts bought in this market. Negative means NO contracts and positive means YES contracts
+          description: 'Signed net contracts as a fixed-point string: positive for YES, negative for NO, zero for no net position.'
         market_exposure_dollars:
           $ref: '#/components/schemas/FixedPointDollars'
-          description: Cost of the aggregate market position in dollars
+          description: Cost basis of the remaining position in dollars, excluding fees; not current market value or realized loss.
         realized_pnl_dollars:
           $ref: '#/components/schemas/FixedPointDollars'
           description: Locked in profit and loss, in dollars
@@ -7996,6 +8716,12 @@ components:
         market_ticker:
           type: string
           description: The ticker symbol of the market associated with this incentive program
+        series_ticker:
+          type: string
+          description: The series of the market associated with this incentive program
+        event_ticker:
+          type: string
+          description: The event of the market associated with this incentive program; empty for a perpetual
         incentive_type:
           type: string
           enum: ['liquidity', 'volume', 'margin_maker_volume', 'margin_taker_volume']
@@ -8032,6 +8758,93 @@ components:
           format: int64
           nullable: true
           description: Maximum reward per account in centi-cents (optional)
+
+    GetIncentiveSchedulesResponse:
+      type: object
+      required:
+        - schedules
+      properties:
+        schedules:
+          type: array
+          items:
+            $ref: '#/components/schemas/IncentiveSchedule'
+
+    IncentiveSchedule:
+      type: object
+      required:
+        - series_ticker
+        - series_title
+        - series_category
+        - event_ticker
+        - event_title
+        - incentive_type
+        - source
+        - reward
+        - window_days
+        - description
+        - all_markets
+        - posted_ts
+        - updated_ts
+      properties:
+        series_ticker:
+          type: string
+          description: The series the schedule covers
+        series_title:
+          type: string
+          description: The series' title
+        series_category:
+          type: string
+          description: The series' category
+        event_ticker:
+          type: string
+          description: The one event of the series the schedule covers; empty when it covers the whole series
+        event_title:
+          type: string
+          description: The event's title; empty when the schedule covers the whole series
+        incentive_type:
+          type: string
+          enum: ['liquidity', 'volume']
+          description: Type of the incentives the schedule creates
+        source:
+          type: string
+          description: The job that publishes the schedule. With the series, event and type, it identifies the schedule.
+        reward:
+          type: integer
+          format: int64
+          description: What each market earns per window, in centi-cents, as period_reward is on an incentive program
+        window_days:
+          type: integer
+          format: int32
+          description: Days per window; 0 rewards each market once, up to its close
+        discount_factor_bps:
+          type: integer
+          format: int32
+          nullable: true
+          description: Discount factor in basis points (liquidity only)
+        target_size_fp:
+          $ref: '#/components/schemas/FixedPointCount'
+          nullable: true
+          description: String representation of the target size (liquidity only)
+        ends:
+          type: string
+          format: date-time
+          nullable: true
+          x-omitempty: false
+          description: When the schedule stops (exclusive); null when it has no end
+        description:
+          type: string
+          description: Plain text description of the schedule
+        all_markets:
+          type: boolean
+          description: A promise that every market the schedule covers, including markets listed later, gets these terms window after window, from posted_ts until ends. When false the schedule is anticipated, not promised.
+        posted_ts:
+          type: string
+          format: date-time
+          description: When the schedule was first published on its current terms
+        updated_ts:
+          type: string
+          format: date-time
+          description: When the schedule was last published
 
     GetTradesResponse:
       type: object
@@ -8850,7 +9663,7 @@ components:
           description: Expiration time of the proposal
         status:
           type: string
-          description: Current status of the proposal
+          description: 'Current status of the proposal: pending, executed, cancelled (by the proposer, or on expiry) or rejected (by a counterparty)'
         created_ts:
           type: string
           format: date-time
@@ -8986,13 +9799,13 @@ components:
       properties:
         subtrader_id:
           type: string
-          description: Subtrader ID to accept as. Provide either this or subaccount, not both.
+          description: Subtrader ID to book your side onto. It may differ from the one the proposal named. Omit both this and subaccount to keep the proposal's. Provide either this or subaccount, not both.
           x-go-type-skip-optional-pointer: true
         subaccount:
           type: integer
           minimum: 0
           maximum: 63
-          description: User-managed subaccount number to accept as (0 for primary, 1-63 for numbered subaccounts). Provide either this or subtrader_id, not both.
+          description: User-managed subaccount number to book your side onto (0 for primary, 1-63 for numbered subaccounts). It may differ from the one the proposal named. Omit both this and subtrader_id to keep the proposal's. Provide either this or subtrader_id, not both.
 
     RFQ:
       type: object
@@ -9145,7 +9958,7 @@ components:
           description: Whether to rest the remainder of the RFQ after execution
         replace_existing:
           type: boolean
-          description: Whether to delete existing RFQs as part of this RFQ's creation
+          description: Whether to close your older open RFQs to make room for this one. When true, the oldest open RFQs on the subaccount are closed, on any market, until at most two remain open including this one. An RFQ with a confirmed quote, or with an accepted quote still inside its confirmation window, is never closed, so the RFQ that stays open is not always the newest. If too few RFQs can be closed, the request fails with `expired`. It also skips the one-open-RFQ-per-market check.
           default: false
           x-go-type-skip-optional-pointer: true
         subtrader_id:
@@ -10158,6 +10971,7 @@ components:
             validate: required,min=1
         client_order_id:
           type: string
+          description: 'Optional client-assigned ID, up to 64 characters from letters, digits and `_ - : + = /`. It must be unique per subaccount on the market''s exchange shard while the order is open. See [Order Errors](/getting_started/order_errors#client-order-ids).'
           x-go-type-skip-optional-pointer: true
         side:
           $ref: '#/components/schemas/BookSide'
@@ -10678,24 +11492,24 @@ components:
           type: array
           items:
             type: string
-          description: '[DEPRECATED - Use associated_events instead] A list of events associated with the collection. Markets in these events can be passed as inputs to the Lookup and Create endpoints.'
+          description: '[DEPRECATED - Use associated_events instead] A list of events associated with the collection. Markets in these events can be passed as inputs to the Create endpoint.'
         is_ordered:
           type: boolean
-          description: Whether the collection is ordered. If true, the order of markets passed into Lookup/Create affects the output. If false, the order does not matter.
+          description: Whether the collection is ordered. If true, the order of markets passed into Create affects the output. If false, the order does not matter.
         is_single_market_per_event:
           type: boolean
-          description: '[DEPRECATED - Use associated_events instead] Whether the collection accepts multiple markets from the same event passed into Lookup/Create.'
+          description: '[DEPRECATED - Use associated_events instead] Whether the collection accepts multiple markets from the same event passed into Create.'
         is_all_yes:
           type: boolean
           description: '[DEPRECATED - Use associated_events instead] Whether the collection requires that only the market side of ''yes'' may be used.'
         size_min:
           type: integer
           format: int32
-          description: The minimum number of markets that must be passed into Lookup/Create (inclusive).
+          description: The minimum number of markets that must be passed into Create (inclusive).
         size_max:
           type: integer
           format: int32
-          description: The maximum number of markets that must be passed into Lookup/Create (inclusive).
+          description: The maximum number of markets that must be passed into Create (inclusive).
         functional_description:
           type: string
           description: A functional description of the collection describing how inputs affect the output.
@@ -10783,6 +11597,740 @@ components:
         market:
           $ref: '#/components/schemas/Market'
           description: Market payload of the created market.
+    WeatherPointVariable:
+      type: string
+      enum:
+        - precip_hours
+        - precip_total
+        - max_temp
+        - min_temp
+      description: |
+        What a weather point market measures over its window, and the unit
+        and allowed range of its thresholds:
+        - `precip_hours`: number of whole hours with at least 0.01 inch of
+          precipitation. Whole hours, 0 to the length of the window.
+        - `precip_total`: total precipitation. Hundredths of an inch, 0 to
+          2000 (so 25 is 0.25 inch).
+        - `max_temp`: highest temperature. Whole °F, -80 to 140.
+        - `min_temp`: lowest temperature. Whole °F, -80 to 140.
+
+    CreateWeatherPointMarketRequest:
+      type: object
+      required:
+        - latitude
+        - longitude
+        - variable
+        - strike_type
+        - date
+        - start_hour
+        - end_hour
+        - timezone
+      properties:
+        latitude:
+          type: number
+          format: double
+          description: Latitude of the location in degrees.
+          example: 40.785
+          # A pointer, so that 0 is told apart from a missing field.
+          x-go-type: '*float64'
+          x-oapi-codegen-extra-tags:
+            validate: required,gte=-90,lte=90
+        longitude:
+          type: number
+          format: double
+          description: Longitude of the location in degrees.
+          example: -73.965
+          x-go-type: '*float64'
+          x-oapi-codegen-extra-tags:
+            validate: required,gte=-180,lte=180
+        variable:
+          $ref: '#/components/schemas/WeatherPointVariable'
+        strike_type:
+          type: string
+          enum:
+            - greater
+            - less
+            - between
+          # Named so the generated constants don't collide with Market's
+          # strike_type values.
+          x-enum-varnames:
+            - WeatherPointStrikeGreater
+            - WeatherPointStrikeLess
+            - WeatherPointStrikeBetween
+          description: |
+            How the measured value is compared to the thresholds:
+            `greater` settles Yes strictly above `floor_value`, `less`
+            strictly below `cap_value`, and `between` from `floor_value` to
+            `cap_value` inclusive.
+          x-oapi-codegen-extra-tags:
+            validate: required,oneof=greater less between
+        floor_value:
+          type: integer
+          format: int32
+          description: Lower threshold, in the variable's unit. Required for `greater` and `between`, and must be left out for `less`. For `precip_hours` with `greater` it must be below the number of hours in the window.
+        cap_value:
+          type: integer
+          format: int32
+          description: Upper threshold, in the variable's unit. Required for `less` and `between`, and must be left out for `greater`. For the precipitation variables with `less` it must be above 0. For `between` it must not be below `floor_value`.
+        date:
+          type: string
+          description: Local calendar date the window starts on, as YYYY-MM-DD in `timezone`.
+          example: '2026-11-11'
+          x-oapi-codegen-extra-tags:
+            validate: required,datetime=2006-01-02
+        end_date:
+          type: string
+          description: Local calendar date the window ends on, as YYYY-MM-DD in `timezone`. Leave it out, or repeat `date`, for a window within one day. Set it to the day after `date` for a window that crosses midnight in `timezone`; `end_hour` is then read on this date, and the window is at most 24 hours long. Any other date is refused. Whether a window across midnight is offered (`max_window_days` 2 in availability) doesn't go by this field. For a market that starts a new event it goes by the dates at the market's location; where `max_window_days` is 1, a request with `end_date` is accepted when the window lies within one date at the location, and one without it is refused when the window crosses midnight there. A threshold added to an event that already exists goes by the dates that event stores, which on an older event are those of its first request.
+          example: '2026-11-12'
+          x-oapi-codegen-extra-tags:
+            validate: omitempty,datetime=2006-01-02
+        start_hour:
+          type: integer
+          format: int32
+          minimum: 0
+          maximum: 23
+          description: First local hour of the window (0-23).
+          x-go-type: '*int32'
+          x-oapi-codegen-extra-tags:
+            validate: required,gte=0,lte=23
+        end_hour:
+          type: integer
+          format: int32
+          minimum: 1
+          maximum: 24
+          description: Local hour the window ends at, exclusive (1-24). Within one day it must be after `start_hour`; 24 is the following midnight, so 0 to 24 is the whole day. With `end_date` the day after `date` it is an hour of that day and must not be after `start_hour`, so 23 to 3 is 11pm to 3am and 8 to 8 is 24 hours.
+          x-go-type: '*int32'
+          x-oapi-codegen-extra-tags:
+            validate: required,gte=1,lte=24
+        timezone:
+          type: string
+          description: IANA time zone that `date`, `end_date` and the hours are read in. It only says which span of time they mean, and needn't be the location's; the market's title and rules are written in the location's own time zone, whatever is sent here. The window must start and end on whole UTC hours, so zones offset by a fraction of an hour are refused.
+          example: America/New_York
+          x-oapi-codegen-extra-tags:
+            validate: required
+
+    CreateWeatherPointMarketResponse:
+      type: object
+      required:
+        - event_ticker
+        - market_ticker
+        - created
+        - latitude
+        - longitude
+      properties:
+        event_ticker:
+          type: string
+          description: Event ticker of the market.
+        market_ticker:
+          type: string
+          description: Market ticker of the market.
+          example: KXRFQRAINHOURS-40785N73965W-26NOV1105Z-24H-G2
+        created:
+          type: boolean
+          description: False when a market for the same request already existed.
+        latitude:
+          type: number
+          format: double
+          description: Latitude of the market's location, the requested latitude to three decimal places.
+        longitude:
+          type: number
+          format: double
+          description: Longitude of the market's location, the requested longitude to three decimal places.
+
+    WeatherPointDomain:
+      type: object
+      required:
+        - name
+        - north
+        - south
+        - west
+        - east
+      properties:
+        name:
+          type: string
+          description: Domain name, such as `conus`.
+        north:
+          type: number
+          format: double
+          description: Northernmost grid cell center, in degrees latitude.
+        south:
+          type: number
+          format: double
+          description: Southernmost grid cell center, in degrees latitude.
+        west:
+          type: number
+          format: double
+          description: Westernmost grid cell center, in degrees longitude.
+        east:
+          type: number
+          format: double
+          description: Easternmost grid cell center, in degrees longitude.
+
+    WeatherPointVariableAvailability:
+      type: object
+      required:
+        - variable
+        - domains
+      properties:
+        variable:
+          $ref: '#/components/schemas/WeatherPointVariable'
+        domains:
+          type: array
+          items:
+            type: string
+          description: Names of the domains new markets of this variable may be created in.
+
+    GetWeatherPointAvailabilityResponse:
+      type: object
+      required:
+        - enabled
+        - domains
+        - variables
+        - max_window_days
+        - max_window_hours
+      properties:
+        enabled:
+          type: boolean
+          description: Whether weather point markets can be created at all.
+        domains:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeatherPointDomain'
+          description: The NOAA MRMS domains a location may lie in.
+        variables:
+          type: array
+          items:
+            $ref: '#/components/schemas/WeatherPointVariableAvailability'
+          description: The variables on offer and where. A variable left out can't be created.
+        max_window_days:
+          type: integer
+          format: int32
+          description: How many local calendar days a new market's window may touch. 2 means a window may cross midnight into the next day (`end_date` on the create request); anything less means it must start and end on one day. Every offered variable follows it.
+          example: 2
+        max_window_hours:
+          type: integer
+          format: int32
+          description: The longest window that crosses midnight, in hours. A window within one day can be the whole day, which lasts 25 hours when clocks go back.
+          example: 24
+
+    ConcertCover:
+      type: string
+      enum:
+        - postponed
+        - cancelled
+        - either
+      # Named so the generated constants don't collide with status values.
+      x-enum-varnames:
+        - ConcertCoverPostponed
+        - ConcertCoverCancelled
+        - ConcertCoverEither
+      description: |
+        What a concert cancellation market pays on, read from the show's
+        listing after its scheduled date has ended:
+        - `postponed`: Yes when the show is listed as postponed, or as taking
+          place on any other date. A show listed as canceled resolves to No.
+        - `cancelled`: Yes when the show is listed as canceled.
+        - `either`: Yes in both of those cases.
+
+    CreateConcertCancellationMarketRequest:
+      type: object
+      required:
+        - jambase_event_id
+        - scheduled_date
+        - cover
+      properties:
+        jambase_event_id:
+          type: string
+          description: The show, as `jambase:<id>`, from the concert listing or search.
+          example: jambase:16543035
+          x-oapi-codegen-extra-tags:
+            validate: required
+        scheduled_date:
+          type: string
+          description: The venue-local date the show is scheduled for, as YYYY-MM-DD. It must match the show's current listing.
+          example: '2026-11-20'
+          x-oapi-codegen-extra-tags:
+            validate: required,datetime=2006-01-02
+        cover:
+          $ref: '#/components/schemas/ConcertCover'
+
+    CreateConcertCancellationMarketResponse:
+      type: object
+      required:
+        - cover
+        - event_ticker
+        - market_ticker
+        - created
+      properties:
+        cover:
+          $ref: '#/components/schemas/ConcertCover'
+        event_ticker:
+          type: string
+          description: Event ticker of the market.
+          example: KXRFQCONCERTP-JB16543035-26NOV20
+        market_ticker:
+          type: string
+          description: Market ticker of the market.
+          example: KXRFQCONCERTP-JB16543035-26NOV20-PPD
+        created:
+          type: boolean
+          description: False when a market for the same request already existed.
+
+    ConcertMetro:
+      type: object
+      required:
+        - id
+        - name
+        - upcoming_shows
+      properties:
+        id:
+          type: string
+          description: Metro id to pass as `metro_id` when listing concerts.
+          example: jambase:1
+        name:
+          type: string
+          description: Metro name.
+          example: New York
+        latitude:
+          type: number
+          format: double
+          description: Latitude of the metro's center. Left out when unknown.
+        longitude:
+          type: number
+          format: double
+          description: Longitude of the metro's center. Left out when unknown.
+        upcoming_shows:
+          type: integer
+          format: int32
+          description: Upcoming shows listed in the metro, within the request's dates when given. 0 when no count is available.
+          x-omitempty: false
+
+    GetConcertCancellationAvailabilityResponse:
+      type: object
+      required:
+        - enabled
+        - covers
+        - max_days_ahead
+        - metros
+      properties:
+        enabled:
+          type: boolean
+          description: >-
+            Whether concert cancellation markets are listed. It doesn't promise that they can be created:
+            where concerts are listed before markets are offered, it is true and every create request
+            returns 409.
+        covers:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConcertCover'
+          description: The covers on offer. A cover left out can't be created.
+        max_days_ahead:
+          type: integer
+          format: int32
+          description: How many days ahead a show may be scheduled for a new market.
+        metros:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConcertMetro'
+          description: The metros whose concerts are listed.
+
+    ConcertMarket:
+      type: object
+      required:
+        - cover
+        - event_ticker
+        - market_ticker
+      properties:
+        cover:
+          $ref: '#/components/schemas/ConcertCover'
+        event_ticker:
+          type: string
+          description: Event ticker the show has or would get for this cover.
+        market_ticker:
+          type: string
+          description: Market ticker the show has or would get for this cover. The market may not exist yet.
+
+    Concert:
+      type: object
+      required:
+        - jambase_event_id
+        - name
+        - lineup
+        - venue_name
+        - timezone
+        - scheduled_date
+        - markets
+      properties:
+        jambase_event_id:
+          type: string
+          description: The show's id, as `jambase:<id>`.
+          example: jambase:16543035
+        name:
+          type: string
+          description: The show's name as listed.
+        headliner:
+          type: string
+          description: The top-billed act. Left out when the listing names none.
+        lineup:
+          type: array
+          items:
+            type: string
+          description: The acts on the bill, in billing order.
+        venue_name:
+          type: string
+          description: The venue's name.
+        city:
+          type: string
+          description: The venue's city.
+        region:
+          type: string
+          description: The venue's state or region.
+        country:
+          type: string
+          description: The venue's country code.
+        timezone:
+          type: string
+          description: IANA time zone of the venue, which `scheduled_date` and `start_time` are local to.
+          example: America/New_York
+        scheduled_date:
+          type: string
+          description: The venue-local date the show is scheduled for, as YYYY-MM-DD.
+          example: '2026-11-20'
+        start_time:
+          type: string
+          description: Venue-local start time with no UTC offset, as YYYY-MM-DDTHH:MM:SS. Left out while only the date is announced.
+          example: '2026-11-20T20:00:00'
+        latitude:
+          type: number
+          format: double
+          description: Latitude of the venue. Left out when unknown.
+        longitude:
+          type: number
+          format: double
+          description: Longitude of the venue. Left out when unknown.
+        url:
+          type: string
+          description: The show's listing page.
+        markets:
+          type: array
+          items:
+            $ref: '#/components/schemas/ConcertMarket'
+          description: One entry per offered cover.
+
+    GetConcertsResponse:
+      type: object
+      required:
+        - concerts
+        - page
+        - total_pages
+      properties:
+        concerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Concert'
+        page:
+          type: integer
+          format: int32
+          description: The page returned.
+        total_pages:
+          type: integer
+          format: int32
+          description: Pages available for this metro and these dates.
+          x-omitempty: false
+
+    SearchConcertsResponse:
+      type: object
+      required:
+        - concerts
+      properties:
+        concerts:
+          type: array
+          items:
+            $ref: '#/components/schemas/Concert'
+
+    FlightCover:
+      type: string
+      enum:
+        - cancelled
+        - delayed
+        - either
+      # Named so the generated constants don't collide with status values.
+      x-enum-varnames:
+        - FlightCoverCancelled
+        - FlightCoverDelayed
+        - FlightCoverEither
+      description: |
+        What a flight disruption market pays on, read from the flight's
+        status after it was scheduled to arrive:
+        - `cancelled`: Yes when the flight is canceled.
+        - `delayed`: Yes when the flight operates and is at least
+          `delay_minutes` late on its `delay_basis`. A canceled flight
+          resolves to No.
+        - `either`: Yes in both of those cases.
+
+    FlightDelayBasis:
+      type: string
+      enum:
+        - departure
+        - arrival
+      x-enum-varnames:
+        - FlightDelayBasisDeparture
+        - FlightDelayBasisArrival
+      description: |
+        Which gate time a delay is measured at:
+        - `departure`: the actual gate departure against the published
+          departure.
+        - `arrival`: the actual gate arrival against the published arrival.
+
+    CreateFlightDisruptionMarketRequest:
+      type: object
+      required:
+        - carrier
+        - flight_number
+        - departure_airport
+        - arrival_airport
+        - scheduled_date
+        - cover
+      properties:
+        carrier:
+          type: string
+          description: The operating carrier's 2-character code, from the flight lookup.
+          example: AA
+          x-oapi-codegen-extra-tags:
+            validate: required,alphanum,len=2
+        flight_number:
+          type: string
+          description: The operating carrier's flight number, 1 to 4 digits, from the flight lookup.
+          example: '100'
+          x-oapi-codegen-extra-tags:
+            validate: required,number,max=4
+        departure_airport:
+          type: string
+          description: The departure airport's 3-letter code.
+          example: JFK
+          x-oapi-codegen-extra-tags:
+            validate: required,alpha,len=3
+        arrival_airport:
+          type: string
+          description: The arrival airport's 3-letter code.
+          example: LHR
+          x-oapi-codegen-extra-tags:
+            validate: required,alpha,len=3
+        scheduled_date:
+          type: string
+          description: The scheduled departure date at the departure airport, as YYYY-MM-DD.
+          example: '2026-11-25'
+          x-oapi-codegen-extra-tags:
+            validate: required,datetime=2006-01-02
+        cover:
+          $ref: '#/components/schemas/FlightCover'
+        delay_basis:
+          $ref: '#/components/schemas/FlightDelayBasis'
+        delay_minutes:
+          type: integer
+          format: int32
+          description: The delay, in minutes, at which the market pays. Required for the `delayed` and `either` covers and left out for `cancelled`. A multiple of the availability's `delay_step_minutes`, up to its `max_delay_minutes`.
+          example: 120
+          x-oapi-codegen-extra-tags:
+            validate: omitempty,min=1
+
+    CreateFlightDisruptionMarketResponse:
+      type: object
+      required:
+        - cover
+        - event_ticker
+        - market_ticker
+        - created
+      properties:
+        cover:
+          $ref: '#/components/schemas/FlightCover'
+        delay_basis:
+          $ref: '#/components/schemas/FlightDelayBasis'
+        delay_minutes:
+          type: integer
+          format: int32
+          description: The market's delay threshold in minutes. Left out for the `cancelled` cover.
+          example: 120
+        event_ticker:
+          type: string
+          description: Event ticker of the market.
+          example: KXRFQFLIGHTD-AA100-JFKLHR-26NOV25
+        market_ticker:
+          type: string
+          description: Market ticker of the market.
+          example: KXRFQFLIGHTD-AA100-JFKLHR-26NOV25-DEP120
+        created:
+          type: boolean
+          description: False when a market for the same request already existed.
+
+    GetFlightDisruptionAvailabilityResponse:
+      type: object
+      required:
+        - enabled
+        - covers
+        - delay_bases
+        - delay_step_minutes
+        - max_delay_minutes
+        - max_days_ahead
+        - min_lead_minutes
+        - departure_countries
+      properties:
+        enabled:
+          type: boolean
+          description: Whether flight disruption markets can be created at all.
+        covers:
+          type: array
+          items:
+            $ref: '#/components/schemas/FlightCover'
+          description: The covers on offer. A cover left out can't be created.
+        delay_bases:
+          type: array
+          items:
+            $ref: '#/components/schemas/FlightDelayBasis'
+          description: The delay bases on offer for the `delayed` and `either` covers.
+        delay_step_minutes:
+          type: integer
+          format: int32
+          description: A market's `delay_minutes` is a multiple of this, from one step up to `max_delay_minutes`.
+          example: 30
+        max_delay_minutes:
+          type: integer
+          format: int32
+          description: The largest `delay_minutes` a market may use.
+          example: 360
+        max_days_ahead:
+          type: integer
+          format: int32
+          description: How many days ahead a flight may be scheduled for a new market.
+        min_lead_minutes:
+          type: integer
+          format: int32
+          description: A new market's flight must be scheduled to leave more than this many minutes from now.
+        departure_countries:
+          type: array
+          items:
+            type: string
+          description: ISO country codes a flight must depart from, such as `US`. An empty list means every country is offered.
+
+    FlightCoverEvent:
+      type: object
+      required:
+        - cover
+        - series_ticker
+        - event_ticker
+      properties:
+        cover:
+          $ref: '#/components/schemas/FlightCover'
+        series_ticker:
+          type: string
+          description: Series ticker of the cover.
+          example: KXRFQFLIGHTD
+        event_ticker:
+          type: string
+          description: Event ticker the flight has or would get for this cover. It holds every market of the cover for the flight.
+          example: KXRFQFLIGHTD-AA100-JFKLHR-26NOV25
+        market_ticker:
+          type: string
+          description: Market ticker of the `cancelled` cover's one market. Left out for `delayed` and `either`, whose market tickers depend on the delay requested. The market may not exist yet.
+          example: KXRFQFLIGHTC-AA100-JFKLHR-26NOV25-CXL
+
+    Flight:
+      type: object
+      required:
+        - carrier
+        - flight_number
+        - departure_airport
+        - arrival_airport
+        - scheduled_date
+        - events
+      properties:
+        carrier:
+          type: string
+          description: The operating carrier's 2-character code.
+          example: AA
+        flight_number:
+          type: string
+          description: The operating carrier's flight number.
+          example: '100'
+        airline_name:
+          type: string
+          description: The operating carrier's name.
+        departure_airport:
+          type: string
+          description: The departure airport's 3-letter code.
+          example: JFK
+        departure_airport_name:
+          type: string
+          description: The departure airport's name.
+        departure_city:
+          type: string
+          description: The departure airport's city.
+        departure_country:
+          type: string
+          description: The departure airport's ISO country code.
+        departure_timezone:
+          type: string
+          description: IANA time zone of the departure airport, which `scheduled_date` is local to.
+          example: America/New_York
+        arrival_airport:
+          type: string
+          description: The arrival airport's 3-letter code.
+          example: LHR
+        arrival_airport_name:
+          type: string
+          description: The arrival airport's name.
+        arrival_city:
+          type: string
+          description: The arrival airport's city.
+        arrival_country:
+          type: string
+          description: The arrival airport's ISO country code.
+        arrival_timezone:
+          type: string
+          description: IANA time zone of the arrival airport.
+          example: Europe/London
+        scheduled_date:
+          type: string
+          description: The scheduled departure date at the departure airport, as YYYY-MM-DD.
+          example: '2026-11-25'
+        scheduled_departure:
+          type: string
+          format: date-time
+          description: The published departure time, in UTC.
+        scheduled_arrival:
+          type: string
+          format: date-time
+          description: The published arrival time, in UTC.
+        close_time:
+          type: string
+          format: date-time
+          description: When the flight's markets close, which is its scheduled departure.
+        settle_after:
+          type: string
+          format: date-time
+          description: The earliest the flight's status is read to determine its markets.
+        events:
+          type: array
+          items:
+            $ref: '#/components/schemas/FlightCoverEvent'
+          description: One entry per offered cover.
+        requested_carrier:
+          type: string
+          description: The carrier code the lookup asked for, when it is a codeshare number and not the operating flight's. Left out otherwise.
+        requested_flight_number:
+          type: string
+          description: The flight number the lookup asked for, when it is a codeshare number and not the operating flight's. Left out otherwise.
+
+    GetFlightsResponse:
+      type: object
+      required:
+        - flights
+      properties:
+        flights:
+          type: array
+          items:
+            $ref: '#/components/schemas/Flight'
+
     # Market Orderbook schemas
     PriceLevelDollarsCountFp:
       type: array
@@ -11394,6 +12942,7 @@ components:
         market_type:
           type: string
           enum: [binary, scalar]
+          x-enumNames: [MarketMarketTypeBinary, MarketMarketTypeScalar]
           description: Identifies the type of market
         title:
           type: string
@@ -11429,12 +12978,9 @@ components:
           format: date-time
           nullable: true
           x-omitempty: true
-          description: Time when this market is expected to expire
-        expiration_time:
-          type: string
-          format: date-time
-          deprecated: true
-          x-go-type-skip-optional-pointer: true
+          description: >-
+            Time when this market is expected to expire. Never later than
+            `latest_expiration_time`.
         latest_expiration_time:
           type: string
           format: date-time

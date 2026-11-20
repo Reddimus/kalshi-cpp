@@ -39,3 +39,16 @@ TEST(FixedPoint, HandlesSignedCountsAndRejectsInvalidOrOverflowingValues) {
 	ASSERT_TRUE(huge.has_value());
 	EXPECT_FALSE(huge->scaled_integer(2).has_value());
 }
+
+TEST(FixedPoint, AMovedFromValueFailsToConvert) {
+	kalshi::FixedPoint value = kalshi::FixedPoint::parse("12345678901234567890.5").value();
+	const kalshi::FixedPoint moved = std::move(value);
+	EXPECT_EQ(moved.wire(), "12345678901234567890.5");
+	// A moved-from heap string is empty in libstdc++, libc++, and MSVC's STL.
+	// NOLINTBEGIN(bugprone-use-after-move): moved-from must stay safe
+	ASSERT_TRUE(value.wire().empty());
+	const kalshi::Result<std::int64_t> converted = value.scaled_integer(2);
+	// NOLINTEND(bugprone-use-after-move)
+	ASSERT_FALSE(converted.has_value());
+	EXPECT_EQ(converted.error().code, kalshi::ErrorCode::InvalidRequest);
+}

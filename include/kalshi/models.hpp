@@ -125,6 +125,29 @@ enum class BookSide : std::uint8_t {
 	return "";
 }
 
+/// What a concert cancellation market pays on, read from the show's listing after its scheduled
+/// date has ended
+enum class ConcertCover : std::uint8_t {
+	Unknown,   ///< A value this SDK version does not know.
+	Postponed, ///< `postponed`
+	Cancelled, ///< `cancelled`
+	Either,	   ///< `either`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(ConcertCover value) noexcept {
+	switch (value) {
+		case ConcertCover::Postponed:
+			return "postponed";
+		case ConcertCover::Cancelled:
+			return "cancelled";
+		case ConcertCover::Either:
+			return "either";
+		case ConcertCover::Unknown:
+			break;
+	}
+	return "";
+}
+
 /// Credit processing status.
 enum class CreditHistoryStatus : std::uint8_t {
 	Unknown, ///< `unknown`, or a value this SDK version does not know.
@@ -266,6 +289,48 @@ enum class FeeType : std::uint8_t {
 		case FeeType::Flat:
 			return "flat";
 		case FeeType::Unknown:
+			break;
+	}
+	return "";
+}
+
+/// What a flight disruption market pays on, read from the flight's status after it was
+/// scheduled to arrive
+enum class FlightCover : std::uint8_t {
+	Unknown,   ///< A value this SDK version does not know.
+	Cancelled, ///< `cancelled`
+	Delayed,   ///< `delayed`
+	Either,	   ///< `either`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(FlightCover value) noexcept {
+	switch (value) {
+		case FlightCover::Cancelled:
+			return "cancelled";
+		case FlightCover::Delayed:
+			return "delayed";
+		case FlightCover::Either:
+			return "either";
+		case FlightCover::Unknown:
+			break;
+	}
+	return "";
+}
+
+/// Which gate time a delay is measured at
+enum class FlightDelayBasis : std::uint8_t {
+	Unknown,   ///< A value this SDK version does not know.
+	Departure, ///< `departure`
+	Arrival,   ///< `arrival`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(FlightDelayBasis value) noexcept {
+	switch (value) {
+		case FlightDelayBasis::Departure:
+			return "departure";
+		case FlightDelayBasis::Arrival:
+			return "arrival";
+		case FlightDelayBasis::Unknown:
 			break;
 	}
 	return "";
@@ -458,6 +523,25 @@ enum class IncentiveProgramIncentiveType : std::uint8_t {
 		case IncentiveProgramIncentiveType::MarginTakerVolume:
 			return "margin_taker_volume";
 		case IncentiveProgramIncentiveType::Unknown:
+			break;
+	}
+	return "";
+}
+
+/// Type of the incentives the schedule creates
+enum class IncentiveScheduleIncentiveType : std::uint8_t {
+	Unknown,   ///< A value this SDK version does not know.
+	Liquidity, ///< `liquidity`
+	Volume,	   ///< `volume`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(IncentiveScheduleIncentiveType value) noexcept {
+	switch (value) {
+		case IncentiveScheduleIncentiveType::Liquidity:
+			return "liquidity";
+		case IncentiveScheduleIncentiveType::Volume:
+			return "volume";
+		case IncentiveScheduleIncentiveType::Unknown:
 			break;
 	}
 	return "";
@@ -825,6 +909,7 @@ enum class SettlementMarketResult : std::uint8_t {
 	Yes,	 ///< `yes`
 	No,		 ///< `no`
 	Scalar,	 ///< `scalar`
+	Unset,	 ///< empty string
 };
 
 [[nodiscard]] constexpr std::string_view to_string(SettlementMarketResult value) noexcept {
@@ -835,14 +920,16 @@ enum class SettlementMarketResult : std::uint8_t {
 			return "no";
 		case SettlementMarketResult::Scalar:
 			return "scalar";
+		case SettlementMarketResult::Unset:
+			return "";
 		case SettlementMarketResult::Unknown:
 			break;
 	}
 	return "";
 }
 
-/// Return unsettled positions by default, settled positions that have not yet been archived, or
-/// all positions in the live data set.
+/// Filters settlement state, not trading status: `unsettled` (default), `settled` (not yet
+/// archived), or `all` (both live states).
 enum class SettlementStatus : std::uint8_t {
 	Unknown,   ///< A value this SDK version does not know.
 	Unsettled, ///< `unsettled`
@@ -993,12 +1080,63 @@ enum class UserFilter : std::uint8_t {
 	return "";
 }
 
+/// How the measured value is compared to the thresholds: `greater` settles Yes strictly above
+/// `floor_value`, `less` strictly below `cap_value`, and `between` from `floor_value` to
+/// `cap_value` inclusive.
+enum class WeatherPointStrikeType : std::uint8_t {
+	Unknown, ///< A value this SDK version does not know.
+	Greater, ///< `greater`
+	Less,	 ///< `less`
+	Between, ///< `between`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(WeatherPointStrikeType value) noexcept {
+	switch (value) {
+		case WeatherPointStrikeType::Greater:
+			return "greater";
+		case WeatherPointStrikeType::Less:
+			return "less";
+		case WeatherPointStrikeType::Between:
+			return "between";
+		case WeatherPointStrikeType::Unknown:
+			break;
+	}
+	return "";
+}
+
+/// What a weather point market measures over its window, and the unit and allowed range of its
+/// thresholds
+enum class WeatherPointVariable : std::uint8_t {
+	Unknown,	 ///< A value this SDK version does not know.
+	PrecipHours, ///< `precip_hours`
+	PrecipTotal, ///< `precip_total`
+	MaxTemp,	 ///< `max_temp`
+	MinTemp,	 ///< `min_temp`
+};
+
+[[nodiscard]] constexpr std::string_view to_string(WeatherPointVariable value) noexcept {
+	switch (value) {
+		case WeatherPointVariable::PrecipHours:
+			return "precip_hours";
+		case WeatherPointVariable::PrecipTotal:
+			return "precip_total";
+		case WeatherPointVariable::MaxTemp:
+			return "max_temp";
+		case WeatherPointVariable::MinTemp:
+			return "min_temp";
+		case WeatherPointVariable::Unknown:
+			break;
+	}
+	return "";
+}
+
 // ----- Models -----------------------------------------------------------
 
 struct AcceptBlockTradeProposalRequest {
-	/// Subtrader ID to accept as.
+	/// Subtrader ID to book your side onto.
 	std::optional<std::string> subtrader_id;
-	/// User-managed subaccount number to accept as (0 for primary, 1-63 for numbered subaccounts).
+	/// User-managed subaccount number to book your side onto (0 for primary, 1-63 for numbered
+	/// subaccounts).
 	std::optional<std::int64_t> subaccount;
 };
 
@@ -1239,6 +1377,8 @@ struct ApiKey {
 	std::string api_key_id;
 	/// User-provided name for the API key
 	std::string name;
+	/// Signing algorithm of this key, derived from its stored public key.
+	std::optional<ApiKeyType> key_type;
 	/// List of scopes granted to this API key.
 	std::vector<ApiKeyScope> scopes;
 	/// If set, the API key is restricted to this single sub-account and may only read and trade on
@@ -1430,6 +1570,7 @@ struct BatchCreateOrdersResponse {
 
 struct CreateOrderV2Request {
 	std::string ticker;
+	/// Optional client-assigned ID, up to 64 characters from letters, digits and `_ - : + = /`.
 	std::optional<std::string> client_order_id;
 	BookSide side{};
 	/// String representation of the order quantity in contracts.
@@ -1589,7 +1730,8 @@ struct BlockTradeProposal {
 	Side maker_side{};
 	/// Expiration time of the proposal
 	std::string expiration_ts;
-	/// Current status of the proposal
+	/// Current status of the proposal: pending, executed, cancelled (by the proposer, or on
+	/// expiry) or rejected (by a counterparty)
 	std::string status;
 	/// Timestamp when the proposal was created
 	std::string created_ts;
@@ -1645,6 +1787,60 @@ struct CancelOrderV2Response {
 	std::int64_t ts_ms{};
 };
 
+struct ConcertMarket {
+	ConcertCover cover{};
+	/// Event ticker the show has or would get for this cover.
+	std::string event_ticker;
+	/// Market ticker the show has or would get for this cover.
+	std::string market_ticker;
+};
+
+struct Concert {
+	/// The show's id, as `jambase:`.
+	std::string jambase_event_id;
+	/// The show's name as listed.
+	std::string name;
+	/// The top-billed act.
+	std::optional<std::string> headliner;
+	/// The acts on the bill, in billing order.
+	std::vector<std::string> lineup;
+	/// The venue's name.
+	std::string venue_name;
+	/// The venue's city.
+	std::optional<std::string> city;
+	/// The venue's state or region.
+	std::optional<std::string> region;
+	/// The venue's country code.
+	std::optional<std::string> country;
+	/// IANA time zone of the venue, which `scheduled_date` and `start_time` are local to.
+	std::string timezone;
+	/// The venue-local date the show is scheduled for, as YYYY-MM-DD.
+	std::string scheduled_date;
+	/// Venue-local start time with no UTC offset, as YYYY-MM-DDTHH:MM:SS.
+	std::optional<std::string> start_time;
+	/// Latitude of the venue.
+	std::optional<double> latitude;
+	/// Longitude of the venue.
+	std::optional<double> longitude;
+	/// The show's listing page.
+	std::optional<std::string> url;
+	/// One entry per offered cover.
+	std::vector<ConcertMarket> markets;
+};
+
+struct ConcertMetro {
+	/// Metro id to pass as `metro_id` when listing concerts.
+	std::string id;
+	/// Metro name.
+	std::string name;
+	/// Latitude of the metro's center.
+	std::optional<double> latitude;
+	/// Longitude of the metro's center.
+	std::optional<double> longitude;
+	/// Upcoming shows listed in the metro, within the request's dates when given.
+	std::int64_t upcoming_shows{};
+};
+
 struct CreateApiKeyRequest {
 	/// Name for the API key.
 	std::string name;
@@ -1665,6 +1861,24 @@ struct CreateApiKeyResponse {
 	/// subtrader risk control - the initial-margin cap (margin lane) or the event-contract daily
 	/// cap.
 	std::optional<std::string> warning;
+};
+
+struct CreateConcertCancellationMarketRequest {
+	/// The show, as `jambase:`, from the concert listing or search.
+	std::string jambase_event_id;
+	/// The venue-local date the show is scheduled for, as YYYY-MM-DD.
+	std::string scheduled_date;
+	ConcertCover cover{};
+};
+
+struct CreateConcertCancellationMarketResponse {
+	ConcertCover cover{};
+	/// Event ticker of the market.
+	std::string event_ticker;
+	/// Market ticker of the market.
+	std::string market_ticker;
+	/// False when a market for the same request already existed.
+	bool created{};
 };
 
 struct CreateFCMPositionTransferRequest {
@@ -1695,6 +1909,36 @@ struct CreateFCMSubtraderRequest {
 struct CreateFCMSubtraderResponse {
 	/// The full id of the created subtrader.
 	std::string subtrader_id;
+};
+
+struct CreateFlightDisruptionMarketRequest {
+	/// The operating carrier's 2-character code, from the flight lookup.
+	std::string carrier;
+	/// The operating carrier's flight number, 1 to 4 digits, from the flight lookup.
+	std::string flight_number;
+	/// The departure airport's 3-letter code.
+	std::string departure_airport;
+	/// The arrival airport's 3-letter code.
+	std::string arrival_airport;
+	/// The scheduled departure date at the departure airport, as YYYY-MM-DD.
+	std::string scheduled_date;
+	FlightCover cover{};
+	std::optional<FlightDelayBasis> delay_basis;
+	/// The delay, in minutes, at which the market pays.
+	std::optional<std::int64_t> delay_minutes;
+};
+
+struct CreateFlightDisruptionMarketResponse {
+	FlightCover cover{};
+	std::optional<FlightDelayBasis> delay_basis;
+	/// The market's delay threshold in minutes.
+	std::optional<std::int64_t> delay_minutes;
+	/// Event ticker of the market.
+	std::string event_ticker;
+	/// Market ticker of the market.
+	std::string market_ticker;
+	/// False when a market for the same request already existed.
+	bool created{};
 };
 
 struct TickerPair {
@@ -1749,9 +1993,8 @@ struct Market {
 	std::string updated_time;
 	std::string open_time;
 	std::string close_time;
-	/// Time when this market is expected to expire
+	/// Time when this market is expected to expire.
 	std::optional<std::string> expected_expiration_time;
-	std::optional<std::string> expiration_time;
 	/// Latest possible time for this market to expire
 	std::string latest_expiration_time;
 	/// The amount of time after determination that the market settles
@@ -1884,6 +2127,7 @@ struct CreateOrderV2Response {
 
 struct CreateOrderWithExitTriggerRequest {
 	std::string ticker;
+	/// Optional client-assigned ID, up to 64 characters from letters, digits and `_ - : + = /`.
 	std::optional<std::string> client_order_id;
 	BookSide side{};
 	/// String representation of the order quantity in contracts.
@@ -2087,7 +2331,7 @@ struct CreateRFQRequest {
 	std::optional<bool> obscure_creator_id;
 	/// Whether to rest the remainder of the RFQ after execution
 	bool rest_remainder{};
-	/// Whether to delete existing RFQs as part of this RFQ's creation
+	/// Whether to close your older open RFQs to make room for this one.
 	std::optional<bool> replace_existing;
 	/// The subtrader to create the RFQ for (FCM members only)
 	std::optional<std::string> subtrader_id;
@@ -2109,6 +2353,45 @@ struct CreateSubaccountRequest {
 struct CreateSubaccountResponse {
 	/// The sequential number assigned to this subaccount (1-63).
 	std::int64_t subaccount_number{};
+};
+
+struct CreateWeatherPointMarketRequest {
+	/// Latitude of the location in degrees.
+	double latitude{};
+	/// Longitude of the location in degrees.
+	double longitude{};
+	WeatherPointVariable variable{};
+	/// How the measured value is compared to the thresholds: `greater` settles Yes strictly above
+	/// `floor_value`, `less` strictly below `cap_value`, and `between` from `floor_value` to
+	/// `cap_value` inclusive.
+	WeatherPointStrikeType strike_type{};
+	/// Lower threshold, in the variable's unit.
+	std::optional<std::int64_t> floor_value;
+	/// Upper threshold, in the variable's unit.
+	std::optional<std::int64_t> cap_value;
+	/// Local calendar date the window starts on, as YYYY-MM-DD in `timezone`.
+	std::string date;
+	/// Local calendar date the window ends on, as YYYY-MM-DD in `timezone`.
+	std::optional<std::string> end_date;
+	/// First local hour of the window (0-23).
+	std::int64_t start_hour{};
+	/// Local hour the window ends at, exclusive (1-24).
+	std::int64_t end_hour{};
+	/// IANA time zone that `date`, `end_date` and the hours are read in.
+	std::string timezone;
+};
+
+struct CreateWeatherPointMarketResponse {
+	/// Event ticker of the market.
+	std::string event_ticker;
+	/// Market ticker of the market.
+	std::string market_ticker;
+	/// False when a market for the same request already existed.
+	bool created{};
+	/// Latitude of the market's location, the requested latitude to three decimal places.
+	double latitude{};
+	/// Longitude of the market's location, the requested longitude to three decimal places.
+	double longitude{};
 };
 
 struct CreditHistory {
@@ -2415,6 +2698,63 @@ struct Fill {
 	std::optional<std::int64_t> ts;
 };
 
+struct FlightCoverEvent {
+	FlightCover cover{};
+	/// Series ticker of the cover.
+	std::string series_ticker;
+	/// Event ticker the flight has or would get for this cover.
+	std::string event_ticker;
+	/// Market ticker of the `cancelled` cover's one market.
+	std::optional<std::string> market_ticker;
+};
+
+struct Flight {
+	/// The operating carrier's 2-character code.
+	std::string carrier;
+	/// The operating carrier's flight number.
+	std::string flight_number;
+	/// The operating carrier's name.
+	std::optional<std::string> airline_name;
+	/// The departure airport's 3-letter code.
+	std::string departure_airport;
+	/// The departure airport's name.
+	std::optional<std::string> departure_airport_name;
+	/// The departure airport's city.
+	std::optional<std::string> departure_city;
+	/// The departure airport's ISO country code.
+	std::optional<std::string> departure_country;
+	/// IANA time zone of the departure airport, which `scheduled_date` is local to.
+	std::optional<std::string> departure_timezone;
+	/// The arrival airport's 3-letter code.
+	std::string arrival_airport;
+	/// The arrival airport's name.
+	std::optional<std::string> arrival_airport_name;
+	/// The arrival airport's city.
+	std::optional<std::string> arrival_city;
+	/// The arrival airport's ISO country code.
+	std::optional<std::string> arrival_country;
+	/// IANA time zone of the arrival airport.
+	std::optional<std::string> arrival_timezone;
+	/// The scheduled departure date at the departure airport, as YYYY-MM-DD.
+	std::string scheduled_date;
+	/// The published departure time, in UTC.
+	std::optional<std::string> scheduled_departure;
+	/// The published arrival time, in UTC.
+	std::optional<std::string> scheduled_arrival;
+	/// When the flight's markets close, which is its scheduled departure.
+	std::optional<std::string> close_time;
+	/// The earliest the flight's status is read to determine its markets.
+	std::optional<std::string> settle_after;
+	/// One entry per offered cover.
+	std::vector<FlightCoverEvent> events;
+	/// The carrier code the lookup asked for, when it is a codeshare number and not the operating
+	/// flight's.
+	std::optional<std::string> requested_carrier;
+	/// The flight number the lookup asked for, when it is a codeshare number and not the operating
+	/// flight's.
+	std::optional<std::string> requested_flight_number;
+};
+
 struct PercentilePoint {
 	/// The percentile value (0-9999).
 	std::int64_t percentile{};
@@ -2524,8 +2864,7 @@ struct GetBalanceResponse {
 	std::int64_t portfolio_value{};
 	/// Unix timestamp of the last update to the balance.
 	std::int64_t updated_ts{};
-	/// User balance breakdown per exchange instance, omitted only when using a subaccount-
-	/// restricted API key.
+	/// Balance for every exchange index, summed across all subaccounts, including zero balances.
 	std::optional<std::vector<IndexedBalance>> balance_breakdown;
 };
 
@@ -2551,6 +2890,46 @@ struct GetBlockTradeProposalsResponse {
 struct GetCommunicationsIDResponse {
 	/// A public communications ID which is used to identify the user
 	std::string communications_id;
+};
+
+/// Query parameters for `get_concert_cancellation_availability`.
+struct GetConcertCancellationAvailabilityParams {
+	/// Count shows from this venue-local date, as YYYY-MM-DD.
+	std::optional<std::string> date_from;
+	/// Count shows up to this venue-local date, inclusive, as YYYY-MM-DD.
+	std::optional<std::string> date_to;
+};
+
+struct GetConcertCancellationAvailabilityResponse {
+	/// Whether concert cancellation markets are listed.
+	bool enabled{};
+	/// The covers on offer.
+	std::vector<ConcertCover> covers;
+	/// How many days ahead a show may be scheduled for a new market.
+	std::int64_t max_days_ahead{};
+	/// The metros whose concerts are listed.
+	std::vector<ConcertMetro> metros;
+};
+
+/// Query parameters for `get_concerts`.
+struct GetConcertsParams {
+	/// One of the metros from `GET /concert_cancellation_markets/availability`, such as
+	/// `jambase:1`.
+	std::string metro_id;
+	/// List shows from this venue-local date, as YYYY-MM-DD.
+	std::optional<std::string> date_from;
+	/// List shows up to this venue-local date, inclusive, as YYYY-MM-DD.
+	std::optional<std::string> date_to;
+	/// Page to return, starting at 1.
+	std::optional<std::int64_t> page;
+};
+
+struct GetConcertsResponse {
+	std::vector<Concert> concerts;
+	/// The page returned.
+	std::int64_t page{};
+	/// Pages available for this metro and these dates.
+	std::int64_t total_pages{};
 };
 
 /// Query parameters for `get_credit_history`.
@@ -2872,7 +3251,7 @@ struct GetFcmSubtraderBlockedCategoriesParams {
 
 /// Query parameters for `get_fills_historical`.
 struct GetFillsHistoricalParams {
-	/// Filter by market ticker
+	/// Filter by market ticker.
 	std::optional<std::string> ticker;
 	/// Filter items after this Unix timestamp
 	std::optional<std::int64_t> min_ts;
@@ -2928,6 +3307,39 @@ struct GetFiltersBySportsResponse {
 	std::map<std::string, SportFilterDetails> filters_by_sports;
 	/// Ordered list of sports for display
 	std::vector<std::string> sport_ordering;
+};
+
+struct GetFlightDisruptionAvailabilityResponse {
+	/// Whether flight disruption markets can be created at all.
+	bool enabled{};
+	/// The covers on offer.
+	std::vector<FlightCover> covers;
+	/// The delay bases on offer for the `delayed` and `either` covers.
+	std::vector<FlightDelayBasis> delay_bases;
+	/// A market's `delay_minutes` is a multiple of this, from one step up to `max_delay_minutes`.
+	std::int64_t delay_step_minutes{};
+	/// The largest `delay_minutes` a market may use.
+	std::int64_t max_delay_minutes{};
+	/// How many days ahead a flight may be scheduled for a new market.
+	std::int64_t max_days_ahead{};
+	/// A new market's flight must be scheduled to leave more than this many minutes from now.
+	std::int64_t min_lead_minutes{};
+	/// ISO country codes a flight must depart from, such as `US`.
+	std::vector<std::string> departure_countries;
+};
+
+/// Query parameters for `get_flights`.
+struct GetFlightsParams {
+	/// The airline's 2-character code, such as `AA`.
+	std::string carrier;
+	/// The flight number without the airline code, 1 to 4 digits, such as `100`.
+	std::string flight_number;
+	/// The scheduled departure date at the departure airport, as YYYY-MM-DD.
+	std::string date;
+};
+
+struct GetFlightsResponse {
+	std::vector<Flight> flights;
 };
 
 struct PlayByPlayPeriodsItem {
@@ -3008,6 +3420,10 @@ struct GetIncentiveProgramsParams {
 	std::optional<GetIncentiveProgramsType> type;
 	/// Filter by exact incentive description.
 	std::optional<std::string> incentive_description;
+	/// Filter to one series' incentives.
+	std::optional<std::string> series_ticker;
+	/// Filter to one event's incentives.
+	std::optional<std::string> event_ticker;
 	/// Number of results per page.
 	std::optional<std::int64_t> limit;
 	/// Cursor for pagination
@@ -3021,6 +3437,10 @@ struct IncentiveProgram {
 	std::string market_id;
 	/// The ticker symbol of the market associated with this incentive program
 	std::string market_ticker;
+	/// The series of the market associated with this incentive program
+	std::optional<std::string> series_ticker;
+	/// The event of the market associated with this incentive program; empty for a perpetual
+	std::optional<std::string> event_ticker;
 	/// Type of incentive program
 	IncentiveProgramIncentiveType incentive_type{};
 	/// Plain text description of the incentive program
@@ -3045,6 +3465,47 @@ struct GetIncentiveProgramsResponse {
 	std::vector<IncentiveProgram> incentive_programs;
 	/// Cursor for pagination to get the next page of results
 	std::optional<std::string> next_cursor;
+};
+
+struct IncentiveSchedule {
+	/// The series the schedule covers
+	std::string series_ticker;
+	/// The series' title
+	std::string series_title;
+	/// The series' category
+	std::string series_category;
+	/// The one event of the series the schedule covers; empty when it covers the whole series
+	std::string event_ticker;
+	/// The event's title; empty when the schedule covers the whole series
+	std::string event_title;
+	/// Type of the incentives the schedule creates
+	IncentiveScheduleIncentiveType incentive_type{};
+	/// The job that publishes the schedule.
+	std::string source;
+	/// What each market earns per window, in centi-cents, as period_reward is on an incentive
+	/// program
+	std::int64_t reward{};
+	/// Days per window; 0 rewards each market once, up to its close
+	std::int64_t window_days{};
+	/// Discount factor in basis points (liquidity only)
+	std::optional<std::int64_t> discount_factor_bps;
+	/// String representation of the target size (liquidity only)
+	std::optional<FixedPointCount> target_size_fp;
+	/// When the schedule stops (exclusive); null when it has no end
+	std::optional<std::string> ends;
+	/// Plain text description of the schedule
+	std::string description;
+	/// A promise that every market the schedule covers, including markets listed later, gets these
+	/// terms window after window, from posted_ts until ends.
+	bool all_markets{};
+	/// When the schedule was first published on its current terms
+	std::string posted_ts;
+	/// When the schedule was last published
+	std::string updated_ts;
+};
+
+struct GetIncentiveSchedulesResponse {
+	std::vector<IncentiveSchedule> schedules;
 };
 
 struct IntraExchangeInstanceTransfer {
@@ -3297,8 +3758,7 @@ struct GetMarketIndexesResponse {
 
 /// Query parameters for `get_market_orderbook`.
 struct GetMarketOrderbookParams {
-	/// Depth of the orderbook to retrieve (0 or negative means all levels, 1-100 for specific
-	/// depth)
+	/// Number of price levels to return per side, counted from the best bid.
 	std::optional<std::int64_t> depth;
 };
 
@@ -3428,14 +3888,14 @@ struct MultivariateEventCollection {
 	/// Whether the collection is ordered.
 	bool is_ordered{};
 	/// [DEPRECATED - Use associated_events instead] Whether the collection accepts multiple
-	/// markets from the same event passed into Lookup/Create.
+	/// markets from the same event passed into Create.
 	bool is_single_market_per_event{};
 	/// [DEPRECATED - Use associated_events instead] Whether the collection requires that only the
 	/// market side of 'yes' may be used.
 	bool is_all_yes{};
-	/// The minimum number of markets that must be passed into Lookup/Create (inclusive).
+	/// The minimum number of markets that must be passed into Create (inclusive).
 	std::int64_t size_min{};
-	/// The maximum number of markets that must be passed into Lookup/Create (inclusive).
+	/// The maximum number of markets that must be passed into Create (inclusive).
 	std::int64_t size_max{};
 	/// A functional description of the collection describing how inputs affect the output.
 	std::string functional_description;
@@ -3607,11 +4067,11 @@ struct GetPositionsParams {
 	std::optional<std::string> cursor;
 	/// Parameter to specify the number of results per page.
 	std::optional<std::int64_t> limit;
-	/// Restricts the positions to those with any of following fields with non-zero values, as a
-	/// comma separated list.
+	/// Comma-separated filters combined with OR: `position` (non-zero net contracts),
+	/// `total_traded` (any contracts traded, including fully exited positions).
 	std::optional<std::string> count_filter;
-	/// Return unsettled positions by default, settled positions that have not yet been archived,
-	/// or all positions in the live data set.
+	/// Filters settlement state, not trading status: `unsettled` (default), `settled` (not yet
+	/// archived), or `all` (both live states).
 	std::optional<SettlementStatus> settlement_status;
 	/// Filter by market ticker
 	std::optional<std::string> ticker;
@@ -3627,11 +4087,14 @@ struct MarketPosition {
 	/// Unique identifier for the market
 	std::string ticker;
 	ExchangeIndex exchange_index{};
-	/// Total spent on this market in dollars
+	/// Total spent trading this market in dollars, including past trades; not the remaining
+	/// position's cost or value.
 	FixedPointDollars total_traded_dollars;
-	/// String representation of the number of contracts bought in this market.
+	/// Signed net contracts as a fixed-point string: positive for YES, negative for NO, zero for
+	/// no net position.
 	FixedPointCount position_fp;
-	/// Cost of the aggregate market position in dollars
+	/// Cost basis of the remaining position in dollars, excluding fees; not current market value
+	/// or realized loss.
 	FixedPointDollars market_exposure_dollars;
 	/// Locked in profit and loss, in dollars
 	FixedPointDollars realized_pnl_dollars;
@@ -4249,6 +4712,38 @@ struct GetWeatherIndexResponse {
 	std::vector<WeatherIndexPoint> timeseries;
 };
 
+struct WeatherPointDomain {
+	/// Domain name, such as `conus`.
+	std::string name;
+	/// Northernmost grid cell center, in degrees latitude.
+	double north{};
+	/// Southernmost grid cell center, in degrees latitude.
+	double south{};
+	/// Westernmost grid cell center, in degrees longitude.
+	double west{};
+	/// Easternmost grid cell center, in degrees longitude.
+	double east{};
+};
+
+struct WeatherPointVariableAvailability {
+	WeatherPointVariable variable{};
+	/// Names of the domains new markets of this variable may be created in.
+	std::vector<std::string> domains;
+};
+
+struct GetWeatherPointAvailabilityResponse {
+	/// Whether weather point markets can be created at all.
+	bool enabled{};
+	/// The NOAA MRMS domains a location may lie in.
+	std::vector<WeatherPointDomain> domains;
+	/// The variables on offer and where.
+	std::vector<WeatherPointVariableAvailability> variables;
+	/// How many local calendar days a new market's window may touch.
+	std::int64_t max_window_days{};
+	/// The longest window that crosses midnight, in hours.
+	std::int64_t max_window_hours{};
+};
+
 /// Query parameters for `get_withdrawals`.
 struct GetWithdrawalsParams {
 	/// Number of results per page.
@@ -4344,6 +4839,16 @@ struct ResetOrderGroupParams {
 	std::optional<std::int64_t> subaccount;
 	/// Identifier for an exchange shard.
 	std::optional<ExchangeIndex> exchange_index;
+};
+
+/// Query parameters for `search_concerts`.
+struct SearchConcertsParams {
+	/// The name to search for, or part of one.
+	std::string q;
+};
+
+struct SearchConcertsResponse {
+	std::vector<Concert> concerts;
 };
 
 /// Query parameters for `set_event_contract_exit_trigger`.

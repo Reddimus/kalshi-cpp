@@ -18,7 +18,7 @@ Result<GetOrdersResponse> KalshiClient::get_orders(const GetOrdersParams& params
 	query.add("subaccount", params.subaccount);
 	query.add("exchange_index", params.exchange_index);
 	return detail::decode<GetOrdersResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_orders"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_orders"));
 }
 
 Result<Order> KalshiClient::get_order(std::string_view order_id) {
@@ -26,8 +26,8 @@ Result<Order> KalshiClient::get_order(std::string_view order_id) {
 	if (!target) {
 		return std::unexpected(std::move(target.error()));
 	}
-	Result<GetOrderResponse> response =
-		detail::decode<GetOrderResponse>(impl_->send(HttpMethod::GET, *target, {}, "get_order"));
+	Result<GetOrderResponse> response = detail::decode<GetOrderResponse>(
+		Impl::send(impl_.get(), HttpMethod::GET, *target, {}, "get_order"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -41,8 +41,8 @@ KalshiClient::get_order_queue_positions(const GetOrderQueuePositionsParams& para
 	query.add("event_ticker", params.event_ticker);
 	query.add("subaccount", params.subaccount);
 	Result<GetOrderQueuePositionsResponse> response =
-		detail::decode<GetOrderQueuePositionsResponse>(
-			impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_order_queue_positions"));
+		detail::decode<GetOrderQueuePositionsResponse>(Impl::send(
+			impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_order_queue_positions"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -56,7 +56,7 @@ Result<FixedPointCount> KalshiClient::get_order_queue_position(std::string_view 
 		return std::unexpected(std::move(target.error()));
 	}
 	Result<GetOrderQueuePositionResponse> response = detail::decode<GetOrderQueuePositionResponse>(
-		impl_->send(HttpMethod::GET, *target, {}, "get_order_queue_position"));
+		Impl::send(impl_.get(), HttpMethod::GET, *target, {}, "get_order_queue_position"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -67,16 +67,16 @@ Result<CreateOrderV2Response> KalshiClient::create_order(const CreateOrderV2Requ
 	if (Result<void> valid = detail::validate(body); !valid) {
 		return std::unexpected(std::move(valid.error()));
 	}
-	return detail::decode<CreateOrderV2Response>(
-		impl_->send(HttpMethod::POST, std::string{"/portfolio/events/orders"}, detail::encode(body),
-					"create_order"));
+	return detail::decode<CreateOrderV2Response>(Impl::send(impl_.get(), HttpMethod::POST,
+															std::string{"/portfolio/events/orders"},
+															detail::encode(body), "create_order"));
 }
 
 Result<void> KalshiClient::cancel_all_orders(const CancelAllOrdersParams& params) {
 	detail::Query query(std::string{"/portfolio/events/orders"});
 	query.add("subaccount", params.subaccount);
 	return detail::expect_success(
-		impl_->send(HttpMethod::DEL, std::move(query).str(), {}, "cancel_all_orders"));
+		Impl::send(impl_.get(), HttpMethod::DEL, std::move(query).str(), {}, "cancel_all_orders"));
 }
 
 Result<std::vector<BatchCreateOrdersV2ResponseOrdersItem>>
@@ -85,8 +85,8 @@ KalshiClient::batch_create_orders(const BatchCreateOrdersV2Request& body) {
 		return std::unexpected(std::move(valid.error()));
 	}
 	Result<BatchCreateOrdersV2Response> response = detail::decode<BatchCreateOrdersV2Response>(
-		impl_->send(HttpMethod::POST, std::string{"/portfolio/events/orders/batched"},
-					detail::encode(body), "batch_create_orders"));
+		Impl::send(impl_.get(), HttpMethod::POST, std::string{"/portfolio/events/orders/batched"},
+				   detail::encode(body), "batch_create_orders"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -99,8 +99,8 @@ KalshiClient::batch_cancel_orders(const BatchCancelOrdersV2Request& body) {
 		return std::unexpected(std::move(valid.error()));
 	}
 	Result<BatchCancelOrdersV2Response> response = detail::decode<BatchCancelOrdersV2Response>(
-		impl_->send(HttpMethod::DEL, std::string{"/portfolio/events/orders/batched"},
-					detail::encode(body), "batch_cancel_orders"));
+		Impl::send(impl_.get(), HttpMethod::DEL, std::string{"/portfolio/events/orders/batched"},
+				   detail::encode(body), "batch_cancel_orders"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -112,9 +112,9 @@ KalshiClient::create_order_with_exit_trigger(const CreateOrderWithExitTriggerReq
 	if (Result<void> valid = detail::validate(body); !valid) {
 		return std::unexpected(std::move(valid.error()));
 	}
-	return detail::decode<CreateOrderV2Response>(
-		impl_->send(HttpMethod::POST, std::string{"/portfolio/events/orders/with_exit_trigger"},
-					detail::encode(body), "create_order_with_exit_trigger"));
+	return detail::decode<CreateOrderV2Response>(Impl::send(
+		impl_.get(), HttpMethod::POST, std::string{"/portfolio/events/orders/with_exit_trigger"},
+		detail::encode(body), "create_order_with_exit_trigger"));
 }
 
 Result<CancelOrderV2Response> KalshiClient::cancel_order(std::string_view order_id,
@@ -129,7 +129,7 @@ Result<CancelOrderV2Response> KalshiClient::cancel_order(std::string_view order_
 	query.add("exchange_index", params.exchange_index);
 	query.add("market_ticker", params.market_ticker);
 	return detail::decode<CancelOrderV2Response>(
-		impl_->send(HttpMethod::DEL, std::move(query).str(), {}, "cancel_order"));
+		Impl::send(impl_.get(), HttpMethod::DEL, std::move(query).str(), {}, "cancel_order"));
 }
 
 Result<AmendOrderV2Response> KalshiClient::amend_order(std::string_view order_id,
@@ -145,8 +145,9 @@ Result<AmendOrderV2Response> KalshiClient::amend_order(std::string_view order_id
 	}
 	detail::Query query(*target);
 	query.add("subaccount", params.subaccount);
-	return detail::decode<AmendOrderV2Response>(
-		impl_->send(HttpMethod::POST, std::move(query).str(), detail::encode(body), "amend_order"));
+	return detail::decode<AmendOrderV2Response>(Impl::send(impl_.get(), HttpMethod::POST,
+														   std::move(query).str(),
+														   detail::encode(body), "amend_order"));
 }
 
 Result<DecreaseOrderV2Response> KalshiClient::decrease_order(std::string_view order_id,
@@ -162,8 +163,9 @@ Result<DecreaseOrderV2Response> KalshiClient::decrease_order(std::string_view or
 	}
 	detail::Query query(*target);
 	query.add("subaccount", params.subaccount);
-	return detail::decode<DecreaseOrderV2Response>(impl_->send(
-		HttpMethod::POST, std::move(query).str(), detail::encode(body), "decrease_order"));
+	return detail::decode<DecreaseOrderV2Response>(
+		Impl::send(impl_.get(), HttpMethod::POST, std::move(query).str(), detail::encode(body),
+				   "decrease_order"));
 }
 
 } // namespace kalshi

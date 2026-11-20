@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """Audit repo-owned C++ sources for disallowed local ``auto`` usage.
 
-Policy:
+Policy (``decltype(auto)`` follows the same rules):
 - allow ``auto`` for structured bindings
 - allow ``auto`` for lambda closure objects
-- allow ``auto`` for iterator-like values
+- allow ``auto`` when the initializer is one iterator call, such as
+  ``values.begin()``, ``table.find(key)``, or ``std::next(it)``
 - allow explicit one-off comments marked with ``auto-ok``
 
 Everything else is expected to spell out the type directly. The optional
@@ -12,7 +13,8 @@ allowlist takes one rule per line:
 
     relative/path.cpp|line snippet
 
-The snippet is matched as a substring against the stripped source line.
+The snippet, which must not be empty, is matched as a substring against the
+stripped source line.
 """
 
 from __future__ import annotations
@@ -25,7 +27,8 @@ from pathlib import Path
 import re
 
 
-CPP_SUFFIXES = {".cpp", ".hpp", ".cc", ".cxx", ".hh", ".hxx"}
+# The Makefile's CPP_SOURCES formats the same suffixes; keep the two lists equal.
+CPP_SUFFIXES = {".cpp", ".hpp", ".h", ".ipp", ".inl", ".cc", ".cxx", ".hh", ".hxx"}
 DEFAULT_ALLOWLIST = "tools/cpp_auto_allowlist.txt"
 WORD_AUTO = re.compile(r"\bauto\b")
 DECL_SPECIFIERS = {
@@ -33,7 +36,8 @@ DECL_SPECIFIERS = {
     "constinit", "thread_local", "extern", "inline",
 }
 DECL_SPECIFIER = "(?:" + "|".join(sorted(DECL_SPECIFIERS)) + ")"
-AUTO_DECLARATOR = rf"\bauto\b(?:\s*(?:[\*&]|{DECL_SPECIFIER}\b))*\s*"
+AUTO_KEYWORD = r"(?:\bdecltype\s*\(\s*auto\s*\)|\bauto\b)"
+AUTO_DECLARATOR = rf"{AUTO_KEYWORD}(?:\s*(?:[\*&]|{DECL_SPECIFIER}\b))*\s*"
 STRUCTURED_BINDING = re.compile(AUTO_DECLARATOR + r"\[")
 DECLARATION_AUTO = re.compile(
     r"^\s*(?:}\s*)?(?:(?:else\s+)?if(?:\s+constexpr)?\s*\(\s*|(?:for|while|switch)\s*\(\s*)?"
@@ -44,32 +48,24 @@ DECLARATION_AUTO = re.compile(
 
 ITERATOR_NAME = re.compile(AUTO_DECLARATOR + r"(?:\w+_)?(?:it|iter|iterator)\b")
 
-ITERATOR_HINTS = (
-    ".begin(",
-    ".end(",
-    ".cbegin(",
-    ".cend(",
-    ".rbegin(",
-    ".rend(",
-    ".crbegin(",
-    ".crend(",
-    ".find(",
-    ".lower_bound(",
-    ".upper_bound(",
-    ".equal_range(",
-    "std::begin(",
-    "std::end(",
-    "std::cbegin(",
-    "std::cend(",
-    "std::find(",
-    "std::lower_bound(",
-    "std::upper_bound(",
-    "std::equal_range(",
-    "std::max_element(",
-    "std::min_element(",
-    "std::prev(",
-    "std::next(",
-)
+# Calls whose result is an iterator: member functions reached with `.`, and
+# free functions by their full name.
+ITERATOR_METHODS = {
+    "begin", "end", "cbegin", "cend", "rbegin", "rend", "crbegin", "crend",
+    "find", "lower_bound", "upper_bound", "equal_range",
+}
+ITERATOR_FUNCTIONS = {
+    "std::begin", "std::end", "std::cbegin", "std::cend", "std::find",
+    "std::lower_bound", "std::upper_bound", "std::equal_range",
+    "std::max_element", "std::min_element", "std::prev", "std::next",
+    "std::find_if", "std::find_if_not", "std::find_first_of", "std::find_end",
+    "std::adjacent_find", "std::search", "std::search_n", "std::partition_point",
+    "std::is_sorted_until", "std::remove", "std::remove_if", "std::unique",
+}
+# A callee made of names joined by `::`, `.`, or `->`, with calls and
+# subscripts reduced to `()` and `[]`.
+POSTFIX_CHAIN = re.compile(r"(?:::)?[A-Za-z_]\w*(?:(?:::|\.|->)[A-Za-z_]\w*|\(\)|\[\])*")
+GROUP_PAIRS = {"(": ")", "[": "]", "{": "}"}
 
 
 @dataclass(frozen=True, slots=True)
@@ -119,6 +115,9 @@ def read_allowlist(path: Path) -> list[AllowRule]:
         relative_path, sep, snippet = stripped.partition("|")
         if not sep:
             raise ValueError(f"invalid allowlist rule: {raw!r}")
+        if not snippet.strip():
+            # An empty snippet is a substring of every line, so it would exempt the whole file.
+            raise ValueError(f"allowlist rule has an empty snippet: {raw!r}")
         rules.append(AllowRule(relative_path=relative_path.strip(), snippet=snippet.strip()))
     return rules
 
@@ -162,6 +161,13 @@ def declaration_code(line: str) -> str:
             code[tokens[index].start():tokens[index].end()] = " " * len(text)
             index = hide_group(index + 1, "(", ")")
         elif text == "auto":
+            if (
+                index >= 2
+                and [token[0] for token in tokens[index - 2:index]] == ["decltype", "("]
+                and index + 1 < len(tokens)
+                and tokens[index + 1][0] == ")"
+            ):
+                index += 1  # the `)` that closes decltype(auto)
             index += 1
             break
         else:
@@ -245,7 +251,7 @@ def direct_iterator_return(body: list[str], declaration: str) -> bool:
         return False
     return (
         closing_paren(expression, opening) == len(expression) - 1
-        and is_iterator_like(f"{declaration} = {callee}(")
+        and iterator_callee(callee, declaration)
     )
 
 
@@ -337,12 +343,96 @@ def lambda_initializer_allowed(
     return False
 
 
-def is_iterator_like(line: str) -> bool:
-    # std::string::find returns an index, so .find( counts only when the
+def iterator_callee(callee: str, declaration: str) -> bool:
+    """Whether calling ``callee``, such as ``values.begin`` or ``std::next``, yields an iterator."""
+    method = re.fullmatch(r".+\.([A-Za-z_]\w*)", callee)
+    if method is None:
+        return callee in ITERATOR_FUNCTIONS
+    # std::string::find returns an index, so .find counts only when the
     # declared name reads as an iterator.
-    if ".find(" in line and not ITERATOR_NAME.search(line):
+    if method[1] == "find" and not ITERATOR_NAME.search(declaration):
         return False
-    return any(hint in line for hint in ITERATOR_HINTS)
+    return method[1] in ITERATOR_METHODS
+
+
+def group_end(tokens: list[str], start: int) -> int | None:
+    """Index of the token closing the group that opens at ``start``."""
+    closers: list[str] = []
+    for index in range(start, len(tokens)):
+        if tokens[index] in GROUP_PAIRS:
+            closers.append(GROUP_PAIRS[tokens[index]])
+        elif tokens[index] in GROUP_PAIRS.values():
+            if not closers or tokens[index] != closers.pop():
+                return None
+            if not closers:
+                return index
+    return None
+
+
+def initializer_tokens(line: str, source: str | None = None, offset: int = 0) -> list[str] | None:
+    """Code tokens of the declaration's ``= x``, ``{x}``, or ``(x)`` initializer.
+
+    Reading from ``source`` lets an initializer continue on later lines.
+    Comments and literals are left out.
+    """
+    declarator = DECLARATION_AUTO.search(line)
+    if declarator is None:
+        return None
+    position = len(line) - len(line[declarator.end():].lstrip())
+    if position >= len(line) or line[position] not in "={(":
+        return None
+    direct = line[position] != "="
+    stream = (
+        token[0]
+        for token in CPP_TOKEN.finditer(source if source is not None else line, offset + position + (not direct))
+        if token.lastgroup != "skip"
+    )
+    closers = [GROUP_PAIRS[next(stream)]] if direct else []
+    depth = len(closers)
+    tokens: list[str] = []
+    for token in stream:
+        if token in GROUP_PAIRS:
+            closers.append(GROUP_PAIRS[token])
+        elif token in GROUP_PAIRS.values():
+            if not closers:
+                return tokens  # the `)` of `if (`, `for (`, or `while (`
+            if token != closers.pop():
+                return None
+            if direct and not closers:
+                return tokens  # the initializer's own group
+        elif token in {";", ","} and len(closers) == depth:
+            # The next declarator or the end of the statement. Inside a direct
+            # initializer, a comma separates constructor arguments.
+            return None if direct else tokens
+        tokens.append(token)
+    return None if direct else tokens
+
+
+def iterator_expression(tokens: list[str], declaration: str) -> bool:
+    """Whether ``tokens`` are one iterator call, such as ``values.begin()`` or ``std::next(it)``.
+
+    Calls whose arguments use iterators, such as ``std::distance(values.begin(),
+    values.end())``, and expressions built from an iterator, such as
+    ``*values.begin()`` or ``values.begin() + 1``, do not count.
+    """
+    while tokens and tokens[0] == "(" and group_end(tokens, 0) == len(tokens) - 1:
+        tokens = tokens[1:-1]
+    shape: list[str] = []
+    index = 0
+    while index < len(tokens):
+        if tokens[index] in {"(", "["}:
+            end = group_end(tokens, index)
+            if end is None:
+                return False
+            shape.append(tokens[index] + GROUP_PAIRS[tokens[index]])
+            index = end + 1
+        else:
+            shape.append(tokens[index])
+            index += 1
+    if len(shape) < 2 or shape[-1] != "()":
+        return False
+    callee = "".join(shape[:-1])
+    return bool(POSTFIX_CHAIN.fullmatch(callee)) and iterator_callee(callee.removeprefix("::"), declaration)
 
 
 def is_allowed_auto(
@@ -359,9 +449,8 @@ def is_allowed_auto(
     lambda_allowed = lambda_initializer_allowed(line, source, offset)
     if lambda_allowed is not None:
         return lambda_allowed
-    if is_iterator_like(stripped):
-        return True
-    return False
+    tokens = initializer_tokens(line, source, offset)
+    return tokens is not None and iterator_expression(tokens, line.partition("=")[0])
 
 
 def matches_allowlist(relative_path: str, line: str, rules: list[AllowRule]) -> bool:

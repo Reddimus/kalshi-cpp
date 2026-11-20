@@ -670,6 +670,16 @@ TEST(OperationRoutes, ProposeBlockTrade) {
 	EXPECT_EQ(transport->calls, 0);
 }
 
+TEST(OperationRoutes, CancelBlockTradeProposal) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<void> result = client.cancel_block_trade_proposal("p0");
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::DEL);
+	EXPECT_EQ(route(transport->target), "/communications/block-trade-proposals/p0");
+}
+
 TEST(OperationRoutes, AcceptBlockTradeProposal) {
 	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
 		std::make_shared<kalshi::test::RecordingTransport>();
@@ -679,6 +689,16 @@ TEST(OperationRoutes, AcceptBlockTradeProposal) {
 	EXPECT_TRUE(result.has_value());
 	EXPECT_EQ(transport->method, kalshi::HttpMethod::POST);
 	EXPECT_EQ(route(transport->target), "/communications/block-trade-proposals/p0/accept");
+}
+
+TEST(OperationRoutes, RejectBlockTradeProposal) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<void> result = client.reject_block_trade_proposal("p0");
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::POST);
+	EXPECT_EQ(route(transport->target), "/communications/block-trade-proposals/p0/reject");
 }
 
 TEST(OperationRoutes, GetRFQs) {
@@ -1139,6 +1159,102 @@ TEST(OperationRoutes, GetMilestones) {
 	EXPECT_EQ(route(transport->target), "/milestones");
 }
 
+TEST(OperationRoutes, CreateWeatherPointMarket) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<CreateWeatherPointMarketResponse> result =
+		client.create_weather_point_market(CreateWeatherPointMarketRequest{});
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
+}
+
+TEST(OperationRoutes, GetWeatherPointAvailability) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<GetWeatherPointAvailabilityResponse> result =
+		client.get_weather_point_availability();
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(route(transport->target), "/weather_point_markets/availability");
+}
+
+TEST(OperationRoutes, CreateConcertCancellationMarket) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<CreateConcertCancellationMarketResponse> result =
+		client.create_concert_cancellation_market(CreateConcertCancellationMarketRequest{});
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
+}
+
+TEST(OperationRoutes, GetConcertCancellationAvailability) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<GetConcertCancellationAvailabilityResponse> result =
+		client.get_concert_cancellation_availability(GetConcertCancellationAvailabilityParams{});
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(route(transport->target), "/concert_cancellation_markets/availability");
+}
+
+TEST(OperationRoutes, GetConcerts) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<GetConcertsResponse> result = client.get_concerts(GetConcertsParams{});
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(route(transport->target), "/concert_cancellation_markets/concerts");
+}
+
+TEST(OperationRoutes, SearchConcerts) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<std::vector<Concert>> result = client.search_concerts(SearchConcertsParams{});
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(route(transport->target), "/concert_cancellation_markets/concerts/search");
+}
+
+TEST(OperationRoutes, CreateFlightDisruptionMarket) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<CreateFlightDisruptionMarketResponse> result =
+		client.create_flight_disruption_market(CreateFlightDisruptionMarketRequest{});
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
+}
+
+TEST(OperationRoutes, GetFlightDisruptionAvailability) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<GetFlightDisruptionAvailabilityResponse> result =
+		client.get_flight_disruption_availability();
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(route(transport->target), "/flight_disruption_markets/availability");
+}
+
+TEST(OperationRoutes, GetFlights) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<std::vector<Flight>> result = client.get_flights(GetFlightsParams{});
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(route(transport->target), "/flight_disruption_markets/flights");
+}
+
 TEST(OperationRoutes, GetMultivariateEventCollection) {
 	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
 		std::make_shared<kalshi::test::RecordingTransport>();
@@ -1182,6 +1298,16 @@ TEST(OperationRoutes, GetIncentivePrograms) {
 	EXPECT_TRUE(result.has_value());
 	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
 	EXPECT_EQ(route(transport->target), "/incentive_programs");
+}
+
+TEST(OperationRoutes, GetIncentiveSchedules) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client(transport);
+	const Result<std::vector<IncentiveSchedule>> result = client.get_incentive_schedules();
+	EXPECT_TRUE(result.has_value());
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(route(transport->target), "/incentive_schedules");
 }
 
 TEST(OperationRoutes, GetFCMFills) {

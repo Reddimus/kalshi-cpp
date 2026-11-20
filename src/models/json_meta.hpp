@@ -70,6 +70,19 @@ inline BookSide parse_book_side(std::string_view text) noexcept {
 	return BookSide::Unknown;
 }
 
+inline ConcertCover parse_concert_cover(std::string_view text) noexcept {
+	if (text == "postponed") {
+		return ConcertCover::Postponed;
+	}
+	if (text == "cancelled") {
+		return ConcertCover::Cancelled;
+	}
+	if (text == "either") {
+		return ConcertCover::Either;
+	}
+	return ConcertCover::Unknown;
+}
+
 inline CreditHistoryStatus parse_credit_history_status(std::string_view text) noexcept {
 	if (text == "pending") {
 		return CreditHistoryStatus::Pending;
@@ -162,6 +175,29 @@ inline FeeType parse_fee_type(std::string_view text) noexcept {
 		return FeeType::Flat;
 	}
 	return FeeType::Unknown;
+}
+
+inline FlightCover parse_flight_cover(std::string_view text) noexcept {
+	if (text == "cancelled") {
+		return FlightCover::Cancelled;
+	}
+	if (text == "delayed") {
+		return FlightCover::Delayed;
+	}
+	if (text == "either") {
+		return FlightCover::Either;
+	}
+	return FlightCover::Unknown;
+}
+
+inline FlightDelayBasis parse_flight_delay_basis(std::string_view text) noexcept {
+	if (text == "departure") {
+		return FlightDelayBasis::Departure;
+	}
+	if (text == "arrival") {
+		return FlightDelayBasis::Arrival;
+	}
+	return FlightDelayBasis::Unknown;
 }
 
 inline GetEventsStatus parse_get_events_status(std::string_view text) noexcept {
@@ -285,6 +321,17 @@ parse_incentive_program_incentive_type(std::string_view text) noexcept {
 		return IncentiveProgramIncentiveType::MarginTakerVolume;
 	}
 	return IncentiveProgramIncentiveType::Unknown;
+}
+
+inline IncentiveScheduleIncentiveType
+parse_incentive_schedule_incentive_type(std::string_view text) noexcept {
+	if (text == "liquidity") {
+		return IncentiveScheduleIncentiveType::Liquidity;
+	}
+	if (text == "volume") {
+		return IncentiveScheduleIncentiveType::Volume;
+	}
+	return IncentiveScheduleIncentiveType::Unknown;
 }
 
 inline IntraExchangeInstanceTransferStatus
@@ -512,6 +559,9 @@ inline SettlementMarketResult parse_settlement_market_result(std::string_view te
 	if (text == "scalar") {
 		return SettlementMarketResult::Scalar;
 	}
+	if (text.empty()) {
+		return SettlementMarketResult::Unset;
+	}
 	return SettlementMarketResult::Unknown;
 }
 
@@ -606,6 +656,35 @@ inline UserFilter parse_user_filter(std::string_view text) noexcept {
 	return UserFilter::Unknown;
 }
 
+inline WeatherPointStrikeType parse_weather_point_strike_type(std::string_view text) noexcept {
+	if (text == "greater") {
+		return WeatherPointStrikeType::Greater;
+	}
+	if (text == "less") {
+		return WeatherPointStrikeType::Less;
+	}
+	if (text == "between") {
+		return WeatherPointStrikeType::Between;
+	}
+	return WeatherPointStrikeType::Unknown;
+}
+
+inline WeatherPointVariable parse_weather_point_variable(std::string_view text) noexcept {
+	if (text == "precip_hours") {
+		return WeatherPointVariable::PrecipHours;
+	}
+	if (text == "precip_total") {
+		return WeatherPointVariable::PrecipTotal;
+	}
+	if (text == "max_temp") {
+		return WeatherPointVariable::MaxTemp;
+	}
+	if (text == "min_temp") {
+		return WeatherPointVariable::MinTemp;
+	}
+	return WeatherPointVariable::Unknown;
+}
+
 } // namespace kalshi::detail
 
 namespace glz {
@@ -681,6 +760,25 @@ template <>
 struct to<JSON, kalshi::BookSide> {
 	template <auto Opts>
 	static void op(const kalshi::BookSide& value, auto&& ctx, auto&&... args) {
+		const std::string_view text = kalshi::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
+struct from<JSON, kalshi::ConcertCover> {
+	template <auto Opts>
+	static void op(kalshi::ConcertCover& value, auto&& ctx, auto&& it, auto&& end) {
+		std::string text{};
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_concert_cover(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::ConcertCover> {
+	template <auto Opts>
+	static void op(const kalshi::ConcertCover& value, auto&& ctx, auto&&... args) {
 		const std::string_view text = kalshi::to_string(value);
 		serialize<JSON>::op<Opts>(text, ctx, args...);
 	}
@@ -797,6 +895,44 @@ template <>
 struct to<JSON, kalshi::FeeType> {
 	template <auto Opts>
 	static void op(const kalshi::FeeType& value, auto&& ctx, auto&&... args) {
+		const std::string_view text = kalshi::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
+struct from<JSON, kalshi::FlightCover> {
+	template <auto Opts>
+	static void op(kalshi::FlightCover& value, auto&& ctx, auto&& it, auto&& end) {
+		std::string text{};
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_flight_cover(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::FlightCover> {
+	template <auto Opts>
+	static void op(const kalshi::FlightCover& value, auto&& ctx, auto&&... args) {
+		const std::string_view text = kalshi::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
+struct from<JSON, kalshi::FlightDelayBasis> {
+	template <auto Opts>
+	static void op(kalshi::FlightDelayBasis& value, auto&& ctx, auto&& it, auto&& end) {
+		std::string text{};
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_flight_delay_basis(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::FlightDelayBasis> {
+	template <auto Opts>
+	static void op(const kalshi::FlightDelayBasis& value, auto&& ctx, auto&&... args) {
 		const std::string_view text = kalshi::to_string(value);
 		serialize<JSON>::op<Opts>(text, ctx, args...);
 	}
@@ -953,6 +1089,27 @@ template <>
 struct to<JSON, kalshi::IncentiveProgramIncentiveType> {
 	template <auto Opts>
 	static void op(const kalshi::IncentiveProgramIncentiveType& value, auto&& ctx, auto&&... args) {
+		const std::string_view text = kalshi::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
+struct from<JSON, kalshi::IncentiveScheduleIncentiveType> {
+	template <auto Opts>
+	static void op(kalshi::IncentiveScheduleIncentiveType& value, auto&& ctx, auto&& it,
+				   auto&& end) {
+		std::string text{};
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_incentive_schedule_incentive_type(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::IncentiveScheduleIncentiveType> {
+	template <auto Opts>
+	static void op(const kalshi::IncentiveScheduleIncentiveType& value, auto&& ctx,
+				   auto&&... args) {
 		const std::string_view text = kalshi::to_string(value);
 		serialize<JSON>::op<Opts>(text, ctx, args...);
 	}
@@ -1411,6 +1568,44 @@ template <>
 struct to<JSON, kalshi::UserFilter> {
 	template <auto Opts>
 	static void op(const kalshi::UserFilter& value, auto&& ctx, auto&&... args) {
+		const std::string_view text = kalshi::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
+struct from<JSON, kalshi::WeatherPointStrikeType> {
+	template <auto Opts>
+	static void op(kalshi::WeatherPointStrikeType& value, auto&& ctx, auto&& it, auto&& end) {
+		std::string text{};
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_weather_point_strike_type(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::WeatherPointStrikeType> {
+	template <auto Opts>
+	static void op(const kalshi::WeatherPointStrikeType& value, auto&& ctx, auto&&... args) {
+		const std::string_view text = kalshi::to_string(value);
+		serialize<JSON>::op<Opts>(text, ctx, args...);
+	}
+};
+
+template <>
+struct from<JSON, kalshi::WeatherPointVariable> {
+	template <auto Opts>
+	static void op(kalshi::WeatherPointVariable& value, auto&& ctx, auto&& it, auto&& end) {
+		std::string text{};
+		parse<JSON>::op<Opts>(text, ctx, it, end);
+		value = kalshi::detail::parse_weather_point_variable(text);
+	}
+};
+
+template <>
+struct to<JSON, kalshi::WeatherPointVariable> {
+	template <auto Opts>
+	static void op(const kalshi::WeatherPointVariable& value, auto&& ctx, auto&&... args) {
 		const std::string_view text = kalshi::to_string(value);
 		serialize<JSON>::op<Opts>(text, ctx, args...);
 	}

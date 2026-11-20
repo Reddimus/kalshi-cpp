@@ -17,6 +17,7 @@ memory.
 | `test_fixed_point.cpp` | Exact decimal parsing and scaling |
 | `test_features.cpp` | Defaults for configs and enums |
 | `test_version.cpp` | `kalshi::VERSION` and its components |
+| `test_examples.cpp` | Helpers the examples share, such as the local order book |
 | `parse_benchmark.cpp` | A coarse throughput guard, run as its own test |
 | `test_allocation_counter.cpp` | The `operator new` counter in `support/`, in its own binary |
 | `test_ws_allocation_failure.cpp` | Sustained allocation failure during disconnect and client reuse |
@@ -30,5 +31,5 @@ memory.
 Allocation suites replace `operator new` and are excluded from sanitizer and
 coverage builds.
 
-Response fixtures are synthetic and follow Kalshi Predictions OpenAPI 3.34.0;
-none come from a real account. Add new files to `tests/CMakeLists.txt`.
+Response fixtures are synthetic and follow the Predictions OpenAPI document in
+`spec/`; none come from a real account. Add new files to `tests/CMakeLists.txt`.

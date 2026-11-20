@@ -78,14 +78,21 @@ struct RateLimitConfig {
 	std::chrono::milliseconds max_wait{std::chrono::seconds{5}};
 	/// Independent balance calls per second; Basic and Advanced allow one.
 	TokenBucket::Config balance{.capacity = 1.0, .refill_per_second = 1.0, .initial_tokens = {}};
+	/// POST /portfolio/intra_exchange_instance_transfer has its own bucket, the
+	/// same on every tier: 600 tokens per minute, holding 600.
+	TokenBucket::Config transfer{
+		.capacity = 600.0, .refill_per_second = 10.0, .initial_tokens = {}};
 };
 
 /// Transport decorator that paces requests to Kalshi's Read and Write budgets
 /// so they are not rejected with 429.
 ///
-/// Writes are order, order-group, RFQ, quote, and block-trade mutations; every
-/// other request uses the Read budget, except GET /portfolio/balance, which
-/// has its own one-token-per-call bucket. Batch requests cost their per-item cost
+/// Writes follow Kalshi's Write bucket: order, order-group, exit-trigger, RFQ,
+/// and quote mutations, block-trade accepts, weather-point and concert
+/// market creation, target balance allocation, and API usage upgrades. Other
+/// requests use the Read budget, except GET /portfolio/balance, which has its
+/// own one-token-per-call bucket, and intra-account transfers, which use
+/// `transfer`. Batch requests cost their per-item cost
 /// times the number of items. Per-shard Write buckets are not modeled
 /// separately, so pacing is conservative when orders target several shards.
 ///
@@ -111,6 +118,7 @@ private:
 	mutable TokenBucket read_;
 	mutable TokenBucket write_;
 	mutable TokenBucket balance_;
+	mutable TokenBucket transfer_;
 };
 
 } // namespace kalshi
