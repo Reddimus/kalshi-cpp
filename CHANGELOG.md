@@ -21,6 +21,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `HttpClient::request` returns `InvalidRequest`, without sending anything, for a base URL
   with no host once its user information and port are removed, such as
   `https://:443/trade-api/v2`. It returned `NetworkError`.
+- `HttpClient::request` returns `InvalidRequest`, without sending anything, when the base URL or
+  the request path has a `.` or `..` segment, `%2e` included. libcurl removed those segments
+  before sending, so the request was signed over a path the server never received
+  ([#95](https://github.com/Reddimus/kalshi-cpp/issues/95)).
 
 ### Changed
 

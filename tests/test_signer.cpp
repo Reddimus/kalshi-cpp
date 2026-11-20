@@ -130,6 +130,21 @@ TEST(HttpBaseUrl, OnlyHttpBasesThatNameAHostAreAccepted) {
 	}
 }
 
+TEST(HttpPath, DotSegmentsAreSegmentsOfOnlyOneOrTwoDots) {
+	for (const std::string_view path :
+		 {".", "..", "./a", "../a", "/.", "/..", "/a/./b", "/a/../b", "/a/b/.", "/a/b/..", "//..//",
+		  "/a/%2e%2e/b", "/a/%2E%2E/b", "/a/.%2e/b", "/a/%2E./b", "/a/%2e/b", "/a/..?q=1", "/a/.#f",
+		  "/trade-api/../v2/markets"}) {
+		EXPECT_TRUE(kalshi::detail::has_dot_segment(path)) << path;
+	}
+	for (const std::string_view path :
+		 {"", "/", "/a/b", "//", "/a/.../b", "/a/..foo", "/a/foo..", "/a/.hidden", "/a/%2e%2e%2e/b",
+		  "/a/%2ex/b", "/a/%2/b", "/a/%2f/b", "/a?cursor=../b", "/a?x=/./&y=..", "/a#../b",
+		  "/trade-api/v2/markets"}) {
+		EXPECT_FALSE(kalshi::detail::has_dot_segment(path)) << path;
+	}
+}
+
 TEST(HttpSigningPath, EndpointFragmentsAreNotSigned) {
 	using kalshi::detail::request_signing_path;
 	// libcurl never sends a fragment, so the server cannot have signed over it.

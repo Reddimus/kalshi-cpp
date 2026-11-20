@@ -2,6 +2,7 @@
 
 #include "kalshi/http_client.hpp"
 #include "kalshi/retry.hpp"
+#include "kalshi/websocket.hpp"
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -482,6 +483,88 @@ TEST(HttpClientLoopback, BaseUrlsWithoutAHostAreRejectedBeforeSending) {
 		ASSERT_FALSE(result) << base_url;
 		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest)
 			<< base_url << ": " << result.error().message;
+	}
+}
+
+// libcurl removes dot segments before sending, and newer versions decode %2e
+// first, so the server would get another path than the one signed (#95).
+TEST(HttpClientLoopback, DotSegmentsAreRejectedBeforeSending) {
+	const LoopbackServer server(http_response(200, "{}"));
+	struct Case {
+		std::string_view base_suffix;
+		std::string_view endpoint;
+	};
+	for (const Case& test : {
+			 Case{"", "/markets/../events"},
+			 Case{"", "/a/b/./c"},
+			 Case{"", "/markets/.."},
+			 Case{"", "/markets/."},
+			 Case{"", "markets/../events"},
+			 Case{"", "/markets/%2e%2e/events"},
+			 Case{"", "/markets/.%2E/events"},
+			 Case{"", "/markets/%2e/events"},
+			 Case{"", "/markets/../events?limit=1"},
+			 Case{"/../v2", "/markets"},
+			 Case{"/./x", "/markets"},
+			 Case{"/..", "/markets"},
+			 Case{"/%2E%2E", "/markets"},
+		 }) {
+		kalshi::ClientConfig config = config_for(server);
+		config.base_url += test.base_suffix;
+		const kalshi::HttpClient client(kalshi::test::make_signer(), config);
+		const kalshi::Result<kalshi::HttpResponse> result = client.get(std::string{test.endpoint});
+		ASSERT_FALSE(result) << config.base_url << " + " << test.endpoint;
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest)
+			<< config.base_url << " + " << test.endpoint;
+	}
+	EXPECT_TRUE(server.last().method.empty()) << "a request reached the server";
+}
+
+TEST(HttpClientLoopback, DotsThatAreNotDotSegmentsAreSentAndSignedAsGiven) {
+	const LoopbackServer server(http_response(200, "{}"));
+	const kalshi::HttpClient client(kalshi::test::make_signer(), config_for(server));
+	const std::string& key = kalshi::test::private_key_pem();
+	for (const std::string_view endpoint :
+		 {"/markets/.../x", "/markets/..foo", "/markets/foo..", "/markets/.hidden",
+		  "/markets/%2e%2e%2e", "/markets?cursor=../x", "/markets?cursor=/./x&next=.."}) {
+		ASSERT_TRUE(client.get(std::string{endpoint}).has_value()) << endpoint;
+		RecordedRequest request = server.last();
+		EXPECT_EQ(request.target, "/trade-api/v2" + std::string{endpoint});
+		const std::string sent_path = request.target.substr(0, request.target.find('?'));
+		EXPECT_TRUE(kalshi::test::signature_verifies(
+			key, request.headers["kalshi-access-timestamp"] + "GET" + sent_path,
+			request.headers["kalshi-access-signature"]))
+			<< endpoint;
+	}
+}
+
+// libwebsockets writes the handshake path into the request line as given, so
+// a WebSocket URL with dot segments is signed over exactly what is sent. This
+// raw server sees the request line before any parser could normalize it.
+TEST(WsHandshakeTarget, DotSegmentsAreSentAsGivenAndSigned) {
+	const std::string& key = kalshi::test::private_key_pem();
+	for (const std::string_view path :
+		 {"/trade-api/ws/../v2", "/trade-api/./ws/v2", "/trade-api/ws/%2e%2e/v2"}) {
+		const LoopbackServer server(http_response(400, "{}"));
+		const std::string base = server.base_url();
+		kalshi::WsConfig config;
+		config.url = "ws://" +
+					 base.substr(std::string_view{"http://"}.size(),
+								 base.find("/trade-api") - std::string_view{"http://"}.size()) +
+					 std::string{path};
+		config.auto_reconnect = false;
+		config.connect_timeout = 2s;
+		kalshi::WebSocketClient ws(kalshi::test::make_signer(), config);
+		EXPECT_FALSE(ws.connect().has_value()) << "the server refuses every handshake";
+		RecordedRequest request = server.last();
+		ASSERT_EQ(request.target, path);
+		if (request.headers["kalshi-access-signature"].empty()) {
+			GTEST_SKIP() << "libwebsockets was built without custom header support";
+		}
+		EXPECT_TRUE(kalshi::test::signature_verifies(
+			key, request.headers["kalshi-access-timestamp"] + "GET" + std::string{path},
+			request.headers["kalshi-access-signature"]))
+			<< path;
 	}
 }
 

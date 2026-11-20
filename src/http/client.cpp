@@ -174,6 +174,14 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 			Error{ErrorCode::InvalidRequest,
 				  "ClientConfig.base_url must be an http:// or https:// URL with a host"});
 	}
+	// libcurl would drop dot segments before sending, so the request would go
+	// to another path than the one given, under a signature that cannot verify.
+	if (detail::has_dot_segment(detail::request_signing_path(base_url, path))) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest,
+				  "Request paths must not contain a '.' or '..' segment, in the base URL or "
+				  "the endpoint"});
+	}
 	const std::string url = detail::request_url(base_url, path);
 	if (url.find('\0') != std::string::npos) {
 		return std::unexpected(

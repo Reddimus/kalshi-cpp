@@ -46,8 +46,9 @@ struct HttpResponse {
 struct ClientConfig {
 	/// Base URL including `/trade-api/v2`. See rest_base_url(). It must be an
 	/// `http://` or `https://` URL with a host and without a query string or a
-	/// fragment; HttpClient::request() fails with ErrorCode::InvalidRequest
-	/// otherwise.
+	/// fragment, and neither it nor a request's path may have a `.` or `..`
+	/// segment (`%2e` counts as a dot); HttpClient::request() fails with
+	/// ErrorCode::InvalidRequest otherwise.
 	std::string base_url{rest_base_url(Environment::Production)};
 	/// Limit for the whole request, including the response body. Must be
 	/// positive: zero and negative durations do not disable the limit, and

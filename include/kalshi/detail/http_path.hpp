@@ -70,6 +70,42 @@ namespace kalshi::detail {
 	return !authority.empty() && authority.front() != ':';
 }
 
+/// Whether a URL path, up to any `?` or `#`, has a segment that is exactly `.`
+/// or `..`, counting `%2e` in either case as a dot. libcurl removes such
+/// segments before sending, and newer libcurl versions decode `%2e` first, so
+/// the request would reach a path other than the one given and signed.
+[[nodiscard]] constexpr bool has_dot_segment(std::string_view path) noexcept {
+	if (const std::size_t end = path.find_first_of("?#"); end != std::string_view::npos) {
+		path.remove_suffix(path.size() - end);
+	}
+	while (true) {
+		const std::size_t slash = path.find('/');
+		std::string_view segment = path;
+		if (slash != std::string_view::npos) {
+			segment.remove_suffix(segment.size() - slash);
+		}
+		std::size_t dots = 0;
+		while (!segment.empty()) {
+			if (segment.front() == '.') {
+				segment.remove_prefix(1);
+			} else if (segment.size() >= 3 && segment[0] == '%' && segment[1] == '2' &&
+					   (segment[2] == 'e' || segment[2] == 'E')) {
+				segment.remove_prefix(3);
+			} else {
+				break;
+			}
+			++dots;
+		}
+		if (segment.empty() && (dots == 1 || dots == 2)) {
+			return true;
+		}
+		if (slash == std::string_view::npos) {
+			return false;
+		}
+		path.remove_prefix(slash + 1);
+	}
+}
+
 /// Build the URL path covered by Kalshi's request signature.
 ///
 /// Kalshi signs the full path from the host root, including the base URL's
