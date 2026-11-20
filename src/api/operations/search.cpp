@@ -10,8 +10,8 @@ Result<std::map<std::string, std::vector<std::string>>>
 KalshiClient::get_tags_for_series_categories() {
 	Result<GetTagsForSeriesCategoriesResponse> response =
 		detail::decode<GetTagsForSeriesCategoriesResponse>(
-			impl_->send(HttpMethod::GET, std::string{"/search/tags_by_categories"}, {},
-						"get_tags_for_series_categories"));
+			Impl::send(impl_.get(), HttpMethod::GET, std::string{"/search/tags_by_categories"}, {},
+					   "get_tags_for_series_categories"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -19,8 +19,9 @@ KalshiClient::get_tags_for_series_categories() {
 }
 
 Result<GetFiltersBySportsResponse> KalshiClient::get_filters_for_sports() {
-	return detail::decode<GetFiltersBySportsResponse>(impl_->send(
-		HttpMethod::GET, std::string{"/search/filters_by_sport"}, {}, "get_filters_for_sports"));
+	return detail::decode<GetFiltersBySportsResponse>(
+		Impl::send(impl_.get(), HttpMethod::GET, std::string{"/search/filters_by_sport"}, {},
+				   "get_filters_for_sports"));
 }
 
 } // namespace kalshi

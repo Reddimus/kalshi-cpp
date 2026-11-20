@@ -81,6 +81,16 @@ ENUM_NAMES_BY_VALUES = {
     frozenset({"buy", "sell"}): "Action",
 }
 
+# Public names for inline enums, keyed by owner schema plus property. Other
+# enums are named in spec order, so without a pin a new or reordered schema can
+# take an existing type's name. An unused pin stops the generator.
+ENUM_NAMES_BY_CONTEXT = {
+    "MarketResult": "MarketResult",
+    "SettlementMarketResult": "SettlementMarketResult",
+    "MarketStrikeType": "StrikeType",
+    "CreateWeatherPointMarketRequestStrikeType": "WeatherPointStrikeType",
+}
+
 
 @dataclass
 class Operation:
@@ -101,8 +111,10 @@ class Operation:
 
 
 class Generator:
-    def __init__(self, spec: dict) -> None:
+    def __init__(self, spec: dict, enum_pins: dict[str, str] | None = None) -> None:
         self.spec = spec
+        self.enum_pins = dict(ENUM_NAMES_BY_CONTEXT if enum_pins is None else enum_pins)
+        self.used_pins: set[str] = set()
         self.schemas: dict = spec["components"]["schemas"]
         self.parameters: dict = spec["components"].get("parameters", {})
         self.enums: dict[str, EnumType] = {}
@@ -194,6 +206,8 @@ class Generator:
                 if method in item:
                     self.operation(path, method, item[method], item.get("parameters", []))
         self.check_request_fields()
+        if unused := sorted(set(self.enum_pins) - self.used_pins):
+            raise SystemExit(f"enum name pins {unused} match no inline enum; update ENUM_NAMES_BY_CONTEXT")
         check_enums(self.enums)
 
     @staticmethod
@@ -266,6 +280,16 @@ class Generator:
         if not all(isinstance(v, str) for v in values):
             raise SystemExit(f"{fixed or context}: only string enums are supported; found {values}")
         key = frozenset(values)
+        if pinned := self.enum_pins.get(context):
+            existing = self.enums.get(pinned)
+            if existing is not None and frozenset(existing.values) != key:
+                raise SystemExit(f"{context}: pinned enum {pinned} already has values {existing.values}")
+            if existing is None:
+                self.enums[pinned] = EnumType(pinned, list(values), first_sentence(doc))
+                self.enum_by_values.setdefault(key, pinned)
+            self.used_pins.add(context)
+            return pinned
+        reserved = set(self.enum_pins.values())
         if fixed:
             self.enums[fixed] = EnumType(fixed, list(values), first_sentence(doc))
             self.enum_by_values.setdefault(key, fixed)
@@ -282,8 +306,8 @@ class Generator:
             return self.enum_by_values[key]
         if name is None:
             specific = prop and prop not in GENERIC_ENUM_PROPERTIES and not prop.endswith("_filter")
-            name = pascal(prop) if specific and pascal(prop) not in self.enums else context
-        while name in self.enums or name in self.schemas:
+            name = pascal(prop) if specific and pascal(prop) not in self.enums.keys() | reserved else context
+        while name in self.enums or name in self.schemas or name in reserved:
             name += "Value"
         self.enums[name] = EnumType(name, list(values), first_sentence(doc))
         self.enum_by_values.setdefault(key, name)
@@ -593,7 +617,7 @@ class Generator:
                     out.append(f'\tquery.add("{name}", params.{name});\n')
                 target = "std::move(query).str()"
             body = "detail::encode(body)" if op.body_type else ('std::string{"{}"}' if op.empty_body else "{}")
-            call = f'impl_->send(HttpMethod::{"DEL" if op.http_method == "DELETE" else op.http_method}, {target}, {body}, "{op.method_name}")'
+            call = f'Impl::send(impl_.get(), HttpMethod::{"DEL" if op.http_method == "DELETE" else op.http_method}, {target}, {body}, "{op.method_name}")'
             if op.response_type is None:
                 out.append(f"\treturn detail::expect_success({call});\n")
             elif op.unwrap_member:

@@ -10,15 +10,16 @@ Result<GetApiKeysResponse> KalshiClient::get_api_keys(const GetApiKeysParams& pa
 	detail::Query query(std::string{"/api_keys"});
 	query.add("fcm_subtrader_id", params.fcm_subtrader_id);
 	return detail::decode<GetApiKeysResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_api_keys"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_api_keys"));
 }
 
 Result<CreateApiKeyResponse> KalshiClient::create_api_key(const CreateApiKeyRequest& body) {
 	if (Result<void> valid = detail::validate(body); !valid) {
 		return std::unexpected(std::move(valid.error()));
 	}
-	return detail::decode<CreateApiKeyResponse>(impl_->send(
-		HttpMethod::POST, std::string{"/api_keys"}, detail::encode(body), "create_api_key"));
+	return detail::decode<CreateApiKeyResponse>(Impl::send(impl_.get(), HttpMethod::POST,
+														   std::string{"/api_keys"},
+														   detail::encode(body), "create_api_key"));
 }
 
 Result<GenerateApiKeyResponse> KalshiClient::generate_api_key(const GenerateApiKeyRequest& body) {
@@ -26,8 +27,8 @@ Result<GenerateApiKeyResponse> KalshiClient::generate_api_key(const GenerateApiK
 		return std::unexpected(std::move(valid.error()));
 	}
 	return detail::decode<GenerateApiKeyResponse>(
-		impl_->send(HttpMethod::POST, std::string{"/api_keys/generate"}, detail::encode(body),
-					"generate_api_key"));
+		Impl::send(impl_.get(), HttpMethod::POST, std::string{"/api_keys/generate"},
+				   detail::encode(body), "generate_api_key"));
 }
 
 Result<void> KalshiClient::delete_api_key(std::string_view api_key) {
@@ -35,7 +36,8 @@ Result<void> KalshiClient::delete_api_key(std::string_view api_key) {
 	if (!target) {
 		return std::unexpected(std::move(target.error()));
 	}
-	return detail::expect_success(impl_->send(HttpMethod::DEL, *target, {}, "delete_api_key"));
+	return detail::expect_success(
+		Impl::send(impl_.get(), HttpMethod::DEL, *target, {}, "delete_api_key"));
 }
 
 } // namespace kalshi

@@ -56,6 +56,9 @@ inline ws::Channel parse_ws_channel(std::string_view text) noexcept {
 	if (text == "pyth_value") {
 		return ws::Channel::PythValue;
 	}
+	if (text == "ebattle_scores") {
+		return ws::Channel::EbattleScores;
+	}
 	return ws::Channel::Unknown;
 }
 
@@ -291,6 +294,15 @@ inline ws::UpdateAction parse_ws_update_action(std::string_view text) noexcept {
 	if (text == "underlying_list") {
 		return ws::UpdateAction::UnderlyingList;
 	}
+	if (text == "subscribe_matches") {
+		return ws::UpdateAction::SubscribeMatches;
+	}
+	if (text == "unsubscribe_matches") {
+		return ws::UpdateAction::UnsubscribeMatches;
+	}
+	if (text == "matchlist") {
+		return ws::UpdateAction::Matchlist;
+	}
 	return ws::UpdateAction::Unknown;
 }
 
@@ -362,9 +374,9 @@ inline SubscribeWire to_wire(std::vector<ws::Channel> channels, const ws::Subscr
 	return wire;
 }
 
-/// `UpdateSubscriptionParams` plus the `sids` the client fills in, in wire order.
+/// `UpdateSubscriptionParams` plus the `sid` the client fills in, in wire order.
 struct UpdateSubscriptionWire {
-	std::vector<std::int64_t> sids;
+	std::int64_t sid{0};
 	std::optional<std::string> market_ticker;
 	std::optional<std::vector<std::string>> market_tickers;
 	std::optional<std::string> market_id;
@@ -373,12 +385,13 @@ struct UpdateSubscriptionWire {
 	ws::UpdateAction action{};
 	std::optional<std::vector<std::string>> index_ids;
 	std::optional<std::vector<std::string>> underlying_tickers;
+	std::optional<std::vector<std::string>> match_ids;
 };
 
-inline UpdateSubscriptionWire to_wire(std::vector<std::int64_t> sids,
+inline UpdateSubscriptionWire to_wire(std::int64_t sid,
 									  const ws::UpdateSubscriptionParams& params) {
 	UpdateSubscriptionWire wire;
-	wire.sids = std::move(sids);
+	wire.sid = sid;
 	wire.market_ticker = params.market_ticker;
 	if (!params.market_tickers.empty()) {
 		wire.market_tickers = params.market_tickers;
@@ -394,6 +407,9 @@ inline UpdateSubscriptionWire to_wire(std::vector<std::int64_t> sids,
 	}
 	if (!params.underlying_tickers.empty()) {
 		wire.underlying_tickers = params.underlying_tickers;
+	}
+	if (!params.match_ids.empty()) {
+		wire.match_ids = params.match_ids;
 	}
 	return wire;
 }
@@ -469,6 +485,12 @@ inline std::optional<WsMessage> parse_data_frame(std::string_view type, const st
 	if (type == "user_order") {
 		return read_update<ws::UserOrder>(json);
 	}
+	if (type == "ebattle_scores") {
+		return read_update<ws::EbattleScores>(json);
+	}
+	if (type == "ebattle_scores_matchlist") {
+		return read_update<ws::EbattleScoresMatchlist>(json);
+	}
 	if (type == "cfbenchmarks_value") {
 		return read_update<ws::CfbenchmarksValue>(json);
 	}
@@ -501,7 +523,8 @@ inline bool is_data_type(std::string_view type) noexcept {
 	return type == "batch_quote_accepted" || type == "batch_quote_created" ||
 		   type == "batch_quote_executed" || type == "cfbenchmarks_value" ||
 		   type == "cfbenchmarks_value_5hz" || type == "cfbenchmarks_value_5hz_indexlist" ||
-		   type == "cfbenchmarks_value_indexlist" || type == "event_fee_update" ||
+		   type == "cfbenchmarks_value_indexlist" || type == "ebattle_scores" ||
+		   type == "ebattle_scores_matchlist" || type == "event_fee_update" ||
 		   type == "event_lifecycle" || type == "fill" || type == "market_lifecycle_v2" ||
 		   type == "market_position" || type == "multivariate_market_lifecycle" ||
 		   type == "order_group_updates" || type == "orderbook_delta" ||

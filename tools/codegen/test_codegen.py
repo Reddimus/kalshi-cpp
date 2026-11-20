@@ -72,8 +72,9 @@ BASE = {
 }
 
 
-def generate(spec: dict) -> Generator:
-    gen = Generator(spec)
+def generate(spec: dict, enum_pins: dict[str, str] | None = None) -> Generator:
+    # The real pins name Kalshi's schemas, which these small specs don't have.
+    gen = Generator(spec, enum_pins=enum_pins or {})
     gen.run()
     return gen
 
@@ -97,6 +98,20 @@ class SupportedSpec(unittest.TestCase):
         self.assertEqual(ops["get_thing"].response_type, "Thing")  # unwrapped from GetThingResponse
         self.assertTrue(ops["reset_thing"].empty_body)
         self.assertIsNone(ops["reset_thing"].response_type)
+
+    def test_pinned_enum_name_does_not_move_when_a_schema_comes_first(self) -> None:
+        spec = copy.deepcopy(BASE)
+        first = {"AThing": {"type": "object", "properties": {"size": {"type": "string", "enum": ["s", "m"]}}}}
+        spec["components"]["schemas"] = {**first, **spec["components"]["schemas"]}
+        unpinned = generate(copy.deepcopy(spec))
+        self.assertEqual({m.json_name: m for m in unpinned.structs["AThing"].members}["size"].cpp_type,
+                         "std::optional<Size>")  # spec order hands out the name
+        gen = generate(spec, {"ThingSize": "Size"})
+        thing = {m.json_name: m for m in gen.structs["Thing"].members}
+        other = {m.json_name: m for m in gen.structs["AThing"].members}
+        self.assertEqual(thing["size"].cpp_type, "std::optional<Size>")
+        self.assertEqual(other["size"].cpp_type, "std::optional<AThingSize>")
+        self.assertEqual(gen.enums["Size"].values, ["small", "large"])
 
     def test_array_alias_follows_its_scalar_alias(self) -> None:
         spec = copy.deepcopy(BASE)
@@ -374,6 +389,17 @@ class Rejected(unittest.TestCase):
         self.schemas["Things"] = {"type": "array", "items": ref("Thing")}
         self.stops("Things: component arrays with composite or enum items are not supported")
 
+    def test_unused_enum_pin(self) -> None:
+        with self.assertRaises(SystemExit) as caught:
+            generate(self.spec, {"GoneThingSize": "Size"})
+        self.assertIn("match no inline enum", str(caught.exception.code))
+
+    def test_enum_pin_shared_by_different_values(self) -> None:
+        self.schemas["Other"] = {"type": "object", "properties": {"size": {"type": "string", "enum": ["s"]}}}
+        with self.assertRaises(SystemExit) as caught:
+            generate(self.spec, {"ThingSize": "Size", "OtherSize": "Size"})
+        self.assertIn("pinned enum Size already has values", str(caught.exception.code))
+
     def test_component_array_of_enums_stops_before_emitting_an_invalid_alias(self) -> None:
         self.schemas["Colors"] = {"type": "array", "items": {"type": "string", "enum": ["red", "blue"]}}
         self.stops("Colors: component arrays with composite or enum items are not supported")
@@ -489,6 +515,9 @@ WS_BASE = {
                 ["add_markets"], {"market_tickers": {"type": "array", "items": {"type": "string"}}}),
             "cfbenchmarksUpdateSubscriptionCommandPayload": update_command(["subscribe_indices"]),
             "pythUpdateSubscriptionCommandPayload": update_command(["subscribe_feeds"]),
+            "ebattleUpdateSubscriptionCommandPayload": update_command(
+                ["subscribe_matches"], {"match_ids": {"type": "array", "items": {"type": "string"}}},
+                ["sid", "action"]),
             "tickerPayload": {"type": "object", "properties": {
                 "type": {"type": "string", "const": "ticker"},
                 "sid": {"type": "integer"},
@@ -526,6 +555,16 @@ class WebSocketSpec(unittest.TestCase):
 
     def test_base_spec_generates(self) -> None:
         self.assertIn("price", self.members("Ticker"))
+
+    def test_update_commands_name_the_subscription_with_sid(self) -> None:
+        wire = generate_ws(self.spec).wire_header()
+        self.assertIn("struct UpdateSubscriptionWire {\n\tstd::int64_t sid{0};\n", wire)
+        self.assertIn("\twire.sid = sid;\n", wire)
+        self.assertNotIn("sids", wire)
+
+    def test_update_command_without_sid(self) -> None:
+        del self.schemas["ebattleUpdateSubscriptionCommandPayload"]["properties"]["params"]["properties"]["sid"]
+        self.stops("has no `sid`")
 
     def test_declared_channel_is_subscribable_when_command_enum_lags(self) -> None:
         self.spec["channels"]["batch_communications"] = {

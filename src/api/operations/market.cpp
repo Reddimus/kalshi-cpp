@@ -19,8 +19,8 @@ KalshiClient::get_market_candlesticks(std::string_view series_ticker, std::strin
 	query.add("end_ts", params.end_ts);
 	query.add("period_interval", params.period_interval);
 	query.add("include_latest_before_start", params.include_latest_before_start);
-	return detail::decode<GetMarketCandlesticksResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_market_candlesticks"));
+	return detail::decode<GetMarketCandlesticksResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_market_candlesticks"));
 }
 
 Result<GetTradesResponse> KalshiClient::get_trades(const GetTradesParams& params) {
@@ -32,7 +32,7 @@ Result<GetTradesResponse> KalshiClient::get_trades(const GetTradesParams& params
 	query.add("max_ts", params.max_ts);
 	query.add("is_block_trade", params.is_block_trade);
 	return detail::decode<GetTradesResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_trades"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_trades"));
 }
 
 Result<OrderbookCountFp>
@@ -44,8 +44,9 @@ KalshiClient::get_market_orderbook(std::string_view ticker,
 	}
 	detail::Query query(*target);
 	query.add("depth", params.depth);
-	Result<GetMarketOrderbookResponse> response = detail::decode<GetMarketOrderbookResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_market_orderbook"));
+	Result<GetMarketOrderbookResponse> response =
+		detail::decode<GetMarketOrderbookResponse>(Impl::send(
+			impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_market_orderbook"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -56,8 +57,9 @@ Result<std::vector<MarketOrderbookFp>>
 KalshiClient::get_market_orderbooks(const GetMarketOrderbooksParams& params) {
 	detail::Query query(std::string{"/markets/orderbooks"});
 	query.add("tickers", params.tickers);
-	Result<GetMarketOrderbooksResponse> response = detail::decode<GetMarketOrderbooksResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_market_orderbooks"));
+	Result<GetMarketOrderbooksResponse> response =
+		detail::decode<GetMarketOrderbooksResponse>(Impl::send(
+			impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_market_orderbooks"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -73,7 +75,7 @@ Result<Series> KalshiClient::get_series(std::string_view series_ticker,
 	detail::Query query(*target);
 	query.add("include_volume", params.include_volume);
 	Result<GetSeriesResponse> response = detail::decode<GetSeriesResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_series"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_series"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -88,7 +90,7 @@ Result<std::vector<Series>> KalshiClient::get_series_list(const GetSeriesListPar
 	query.add("include_volume", params.include_volume);
 	query.add("min_updated_ts", params.min_updated_ts);
 	Result<GetSeriesListResponse> response = detail::decode<GetSeriesListResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_series_list"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_series_list"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -113,7 +115,7 @@ Result<GetMarketsResponse> KalshiClient::get_markets(const GetMarketsParams& par
 	query.add("tickers", params.tickers);
 	query.add("mve_filter", params.mve_filter);
 	return detail::decode<GetMarketsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_markets"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_markets"));
 }
 
 Result<Market> KalshiClient::get_market(std::string_view ticker) {
@@ -121,8 +123,8 @@ Result<Market> KalshiClient::get_market(std::string_view ticker) {
 	if (!target) {
 		return std::unexpected(std::move(target.error()));
 	}
-	Result<GetMarketResponse> response =
-		detail::decode<GetMarketResponse>(impl_->send(HttpMethod::GET, *target, {}, "get_market"));
+	Result<GetMarketResponse> response = detail::decode<GetMarketResponse>(
+		Impl::send(impl_.get(), HttpMethod::GET, *target, {}, "get_market"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -138,8 +140,9 @@ KalshiClient::batch_get_market_candlesticks(const BatchGetMarketCandlesticksPara
 	query.add("period_interval", params.period_interval);
 	query.add("include_latest_before_start", params.include_latest_before_start);
 	Result<BatchGetMarketCandlesticksResponse> response =
-		detail::decode<BatchGetMarketCandlesticksResponse>(impl_->send(
-			HttpMethod::GET, std::move(query).str(), {}, "batch_get_market_candlesticks"));
+		detail::decode<BatchGetMarketCandlesticksResponse>(
+			Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {},
+					   "batch_get_market_candlesticks"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}

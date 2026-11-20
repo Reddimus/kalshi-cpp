@@ -12,6 +12,9 @@ disconnect before replacing it. Updates are rejected while unsubscribe is
 pending; if the server rejects unsubscribe, retry the update on the same handle.
 Terminal channel errors 10 and 25 also remove the handle; subscribe again
 from `on_error` when ready to resume.
+`market_id` and `market_ids` select markets only on `Ticker`; other channels
+reject them. Matches added to an `EbattleScores` subscription are added again
+after a reconnect.
 Set `update_interval_ms` to `V0`, `V100`, or `V1000`, or omit it for zero milliseconds.
 
 | Channel | `ws::Channel` | Messages |
@@ -29,3 +32,4 @@ Set `update_interval_ms` to `V0`, `V100`, or `V1000`, or omit it for zero millis
 | `cfbenchmarks_value` | `CfbenchmarksValue` | `ws::CfbenchmarksValue`, `ws::CfbenchmarksIndexList` |
 | `cfbenchmarks_value_5hz` | `CfbenchmarksValue5hz` | `ws::CfbenchmarksValue5Hz`, `ws::Cfbenchmarks5HzIndexList` |
 | `pyth_value` | `PythValue` | `ws::PythValue`, `ws::PythUnderlyingList` |
+| `ebattle_scores` | `EbattleScores` | `ws::EbattleScores`, `ws::EbattleScoresMatchlist` |

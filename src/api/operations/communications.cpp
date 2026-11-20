@@ -7,9 +7,9 @@
 namespace kalshi {
 
 Result<std::string> KalshiClient::get_communications_id() {
-	Result<GetCommunicationsIDResponse> response =
-		detail::decode<GetCommunicationsIDResponse>(impl_->send(
-			HttpMethod::GET, std::string{"/communications/id"}, {}, "get_communications_id"));
+	Result<GetCommunicationsIDResponse> response = detail::decode<GetCommunicationsIDResponse>(
+		Impl::send(impl_.get(), HttpMethod::GET, std::string{"/communications/id"}, {},
+				   "get_communications_id"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -23,21 +23,33 @@ KalshiClient::get_block_trade_proposals(const GetBlockTradeProposalsParams& para
 	query.add("market_ticker", params.market_ticker);
 	query.add("limit", params.limit);
 	query.add("status", params.status);
-	return detail::decode<GetBlockTradeProposalsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_block_trade_proposals"));
+	return detail::decode<GetBlockTradeProposalsResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_block_trade_proposals"));
 }
 
 Result<std::string> KalshiClient::propose_block_trade(const ProposeBlockTradeRequest& body) {
 	if (Result<void> valid = detail::validate(body); !valid) {
 		return std::unexpected(std::move(valid.error()));
 	}
-	Result<ProposeBlockTradeResponse> response = detail::decode<ProposeBlockTradeResponse>(
-		impl_->send(HttpMethod::POST, std::string{"/communications/block-trade-proposals"},
-					detail::encode(body), "propose_block_trade"));
+	Result<ProposeBlockTradeResponse> response =
+		detail::decode<ProposeBlockTradeResponse>(Impl::send(
+			impl_.get(), HttpMethod::POST, std::string{"/communications/block-trade-proposals"},
+			detail::encode(body), "propose_block_trade"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
 	return std::move(response->block_trade_proposal_id);
+}
+
+Result<void> KalshiClient::cancel_block_trade_proposal(std::string_view block_trade_proposal_id) {
+	Result<std::string> target =
+		detail::expand_path("/communications/block-trade-proposals/{block_trade_proposal_id}",
+							{block_trade_proposal_id});
+	if (!target) {
+		return std::unexpected(std::move(target.error()));
+	}
+	return detail::expect_success(
+		Impl::send(impl_.get(), HttpMethod::DEL, *target, {}, "cancel_block_trade_proposal"));
 }
 
 Result<void>
@@ -49,8 +61,19 @@ KalshiClient::accept_block_trade_proposal(std::string_view block_trade_proposal_
 	if (!target) {
 		return std::unexpected(std::move(target.error()));
 	}
-	return detail::expect_success(impl_->send(HttpMethod::POST, *target, detail::encode(body),
-											  "accept_block_trade_proposal"));
+	return detail::expect_success(Impl::send(impl_.get(), HttpMethod::POST, *target,
+											 detail::encode(body), "accept_block_trade_proposal"));
+}
+
+Result<void> KalshiClient::reject_block_trade_proposal(std::string_view block_trade_proposal_id) {
+	Result<std::string> target = detail::expand_path(
+		"/communications/block-trade-proposals/{block_trade_proposal_id}/reject",
+		{block_trade_proposal_id});
+	if (!target) {
+		return std::unexpected(std::move(target.error()));
+	}
+	return detail::expect_success(
+		Impl::send(impl_.get(), HttpMethod::POST, *target, {}, "reject_block_trade_proposal"));
 }
 
 Result<GetRFQsResponse> KalshiClient::get_rfqs(const GetRfqsParams& params) {
@@ -64,15 +87,16 @@ Result<GetRFQsResponse> KalshiClient::get_rfqs(const GetRfqsParams& params) {
 	query.add("creator_user_id", params.creator_user_id);
 	query.add("user_filter", params.user_filter);
 	return detail::decode<GetRFQsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_rfqs"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_rfqs"));
 }
 
 Result<std::string> KalshiClient::create_rfq(const CreateRFQRequest& body) {
 	if (Result<void> valid = detail::validate(body); !valid) {
 		return std::unexpected(std::move(valid.error()));
 	}
-	Result<CreateRFQResponse> response = detail::decode<CreateRFQResponse>(impl_->send(
-		HttpMethod::POST, std::string{"/communications/rfqs"}, detail::encode(body), "create_rfq"));
+	Result<CreateRFQResponse> response = detail::decode<CreateRFQResponse>(
+		Impl::send(impl_.get(), HttpMethod::POST, std::string{"/communications/rfqs"},
+				   detail::encode(body), "create_rfq"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -84,8 +108,8 @@ Result<RFQ> KalshiClient::get_rfq(std::string_view rfq_id) {
 	if (!target) {
 		return std::unexpected(std::move(target.error()));
 	}
-	Result<GetRFQResponse> response =
-		detail::decode<GetRFQResponse>(impl_->send(HttpMethod::GET, *target, {}, "get_rfq"));
+	Result<GetRFQResponse> response = detail::decode<GetRFQResponse>(
+		Impl::send(impl_.get(), HttpMethod::GET, *target, {}, "get_rfq"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -97,7 +121,8 @@ Result<void> KalshiClient::delete_rfq(std::string_view rfq_id) {
 	if (!target) {
 		return std::unexpected(std::move(target.error()));
 	}
-	return detail::expect_success(impl_->send(HttpMethod::DEL, *target, {}, "delete_rfq"));
+	return detail::expect_success(
+		Impl::send(impl_.get(), HttpMethod::DEL, *target, {}, "delete_rfq"));
 }
 
 Result<Quote> KalshiClient::get_rfq_quote(std::string_view rfq_id, std::string_view quote_id) {
@@ -107,7 +132,7 @@ Result<Quote> KalshiClient::get_rfq_quote(std::string_view rfq_id, std::string_v
 		return std::unexpected(std::move(target.error()));
 	}
 	Result<GetQuoteResponse> response = detail::decode<GetQuoteResponse>(
-		impl_->send(HttpMethod::GET, *target, {}, "get_rfq_quote"));
+		Impl::send(impl_.get(), HttpMethod::GET, *target, {}, "get_rfq_quote"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -120,7 +145,8 @@ Result<void> KalshiClient::delete_rfq_quote(std::string_view rfq_id, std::string
 	if (!target) {
 		return std::unexpected(std::move(target.error()));
 	}
-	return detail::expect_success(impl_->send(HttpMethod::DEL, *target, {}, "delete_rfq_quote"));
+	return detail::expect_success(
+		Impl::send(impl_.get(), HttpMethod::DEL, *target, {}, "delete_rfq_quote"));
 }
 
 Result<void> KalshiClient::accept_rfq_quote(std::string_view rfq_id, std::string_view quote_id,
@@ -133,8 +159,8 @@ Result<void> KalshiClient::accept_rfq_quote(std::string_view rfq_id, std::string
 	if (!target) {
 		return std::unexpected(std::move(target.error()));
 	}
-	return detail::expect_success(
-		impl_->send(HttpMethod::PUT, *target, detail::encode(body), "accept_rfq_quote"));
+	return detail::expect_success(Impl::send(impl_.get(), HttpMethod::PUT, *target,
+											 detail::encode(body), "accept_rfq_quote"));
 }
 
 Result<void> KalshiClient::confirm_rfq_quote(std::string_view rfq_id, std::string_view quote_id) {
@@ -144,7 +170,7 @@ Result<void> KalshiClient::confirm_rfq_quote(std::string_view rfq_id, std::strin
 		return std::unexpected(std::move(target.error()));
 	}
 	return detail::expect_success(
-		impl_->send(HttpMethod::PUT, *target, std::string{"{}"}, "confirm_rfq_quote"));
+		Impl::send(impl_.get(), HttpMethod::PUT, *target, std::string{"{}"}, "confirm_rfq_quote"));
 }
 
 Result<GetRFQBatchesResponse> KalshiClient::get_rfq_batches(const GetRfqBatchesParams& params) {
@@ -155,7 +181,7 @@ Result<GetRFQBatchesResponse> KalshiClient::get_rfq_batches(const GetRfqBatchesP
 	query.add("status", params.status);
 	query.add("user_filter", params.user_filter);
 	return detail::decode<GetRFQBatchesResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_rfq_batches"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_rfq_batches"));
 }
 
 Result<RFQBatch> KalshiClient::create_rfq_batch(const CreateRFQBatchRequest& body) {
@@ -163,8 +189,8 @@ Result<RFQBatch> KalshiClient::create_rfq_batch(const CreateRFQBatchRequest& bod
 		return std::unexpected(std::move(valid.error()));
 	}
 	Result<CreateRFQBatchResponse> response = detail::decode<CreateRFQBatchResponse>(
-		impl_->send(HttpMethod::POST, std::string{"/communications/rfq_batches"},
-					detail::encode(body), "create_rfq_batch"));
+		Impl::send(impl_.get(), HttpMethod::POST, std::string{"/communications/rfq_batches"},
+				   detail::encode(body), "create_rfq_batch"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -178,7 +204,7 @@ Result<RFQBatch> KalshiClient::get_rfq_batch(std::string_view rfq_batch_id) {
 		return std::unexpected(std::move(target.error()));
 	}
 	Result<GetRFQBatchResponse> response = detail::decode<GetRFQBatchResponse>(
-		impl_->send(HttpMethod::GET, *target, {}, "get_rfq_batch"));
+		Impl::send(impl_.get(), HttpMethod::GET, *target, {}, "get_rfq_batch"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -191,7 +217,8 @@ Result<void> KalshiClient::delete_rfq_batch(std::string_view rfq_batch_id) {
 	if (!target) {
 		return std::unexpected(std::move(target.error()));
 	}
-	return detail::expect_success(impl_->send(HttpMethod::DEL, *target, {}, "delete_rfq_batch"));
+	return detail::expect_success(
+		Impl::send(impl_.get(), HttpMethod::DEL, *target, {}, "delete_rfq_batch"));
 }
 
 Result<RFQBatchBestQuotes> KalshiClient::get_rfq_batch_best_quotes(std::string_view rfq_batch_id) {
@@ -201,7 +228,7 @@ Result<RFQBatchBestQuotes> KalshiClient::get_rfq_batch_best_quotes(std::string_v
 		return std::unexpected(std::move(target.error()));
 	}
 	Result<GetRFQBatchBestQuotesResponse> response = detail::decode<GetRFQBatchBestQuotesResponse>(
-		impl_->send(HttpMethod::GET, *target, {}, "get_rfq_batch_best_quotes"));
+		Impl::send(impl_.get(), HttpMethod::GET, *target, {}, "get_rfq_batch_best_quotes"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -218,8 +245,8 @@ Result<AcceptRFQBatchResponse> KalshiClient::accept_rfq_batch(std::string_view r
 	if (!target) {
 		return std::unexpected(std::move(target.error()));
 	}
-	return detail::decode<AcceptRFQBatchResponse>(
-		impl_->send(HttpMethod::PUT, *target, detail::encode(body), "accept_rfq_batch"));
+	return detail::decode<AcceptRFQBatchResponse>(Impl::send(
+		impl_.get(), HttpMethod::PUT, *target, detail::encode(body), "accept_rfq_batch"));
 }
 
 Result<std::vector<RFQBatchQuote>>
@@ -230,7 +257,7 @@ KalshiClient::get_rfq_batch_quotes(std::string_view rfq_batch_id) {
 		return std::unexpected(std::move(target.error()));
 	}
 	Result<GetRFQBatchQuotesResponse> response = detail::decode<GetRFQBatchQuotesResponse>(
-		impl_->send(HttpMethod::GET, *target, {}, "get_rfq_batch_quotes"));
+		Impl::send(impl_.get(), HttpMethod::GET, *target, {}, "get_rfq_batch_quotes"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -248,7 +275,8 @@ Result<std::string> KalshiClient::create_rfq_batch_quote(std::string_view rfq_ba
 		return std::unexpected(std::move(target.error()));
 	}
 	Result<CreateRFQBatchQuoteResponse> response = detail::decode<CreateRFQBatchQuoteResponse>(
-		impl_->send(HttpMethod::POST, *target, detail::encode(body), "create_rfq_batch_quote"));
+		Impl::send(impl_.get(), HttpMethod::POST, *target, detail::encode(body),
+				   "create_rfq_batch_quote"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -264,7 +292,7 @@ Result<void> KalshiClient::delete_rfq_batch_quote(std::string_view rfq_batch_id,
 		return std::unexpected(std::move(target.error()));
 	}
 	return detail::expect_success(
-		impl_->send(HttpMethod::DEL, *target, {}, "delete_rfq_batch_quote"));
+		Impl::send(impl_.get(), HttpMethod::DEL, *target, {}, "delete_rfq_batch_quote"));
 }
 
 Result<void> KalshiClient::confirm_rfq_batch_quote(std::string_view rfq_batch_id,
@@ -275,8 +303,8 @@ Result<void> KalshiClient::confirm_rfq_batch_quote(std::string_view rfq_batch_id
 	if (!target) {
 		return std::unexpected(std::move(target.error()));
 	}
-	return detail::expect_success(
-		impl_->send(HttpMethod::PUT, *target, std::string{"{}"}, "confirm_rfq_batch_quote"));
+	return detail::expect_success(Impl::send(impl_.get(), HttpMethod::PUT, *target,
+											 std::string{"{}"}, "confirm_rfq_batch_quote"));
 }
 
 Result<GetQuotesResponse> KalshiClient::get_quotes(const GetQuotesParams& params) {
@@ -293,7 +321,7 @@ Result<GetQuotesResponse> KalshiClient::get_quotes(const GetQuotesParams& params
 	query.add("rfq_creator_subtrader_id", params.rfq_creator_subtrader_id);
 	query.add("rfq_id", params.rfq_id);
 	return detail::decode<GetQuotesResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_quotes"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_quotes"));
 }
 
 Result<std::string> KalshiClient::create_quote(const CreateQuoteRequest& body) {
@@ -301,8 +329,8 @@ Result<std::string> KalshiClient::create_quote(const CreateQuoteRequest& body) {
 		return std::unexpected(std::move(valid.error()));
 	}
 	Result<CreateQuoteResponse> response = detail::decode<CreateQuoteResponse>(
-		impl_->send(HttpMethod::POST, std::string{"/communications/quotes"}, detail::encode(body),
-					"create_quote"));
+		Impl::send(impl_.get(), HttpMethod::POST, std::string{"/communications/quotes"},
+				   detail::encode(body), "create_quote"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -315,8 +343,8 @@ Result<Quote> KalshiClient::get_quote(std::string_view quote_id) {
 	if (!target) {
 		return std::unexpected(std::move(target.error()));
 	}
-	Result<GetQuoteResponse> response =
-		detail::decode<GetQuoteResponse>(impl_->send(HttpMethod::GET, *target, {}, "get_quote"));
+	Result<GetQuoteResponse> response = detail::decode<GetQuoteResponse>(
+		Impl::send(impl_.get(), HttpMethod::GET, *target, {}, "get_quote"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -329,7 +357,8 @@ Result<void> KalshiClient::delete_quote(std::string_view quote_id) {
 	if (!target) {
 		return std::unexpected(std::move(target.error()));
 	}
-	return detail::expect_success(impl_->send(HttpMethod::DEL, *target, {}, "delete_quote"));
+	return detail::expect_success(
+		Impl::send(impl_.get(), HttpMethod::DEL, *target, {}, "delete_quote"));
 }
 
 Result<void> KalshiClient::accept_quote(std::string_view quote_id, const AcceptQuoteRequest& body) {
@@ -342,7 +371,7 @@ Result<void> KalshiClient::accept_quote(std::string_view quote_id, const AcceptQ
 		return std::unexpected(std::move(target.error()));
 	}
 	return detail::expect_success(
-		impl_->send(HttpMethod::PUT, *target, detail::encode(body), "accept_quote"));
+		Impl::send(impl_.get(), HttpMethod::PUT, *target, detail::encode(body), "accept_quote"));
 }
 
 Result<void> KalshiClient::confirm_quote(std::string_view quote_id) {
@@ -352,7 +381,7 @@ Result<void> KalshiClient::confirm_quote(std::string_view quote_id) {
 		return std::unexpected(std::move(target.error()));
 	}
 	return detail::expect_success(
-		impl_->send(HttpMethod::PUT, *target, std::string{"{}"}, "confirm_quote"));
+		Impl::send(impl_.get(), HttpMethod::PUT, *target, std::string{"{}"}, "confirm_quote"));
 }
 
 } // namespace kalshi

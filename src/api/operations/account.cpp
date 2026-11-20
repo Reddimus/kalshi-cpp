@@ -7,22 +7,23 @@
 namespace kalshi {
 
 Result<GetAccountApiLimitsResponse> KalshiClient::get_account_api_limits() {
-	return detail::decode<GetAccountApiLimitsResponse>(
-		impl_->send(HttpMethod::GET, std::string{"/account/limits"}, {}, "get_account_api_limits"));
+	return detail::decode<GetAccountApiLimitsResponse>(Impl::send(impl_.get(), HttpMethod::GET,
+																  std::string{"/account/limits"},
+																  {}, "get_account_api_limits"));
 }
 
 Result<void> KalshiClient::upgrade_account_api_usage_level() {
-	return detail::expect_success(impl_->send(HttpMethod::POST,
-											  std::string{"/account/api_usage_level/upgrade"}, {},
-											  "upgrade_account_api_usage_level"));
+	return detail::expect_success(Impl::send(impl_.get(), HttpMethod::POST,
+											 std::string{"/account/api_usage_level/upgrade"}, {},
+											 "upgrade_account_api_usage_level"));
 }
 
 Result<std::vector<AccountApiUsageLevelVolumeProgress>>
 KalshiClient::get_account_api_usage_level_volume_progress() {
 	Result<GetAccountApiUsageLevelVolumeProgressResponse> response =
-		detail::decode<GetAccountApiUsageLevelVolumeProgressResponse>(
-			impl_->send(HttpMethod::GET, std::string{"/account/api_usage_level/volume_progress"},
-						{}, "get_account_api_usage_level_volume_progress"));
+		detail::decode<GetAccountApiUsageLevelVolumeProgressResponse>(Impl::send(
+			impl_.get(), HttpMethod::GET, std::string{"/account/api_usage_level/volume_progress"},
+			{}, "get_account_api_usage_level_volume_progress"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -30,8 +31,9 @@ KalshiClient::get_account_api_usage_level_volume_progress() {
 }
 
 Result<GetAccountEndpointCostsResponse> KalshiClient::get_account_endpoint_costs() {
-	return detail::decode<GetAccountEndpointCostsResponse>(impl_->send(
-		HttpMethod::GET, std::string{"/account/endpoint_costs"}, {}, "get_account_endpoint_costs"));
+	return detail::decode<GetAccountEndpointCostsResponse>(
+		Impl::send(impl_.get(), HttpMethod::GET, std::string{"/account/endpoint_costs"}, {},
+				   "get_account_endpoint_costs"));
 }
 
 } // namespace kalshi

@@ -12,7 +12,7 @@ Result<GetFcmFillsResponse> KalshiClient::get_fcm_fills(const GetFcmFillsParams&
 	query.add("max_ts", params.max_ts);
 	query.add("cursor", params.cursor);
 	return detail::decode<GetFcmFillsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_fcm_fills"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_fcm_fills"));
 }
 
 Result<GetOrdersResponse> KalshiClient::get_fcm_orders(const GetFcmOrdersParams& params) {
@@ -27,12 +27,13 @@ Result<GetOrdersResponse> KalshiClient::get_fcm_orders(const GetFcmOrdersParams&
 	query.add("status", params.status);
 	query.add("limit", params.limit);
 	return detail::decode<GetOrdersResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_fcm_orders"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_fcm_orders"));
 }
 
 Result<std::vector<FCMSubtrader>> KalshiClient::get_fcm_subtraders() {
 	Result<ListFCMSubtradersResponse> response = detail::decode<ListFCMSubtradersResponse>(
-		impl_->send(HttpMethod::GET, std::string{"/fcm/subtraders"}, {}, "get_fcm_subtraders"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::string{"/fcm/subtraders"}, {},
+				   "get_fcm_subtraders"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -44,8 +45,8 @@ Result<std::string> KalshiClient::create_fcm_subtrader(const CreateFCMSubtraderR
 		return std::unexpected(std::move(valid.error()));
 	}
 	Result<CreateFCMSubtraderResponse> response = detail::decode<CreateFCMSubtraderResponse>(
-		impl_->send(HttpMethod::POST, std::string{"/fcm/subtraders"}, detail::encode(body),
-					"create_fcm_subtrader"));
+		Impl::send(impl_.get(), HttpMethod::POST, std::string{"/fcm/subtraders"},
+				   detail::encode(body), "create_fcm_subtrader"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -56,8 +57,9 @@ Result<GetFCMEventContractDailyCapResponse>
 KalshiClient::get_fcm_event_contract_daily_cap(const GetFcmEventContractDailyCapParams& params) {
 	detail::Query query(std::string{"/fcm/subtraders/event_contract_daily_cap"});
 	query.add("subtrader_id", params.subtrader_id);
-	return detail::decode<GetFCMEventContractDailyCapResponse>(impl_->send(
-		HttpMethod::GET, std::move(query).str(), {}, "get_fcm_event_contract_daily_cap"));
+	return detail::decode<GetFCMEventContractDailyCapResponse>(
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {},
+				   "get_fcm_event_contract_daily_cap"));
 }
 
 Result<void> KalshiClient::update_fcm_event_contract_daily_cap(
@@ -65,17 +67,17 @@ Result<void> KalshiClient::update_fcm_event_contract_daily_cap(
 	if (Result<void> valid = detail::validate(body); !valid) {
 		return std::unexpected(std::move(valid.error()));
 	}
-	return detail::expect_success(
-		impl_->send(HttpMethod::PUT, std::string{"/fcm/subtraders/event_contract_daily_cap"},
-					detail::encode(body), "update_fcm_event_contract_daily_cap"));
+	return detail::expect_success(Impl::send(
+		impl_.get(), HttpMethod::PUT, std::string{"/fcm/subtraders/event_contract_daily_cap"},
+		detail::encode(body), "update_fcm_event_contract_daily_cap"));
 }
 
 Result<void> KalshiClient::delete_fcm_event_contract_daily_cap(
 	const DeleteFcmEventContractDailyCapParams& params) {
 	detail::Query query(std::string{"/fcm/subtraders/event_contract_daily_cap"});
 	query.add("subtrader_id", params.subtrader_id);
-	return detail::expect_success(impl_->send(HttpMethod::DEL, std::move(query).str(), {},
-											  "delete_fcm_event_contract_daily_cap"));
+	return detail::expect_success(Impl::send(impl_.get(), HttpMethod::DEL, std::move(query).str(),
+											 {}, "delete_fcm_event_contract_daily_cap"));
 }
 
 Result<std::vector<std::string>> KalshiClient::get_fcm_subtrader_blocked_categories(
@@ -83,8 +85,9 @@ Result<std::vector<std::string>> KalshiClient::get_fcm_subtrader_blocked_categor
 	detail::Query query(std::string{"/fcm/subtraders/blocked_categories"});
 	query.add("subtrader_id", params.subtrader_id);
 	Result<GetFCMSubtraderBlockedCategoriesResponse> response =
-		detail::decode<GetFCMSubtraderBlockedCategoriesResponse>(impl_->send(
-			HttpMethod::GET, std::move(query).str(), {}, "get_fcm_subtrader_blocked_categories"));
+		detail::decode<GetFCMSubtraderBlockedCategoriesResponse>(
+			Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {},
+					   "get_fcm_subtrader_blocked_categories"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -97,9 +100,9 @@ Result<std::vector<std::string>> KalshiClient::update_fcm_subtrader_blocked_cate
 		return std::unexpected(std::move(valid.error()));
 	}
 	Result<UpdateFCMSubtraderBlockedCategoriesResponse> response =
-		detail::decode<UpdateFCMSubtraderBlockedCategoriesResponse>(
-			impl_->send(HttpMethod::PUT, std::string{"/fcm/subtraders/blocked_categories"},
-						detail::encode(body), "update_fcm_subtrader_blocked_categories"));
+		detail::decode<UpdateFCMSubtraderBlockedCategoriesResponse>(Impl::send(
+			impl_.get(), HttpMethod::PUT, std::string{"/fcm/subtraders/blocked_categories"},
+			detail::encode(body), "update_fcm_subtrader_blocked_categories"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -116,7 +119,7 @@ Result<GetPositionsResponse> KalshiClient::get_fcm_positions(const GetFcmPositio
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
 	return detail::decode<GetPositionsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_fcm_positions"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_fcm_positions"));
 }
 
 Result<std::string>
@@ -126,8 +129,8 @@ KalshiClient::create_fcm_position_transfer(const CreateFCMPositionTransferReques
 	}
 	Result<CreateFCMPositionTransferResponse> response =
 		detail::decode<CreateFCMPositionTransferResponse>(
-			impl_->send(HttpMethod::POST, std::string{"/fcm/positions/transfers"},
-						detail::encode(body), "create_fcm_position_transfer"));
+			Impl::send(impl_.get(), HttpMethod::POST, std::string{"/fcm/positions/transfers"},
+					   detail::encode(body), "create_fcm_position_transfer"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}

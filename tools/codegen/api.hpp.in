@@ -30,6 +30,7 @@ public:
 	explicit KalshiClient(std::shared_ptr<const HttpTransport> transport);
 	~KalshiClient();
 
+	/// A moved-from client stays safe: every call fails with NetworkError.
 	KalshiClient(KalshiClient&&) noexcept;
 	KalshiClient& operator=(KalshiClient&&) noexcept;
 	KalshiClient(const KalshiClient&) = delete;

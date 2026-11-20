@@ -12,10 +12,22 @@ KalshiClient::get_incentive_programs(const GetIncentiveProgramsParams& params) {
 	query.add("status", params.status);
 	query.add("type", params.type);
 	query.add("incentive_description", params.incentive_description);
+	query.add("series_ticker", params.series_ticker);
+	query.add("event_ticker", params.event_ticker);
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
-	return detail::decode<GetIncentiveProgramsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_incentive_programs"));
+	return detail::decode<GetIncentiveProgramsResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_incentive_programs"));
+}
+
+Result<std::vector<IncentiveSchedule>> KalshiClient::get_incentive_schedules() {
+	Result<GetIncentiveSchedulesResponse> response = detail::decode<GetIncentiveSchedulesResponse>(
+		Impl::send(impl_.get(), HttpMethod::GET, std::string{"/incentive_schedules"}, {},
+				   "get_incentive_schedules"));
+	if (!response) {
+		return std::unexpected(std::move(response.error()));
+	}
+	return std::move(response->schedules);
 }
 
 } // namespace kalshi

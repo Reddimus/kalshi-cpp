@@ -17,8 +17,9 @@ KalshiClient::get_event_contract_exit_triggers(std::string_view ticker,
 	detail::Query query(*target);
 	query.add("subaccount", params.subaccount);
 	query.add("kind", params.kind);
-	return detail::decode<GetEventContractExitTriggersResponse>(impl_->send(
-		HttpMethod::GET, std::move(query).str(), {}, "get_event_contract_exit_triggers"));
+	return detail::decode<GetEventContractExitTriggersResponse>(
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {},
+				   "get_event_contract_exit_triggers"));
 }
 
 Result<EventContractExitTrigger>
@@ -36,8 +37,8 @@ KalshiClient::set_event_contract_exit_trigger(std::string_view ticker,
 	detail::Query query(*target);
 	query.add("subaccount", params.subaccount);
 	return detail::decode<EventContractExitTrigger>(
-		impl_->send(HttpMethod::PUT, std::move(query).str(), detail::encode(body),
-					"set_event_contract_exit_trigger"));
+		Impl::send(impl_.get(), HttpMethod::PUT, std::move(query).str(), detail::encode(body),
+				   "set_event_contract_exit_trigger"));
 }
 
 Result<void> KalshiClient::delete_event_contract_exit_trigger(
@@ -50,8 +51,8 @@ Result<void> KalshiClient::delete_event_contract_exit_trigger(
 	detail::Query query(*target);
 	query.add("subaccount", params.subaccount);
 	query.add("kind", params.kind);
-	return detail::expect_success(impl_->send(HttpMethod::DEL, std::move(query).str(), {},
-											  "delete_event_contract_exit_trigger"));
+	return detail::expect_success(Impl::send(impl_.get(), HttpMethod::DEL, std::move(query).str(),
+											 {}, "delete_event_contract_exit_trigger"));
 }
 
 Result<GetBalanceResponse> KalshiClient::get_balance(const GetBalanceParams& params) {
@@ -59,7 +60,7 @@ Result<GetBalanceResponse> KalshiClient::get_balance(const GetBalanceParams& par
 	query.add("subaccount", params.subaccount);
 	query.add("exchange_index", params.exchange_index);
 	return detail::decode<GetBalanceResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_balance"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_balance"));
 }
 
 Result<std::string>
@@ -68,9 +69,10 @@ KalshiClient::intra_exchange_instance_transfer(const IntraExchangeInstanceTransf
 		return std::unexpected(std::move(valid.error()));
 	}
 	Result<IntraExchangeInstanceTransferResponse> response =
-		detail::decode<IntraExchangeInstanceTransferResponse>(impl_->send(
-			HttpMethod::POST, std::string{"/portfolio/intra_exchange_instance_transfer"},
-			detail::encode(body), "intra_exchange_instance_transfer"));
+		detail::decode<IntraExchangeInstanceTransferResponse>(
+			Impl::send(impl_.get(), HttpMethod::POST,
+					   std::string{"/portfolio/intra_exchange_instance_transfer"},
+					   detail::encode(body), "intra_exchange_instance_transfer"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -83,8 +85,9 @@ KalshiClient::get_intra_exchange_instance_transfers(
 	detail::Query query(std::string{"/portfolio/intra_exchange_instance_transfers"});
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
-	return detail::decode<GetIntraExchangeInstanceTransfersResponse>(impl_->send(
-		HttpMethod::GET, std::move(query).str(), {}, "get_intra_exchange_instance_transfers"));
+	return detail::decode<GetIntraExchangeInstanceTransfersResponse>(
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {},
+				   "get_intra_exchange_instance_transfers"));
 }
 
 Result<IntraExchangeInstanceTransfer>
@@ -95,8 +98,8 @@ KalshiClient::get_intra_exchange_instance_transfer(std::string_view transfer_id)
 		return std::unexpected(std::move(target.error()));
 	}
 	Result<GetIntraExchangeInstanceTransferResponse> response =
-		detail::decode<GetIntraExchangeInstanceTransferResponse>(
-			impl_->send(HttpMethod::GET, *target, {}, "get_intra_exchange_instance_transfer"));
+		detail::decode<GetIntraExchangeInstanceTransferResponse>(Impl::send(
+			impl_.get(), HttpMethod::GET, *target, {}, "get_intra_exchange_instance_transfer"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -105,8 +108,8 @@ KalshiClient::get_intra_exchange_instance_transfer(std::string_view transfer_id)
 
 Result<std::int64_t> KalshiClient::create_subaccount(const CreateSubaccountRequest& body) {
 	Result<CreateSubaccountResponse> response = detail::decode<CreateSubaccountResponse>(
-		impl_->send(HttpMethod::POST, std::string{"/portfolio/subaccounts"}, detail::encode(body),
-					"create_subaccount"));
+		Impl::send(impl_.get(), HttpMethod::POST, std::string{"/portfolio/subaccounts"},
+				   detail::encode(body), "create_subaccount"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -117,15 +120,15 @@ Result<void> KalshiClient::apply_subaccount_transfer(const ApplySubaccountTransf
 	if (Result<void> valid = detail::validate(body); !valid) {
 		return std::unexpected(std::move(valid.error()));
 	}
-	return detail::expect_success(impl_->send(HttpMethod::POST,
-											  std::string{"/portfolio/subaccounts/transfer"},
-											  detail::encode(body), "apply_subaccount_transfer"));
+	return detail::expect_success(Impl::send(impl_.get(), HttpMethod::POST,
+											 std::string{"/portfolio/subaccounts/transfer"},
+											 detail::encode(body), "apply_subaccount_transfer"));
 }
 
 Result<std::vector<SubaccountBalance>> KalshiClient::get_subaccount_balances() {
 	Result<GetSubaccountBalancesResponse> response = detail::decode<GetSubaccountBalancesResponse>(
-		impl_->send(HttpMethod::GET, std::string{"/portfolio/subaccounts/balances"}, {},
-					"get_subaccount_balances"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::string{"/portfolio/subaccounts/balances"}, {},
+				   "get_subaccount_balances"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -137,14 +140,14 @@ KalshiClient::get_subaccount_transfers(const GetSubaccountTransfersParams& param
 	detail::Query query(std::string{"/portfolio/subaccounts/transfers"});
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
-	return detail::decode<GetSubaccountTransfersResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_subaccount_transfers"));
+	return detail::decode<GetSubaccountTransfersResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_subaccount_transfers"));
 }
 
 Result<std::vector<SubaccountNettingConfig>> KalshiClient::get_subaccount_netting() {
 	Result<GetSubaccountNettingResponse> response = detail::decode<GetSubaccountNettingResponse>(
-		impl_->send(HttpMethod::GET, std::string{"/portfolio/subaccounts/netting"}, {},
-					"get_subaccount_netting"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::string{"/portfolio/subaccounts/netting"}, {},
+				   "get_subaccount_netting"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
@@ -152,9 +155,9 @@ Result<std::vector<SubaccountNettingConfig>> KalshiClient::get_subaccount_nettin
 }
 
 Result<void> KalshiClient::update_subaccount_netting(const UpdateSubaccountNettingRequest& body) {
-	return detail::expect_success(impl_->send(HttpMethod::PUT,
-											  std::string{"/portfolio/subaccounts/netting"},
-											  detail::encode(body), "update_subaccount_netting"));
+	return detail::expect_success(Impl::send(impl_.get(), HttpMethod::PUT,
+											 std::string{"/portfolio/subaccounts/netting"},
+											 detail::encode(body), "update_subaccount_netting"));
 }
 
 Result<GetPositionsResponse> KalshiClient::get_positions(const GetPositionsParams& params) {
@@ -168,7 +171,7 @@ Result<GetPositionsResponse> KalshiClient::get_positions(const GetPositionsParam
 	query.add("subaccount", params.subaccount);
 	query.add("exchange_index", params.exchange_index);
 	return detail::decode<GetPositionsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_positions"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_positions"));
 }
 
 Result<GetSettlementsResponse> KalshiClient::get_settlements(const GetSettlementsParams& params) {
@@ -181,7 +184,7 @@ Result<GetSettlementsResponse> KalshiClient::get_settlements(const GetSettlement
 	query.add("max_ts", params.max_ts);
 	query.add("subaccount", params.subaccount);
 	return detail::decode<GetSettlementsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_settlements"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_settlements"));
 }
 
 Result<GetCreditHistoryResponse>
@@ -192,7 +195,7 @@ KalshiClient::get_credit_history(const GetCreditHistoryParams& params) {
 	query.add("min_ts", params.min_ts);
 	query.add("max_ts", params.max_ts);
 	return detail::decode<GetCreditHistoryResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_credit_history"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_credit_history"));
 }
 
 Result<GetDepositsResponse> KalshiClient::get_deposits(const GetDepositsParams& params) {
@@ -200,7 +203,7 @@ Result<GetDepositsResponse> KalshiClient::get_deposits(const GetDepositsParams& 
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
 	return detail::decode<GetDepositsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_deposits"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_deposits"));
 }
 
 Result<GetWithdrawalsResponse> KalshiClient::get_withdrawals(const GetWithdrawalsParams& params) {
@@ -208,14 +211,14 @@ Result<GetWithdrawalsResponse> KalshiClient::get_withdrawals(const GetWithdrawal
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
 	return detail::decode<GetWithdrawalsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_withdrawals"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_withdrawals"));
 }
 
 Result<GetPortfolioRestingOrderTotalValueResponse>
 KalshiClient::get_portfolio_resting_order_total_value() {
-	return detail::decode<GetPortfolioRestingOrderTotalValueResponse>(
-		impl_->send(HttpMethod::GET, std::string{"/portfolio/summary/total_resting_order_value"},
-					{}, "get_portfolio_resting_order_total_value"));
+	return detail::decode<GetPortfolioRestingOrderTotalValueResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::string{"/portfolio/summary/total_resting_order_value"},
+		{}, "get_portfolio_resting_order_total_value"));
 }
 
 Result<GetFillsResponse> KalshiClient::get_fills(const GetFillsParams& params) {
@@ -229,20 +232,20 @@ Result<GetFillsResponse> KalshiClient::get_fills(const GetFillsParams& params) {
 	query.add("subaccount", params.subaccount);
 	query.add("exchange_index", params.exchange_index);
 	return detail::decode<GetFillsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_fills"));
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_fills"));
 }
 
 Result<GetTargetBalanceAllocationResponse> KalshiClient::get_target_balance_allocation() {
-	return detail::decode<GetTargetBalanceAllocationResponse>(
-		impl_->send(HttpMethod::GET, std::string{"/portfolio/target_balance_allocation"}, {},
-					"get_target_balance_allocation"));
+	return detail::decode<GetTargetBalanceAllocationResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::string{"/portfolio/target_balance_allocation"}, {},
+		"get_target_balance_allocation"));
 }
 
 Result<void>
 KalshiClient::set_target_balance_allocation(const SetTargetBalanceAllocationRequest& body) {
-	return detail::expect_success(
-		impl_->send(HttpMethod::POST, std::string{"/portfolio/target_balance_allocation"},
-					detail::encode(body), "set_target_balance_allocation"));
+	return detail::expect_success(Impl::send(
+		impl_.get(), HttpMethod::POST, std::string{"/portfolio/target_balance_allocation"},
+		detail::encode(body), "set_target_balance_allocation"));
 }
 
 } // namespace kalshi

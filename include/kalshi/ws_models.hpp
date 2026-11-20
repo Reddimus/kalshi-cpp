@@ -32,6 +32,7 @@ enum class Channel : std::uint8_t {
 	CfbenchmarksValue,			 ///< `cfbenchmarks_value`
 	CfbenchmarksValue5hz,		 ///< `cfbenchmarks_value_5hz`
 	PythValue,					 ///< `pyth_value`
+	EbattleScores,				 ///< `ebattle_scores`
 };
 
 [[nodiscard]] constexpr std::string_view to_string(Channel value) noexcept {
@@ -62,6 +63,8 @@ enum class Channel : std::uint8_t {
 			return "cfbenchmarks_value_5hz";
 		case Channel::PythValue:
 			return "pyth_value";
+		case Channel::EbattleScores:
+			return "ebattle_scores";
 		case Channel::Unknown:
 			break;
 	}
@@ -353,6 +356,9 @@ enum class UpdateAction : std::uint8_t {
 	SubscribeUnderlyings,	///< `subscribe_underlyings`
 	UnsubscribeUnderlyings, ///< `unsubscribe_underlyings`
 	UnderlyingList,			///< `underlying_list`
+	SubscribeMatches,		///< `subscribe_matches`
+	UnsubscribeMatches,		///< `unsubscribe_matches`
+	Matchlist,				///< `matchlist`
 };
 
 [[nodiscard]] constexpr std::string_view to_string(UpdateAction value) noexcept {
@@ -375,6 +381,12 @@ enum class UpdateAction : std::uint8_t {
 			return "unsubscribe_underlyings";
 		case UpdateAction::UnderlyingList:
 			return "underlying_list";
+		case UpdateAction::SubscribeMatches:
+			return "subscribe_matches";
+		case UpdateAction::UnsubscribeMatches:
+			return "unsubscribe_matches";
+		case UpdateAction::Matchlist:
+			return "matchlist";
 		case UpdateAction::Unknown:
 			break;
 	}
@@ -598,6 +610,21 @@ struct CfbenchmarksValue5Hz {
 	std::int64_t received_at{};
 	/// The raw CF Benchmarks JSON frame, as a string
 	std::string data;
+};
+
+/// ebattleScores
+struct EbattleScores {
+	std::string event_id;
+	/// Kalshi milestone ID.
+	std::string match_id;
+	std::int64_t received_at{};
+	/// JSON-encoded full score state, as described by the channel.
+	std::string data;
+};
+
+/// ebattleScoresMatchlist
+struct EbattleScoresMatchlist {
+	std::vector<std::string> match_ids;
 };
 
 /// Emitted when an event-level fee override is set or cleared
@@ -841,7 +868,7 @@ struct OrderbookDelta {
 struct OrderbookSnapshot {
 	/// Unique market identifier
 	std::string market_ticker;
-	/// Unique market UUID
+	/// Unique market UUID.
 	std::string market_id;
 	/// Exchange clock of the newest change this snapshot includes, or 0 if the market has no
 	/// recorded change.
@@ -1235,6 +1262,8 @@ struct UpdateSubscriptionParams {
 	std::vector<std::string> index_ids;
 	/// Pyth underlyings to add or remove.
 	std::vector<std::string> underlying_tickers;
+	/// Required for subscribe_matches and unsubscribe_matches.
+	std::vector<std::string> match_ids;
 };
 
 /// Real-time order updates for authenticated user
@@ -1343,7 +1372,8 @@ using Message =
 				 Update<QuoteExecuted>, Update<RfqBatchCreated>, Update<RfqBatchDeleted>,
 				 Update<BatchQuoteCreated>, Update<RfqBatchBestQuotes>, Update<BatchQuoteAccepted>,
 				 Update<RfqBatchExecuted>, Update<BatchQuoteExecuted>, Update<OrderGroupUpdates>,
-				 Update<UserOrder>, Update<CfbenchmarksValue>, Update<CfbenchmarksIndexList>,
+				 Update<UserOrder>, Update<EbattleScores>, Update<EbattleScoresMatchlist>,
+				 Update<CfbenchmarksValue>, Update<CfbenchmarksIndexList>,
 				 Update<CfbenchmarksValue5Hz>, Update<Cfbenchmarks5HzIndexList>, Update<PythValue>,
 				 Update<PythUnderlyingList>, Update<MarketMetadataUpdated>,
 				 Update<MarketLifecycleV2>, Subscribed, Unsubscribed, Updated, SubscriptionList>;

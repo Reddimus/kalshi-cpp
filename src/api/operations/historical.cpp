@@ -7,8 +7,9 @@
 namespace kalshi {
 
 Result<GetHistoricalCutoffResponse> KalshiClient::get_historical_cutoff() {
-	return detail::decode<GetHistoricalCutoffResponse>(impl_->send(
-		HttpMethod::GET, std::string{"/historical/cutoff"}, {}, "get_historical_cutoff"));
+	return detail::decode<GetHistoricalCutoffResponse>(Impl::send(impl_.get(), HttpMethod::GET,
+																  std::string{"/historical/cutoff"},
+																  {}, "get_historical_cutoff"));
 }
 
 Result<GetMarketCandlesticksHistoricalResponse> KalshiClient::get_market_candlesticks_historical(
@@ -22,8 +23,9 @@ Result<GetMarketCandlesticksHistoricalResponse> KalshiClient::get_market_candles
 	query.add("start_ts", params.start_ts);
 	query.add("end_ts", params.end_ts);
 	query.add("period_interval", params.period_interval);
-	return detail::decode<GetMarketCandlesticksHistoricalResponse>(impl_->send(
-		HttpMethod::GET, std::move(query).str(), {}, "get_market_candlesticks_historical"));
+	return detail::decode<GetMarketCandlesticksHistoricalResponse>(
+		Impl::send(impl_.get(), HttpMethod::GET, std::move(query).str(), {},
+				   "get_market_candlesticks_historical"));
 }
 
 Result<GetFillsResponse>
@@ -35,8 +37,8 @@ KalshiClient::get_fills_historical(const GetFillsHistoricalParams& params) {
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
 	query.add("subaccount", params.subaccount);
-	return detail::decode<GetFillsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_fills_historical"));
+	return detail::decode<GetFillsResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_fills_historical"));
 }
 
 Result<GetOrdersResponse>
@@ -48,8 +50,8 @@ KalshiClient::get_historical_orders(const GetHistoricalOrdersParams& params) {
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
 	query.add("subaccount", params.subaccount);
-	return detail::decode<GetOrdersResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_historical_orders"));
+	return detail::decode<GetOrdersResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_historical_orders"));
 }
 
 Result<GetPositionsResponse>
@@ -60,8 +62,8 @@ KalshiClient::get_historical_positions(const GetHistoricalPositionsParams& param
 	query.add("subaccount", params.subaccount);
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
-	return detail::decode<GetPositionsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_historical_positions"));
+	return detail::decode<GetPositionsResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_historical_positions"));
 }
 
 Result<GetTradesResponse>
@@ -73,8 +75,8 @@ KalshiClient::get_trades_historical(const GetTradesHistoricalParams& params) {
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
 	query.add("is_block_trade", params.is_block_trade);
-	return detail::decode<GetTradesResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_trades_historical"));
+	return detail::decode<GetTradesResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_trades_historical"));
 }
 
 Result<GetMarketsResponse>
@@ -86,8 +88,8 @@ KalshiClient::get_historical_markets(const GetHistoricalMarketsParams& params) {
 	query.add("event_ticker", params.event_ticker);
 	query.add("series_ticker", params.series_ticker);
 	query.add("mve_filter", params.mve_filter);
-	return detail::decode<GetMarketsResponse>(
-		impl_->send(HttpMethod::GET, std::move(query).str(), {}, "get_historical_markets"));
+	return detail::decode<GetMarketsResponse>(Impl::send(
+		impl_.get(), HttpMethod::GET, std::move(query).str(), {}, "get_historical_markets"));
 }
 
 Result<Market> KalshiClient::get_historical_market(std::string_view ticker) {
@@ -96,7 +98,7 @@ Result<Market> KalshiClient::get_historical_market(std::string_view ticker) {
 		return std::unexpected(std::move(target.error()));
 	}
 	Result<GetMarketResponse> response = detail::decode<GetMarketResponse>(
-		impl_->send(HttpMethod::GET, *target, {}, "get_historical_market"));
+		Impl::send(impl_.get(), HttpMethod::GET, *target, {}, "get_historical_market"));
 	if (!response) {
 		return std::unexpected(std::move(response.error()));
 	}
