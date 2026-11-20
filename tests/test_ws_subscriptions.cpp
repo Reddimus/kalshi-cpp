@@ -8,8 +8,10 @@
 #include <optional>
 #include <string>
 #include <string_view>
+#include <variant>
 #include <vector>
 
+#include "frames.hpp"
 #include "subscriptions.hpp"
 
 namespace {
@@ -778,6 +780,40 @@ TEST(WsSubscriptions, UnknownSubscriptionIdCompletesAnUnsubscribe) {
 	EXPECT_TRUE(frames.empty());
 	EXPECT_TRUE(registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "B"}, true, frames)
 					.has_value());
+}
+
+// The spec lists `seq` as required in `unsubscribed`, but a confirmation
+// without one must still end the subscription, or the orderbook handle stays
+// reserved until the next reconnect.
+TEST(WsSubscriptions, UnsubscribedWithoutASequenceCompletesTheUnsubscribe) {
+	for (const std::string_view json : {
+			 std::string_view{R"({"type":"unsubscribed","id":3,"sid":9})"},
+			 // A server-initiated unsubscribe carries no command id.
+			 std::string_view{R"({"type":"unsubscribed","sid":9})"},
+		 }) {
+		SCOPED_TRACE(json);
+		SubscriptionRegistry registry;
+		std::vector<std::string> frames;
+		const kalshi::ws::Subscription book =
+			registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames)
+				.value();
+		registry.on_subscribed({2, "orderbook_delta", 9});
+		ASSERT_TRUE(registry.unsubscribe(book, frames).has_value());
+
+		const kalshi::detail::Frame frame = kalshi::detail::parse_frame(std::string{json});
+		const kalshi::detail::UnsubscribedFrame* unsubscribed =
+			std::get_if<kalshi::detail::UnsubscribedFrame>(&frame);
+		ASSERT_NE(unsubscribed, nullptr);
+		const Reaction done = registry.on_unsubscribed(*unsubscribed);
+		ASSERT_TRUE(done.message.has_value());
+		EXPECT_EQ(std::get<kalshi::ws::Unsubscribed>(*done.message).subscription, book);
+		EXPECT_TRUE(registry.subscriptions().empty());
+		frames.clear();
+		EXPECT_TRUE(
+			registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "B"}, true, frames)
+				.has_value());
+		EXPECT_EQ(frames.size(), 1U);
+	}
 }
 
 // The server drops subscriptions with the connection, so a pending unsubscribe is done.

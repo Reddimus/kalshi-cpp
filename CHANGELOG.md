@@ -6,6 +6,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Finish an unsubscribe when the `unsubscribed` confirmation has no `seq`. The confirmation was
+  dropped as malformed, so the subscription never ended and a new `orderbook_delta`
+  subscription was refused until the next reconnect.
+
 ## [0.9.0] - 2026-11-20
 
 ### Added

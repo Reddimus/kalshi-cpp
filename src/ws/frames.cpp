@@ -12,7 +12,7 @@ namespace frame_wire {
 
 // Control frames are read with kControlReadOptions, which makes every member
 // that is not std::optional required. The split follows the `required` lists
-// of the response payloads in spec/asyncapi.yaml.
+// of the response payloads in spec/asyncapi.yaml, except where noted.
 
 struct SubscribedWire {
 	std::optional<std::int64_t> id;
@@ -26,7 +26,9 @@ struct SubscribedWire {
 struct UnsubscribedWire {
 	std::optional<std::int64_t> id;
 	std::int64_t sid{0};
-	std::int64_t seq{0};
+	// The spec requires `seq`, but nothing reads it here. Requiring it would
+	// drop a confirmation without one, leaving the unsubscribe unfinished.
+	std::optional<std::int64_t> seq;
 	std::optional<std::int64_t> sending_ts_ms;
 };
 

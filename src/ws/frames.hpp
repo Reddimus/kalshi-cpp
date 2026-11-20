@@ -59,9 +59,9 @@ using Frame = std::variant<std::monostate, WsMessage, SubscribedFrame, Unsubscri
 /// version knows; MalformedFrame means a known type failed to parse.
 ///
 /// Control frames (`subscribed`, `unsubscribed`, `ok`, `error`) must carry the
-/// members spec/asyncapi.yaml requires, and any `sid` in them must be at least
-/// 1. No member of a parsed control frame is a default standing in for one the
-/// server left out.
+/// members spec/asyncapi.yaml requires, except an `unsubscribed` frame's `seq`,
+/// and any `sid` in them must be at least 1. No member of a parsed control
+/// frame is a default standing in for one the server left out.
 [[nodiscard]] Frame parse_frame(const std::string& json);
 
 /// Parses a data frame, for tests and benchmarks.

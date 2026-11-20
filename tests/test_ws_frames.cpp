@@ -180,7 +180,6 @@ TEST(WsFrames, ControlFramesMissingRequiredMembersAreMalformed) {
 			 Case{"subscribed", R"({"type":"subscribed","id":1,"sid":4,"channel":"ticker"})"},
 			 Case{"unsubscribed", R"({"type":"unsubscribed","id":1})"},
 			 Case{"unsubscribed", R"({"type":"unsubscribed","id":1,"seq":3})"},
-			 Case{"unsubscribed", R"({"type":"unsubscribed","id":1,"sid":2})"},
 			 Case{"unsubscribed", R"({"type":"unsubscribed","id":1,"sid":null,"seq":3})"},
 			 Case{"error", R"({"type":"error","id":1})"},
 			 Case{"error", R"({"type":"error","id":1,"msg":{}})"},
@@ -223,6 +222,17 @@ TEST(WsFrames, ControlFramesKeepTheirOptionalMembersOptional) {
 	EXPECT_FALSE(ended->id.has_value());
 	EXPECT_EQ(ended->sid, 2);
 	EXPECT_EQ(ended->seq, 7);
+
+	// The spec lists `seq` as required, but nothing reads it, so a confirmation
+	// without one still ends its subscription.
+	const kalshi::detail::Frame unsequenced =
+		kalshi::detail::parse_frame(R"({"type":"unsubscribed","id":1,"sid":2})");
+	const kalshi::detail::UnsubscribedFrame* confirmed =
+		std::get_if<kalshi::detail::UnsubscribedFrame>(&unsequenced);
+	ASSERT_NE(confirmed, nullptr);
+	EXPECT_EQ(confirmed->id, 1);
+	EXPECT_EQ(confirmed->sid, 2);
+	EXPECT_FALSE(confirmed->seq.has_value());
 
 	// An error needs no id, sid, or seq, and members this SDK does not model are skipped.
 	const kalshi::detail::Frame error = kalshi::detail::parse_frame(
