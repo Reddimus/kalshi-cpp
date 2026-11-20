@@ -203,6 +203,56 @@ class SupportedSpec(unittest.TestCase):
         ops = {op.method_name: op for op in generate(spec).operations}
         self.assertEqual(ops["create_thing"].response_type, "Thing")
 
+    def test_all_of_extension_may_require_a_base_property(self) -> None:
+        spec = copy.deepcopy(BASE)
+        spec["components"]["schemas"]["SizedThing"] = {"allOf": [ref("Thing"), {"type": "object", "required": ["size"]}]}
+        members = {m.json_name: m for m in generate(spec).structs["SizedThing"].members}
+        self.assertTrue(members["size"].required)
+
+    def test_all_of_parts_may_annotate_a_referenced_field(self) -> None:
+        spec = copy.deepcopy(BASE)
+        spec["components"]["schemas"]["Owned"] = {"allOf": [
+            {"type": "object", "properties": {"thing": ref("Thing")}},
+            {"type": "object", "properties": {"thing": {"description": "The owned thing."}}}]}
+        members = {m.json_name: m for m in generate(spec).structs["Owned"].members}
+        self.assertEqual(members["thing"].cpp_type, "std::optional<Thing>")
+
+    def test_fixed_point_arrays_in_request_bodies_are_validated(self) -> None:
+        spec = copy.deepcopy(BASE)
+        schemas = spec["components"]["schemas"]
+        schemas["FixedPointDollars"] = {"type": "string"}
+        schemas["FixedPointQuote"] = {"type": "array", "items": ref("FixedPointDollars"), "minItems": 2, "maxItems": 2}
+        schemas["Quote"] = {"type": "object", "required": ["prices"], "properties": {
+            "prices": {"type": "array", "items": ref("FixedPointDollars")},
+            "limits": {"type": "array", "items": {"allOf": [ref("FixedPointDollars")]}},
+            "spread": ref("FixedPointQuote"),
+            "legs": {"type": "array", "items": {"type": "object", "properties": {
+                "marks": {"type": "array", "items": ref("FixedPointDollars")}}}},
+        }}
+        spec["paths"]["/quotes"] = {"post": {"operationId": "CreateQuote", "tags": ["things"],
+                                             "requestBody": json_content(ref("Quote")),
+                                             "responses": {"204": {"description": "created"}}}}
+        gen = generate(spec)
+        header = gen.validate_header()
+        self.assertIn("for (const FixedPointDollars& item : value.prices) {\n\t\tif (!FixedPoint::parse(item)) {", header)
+        self.assertIn('invalid("Quote", "prices", "has an item that is not a fixed-point decimal")', header)
+        self.assertIn("for (const FixedPointDollars& item : *value.limits)", header)
+        self.assertIn("for (const FixedPointDollars& item : *value.spread)", header)  # std::array alias
+        self.assertNotIn("FixedPoint::parse(*value.spread)", header)
+        self.assertIn("for (const FixedPointDollars& item : *value.marks)", header)
+        self.assertIn("for (const QuoteLegsItem& item : *value.legs)", header)
+        quote = next(op for op in gen.operations if op.operation_id == "CreateQuote")
+        self.assertIn("detail::validate(body)", gen.operations_source("things", [quote]))
+        self.assertFalse(gen.default_is_invalid("Quote"))  # an empty list holds no bad strings
+
+    def test_nested_fixed_point_containers_outside_request_bodies_are_allowed(self) -> None:
+        spec = copy.deepcopy(BASE)
+        spec["components"]["schemas"]["FixedPointDollars"] = {"type": "string"}
+        spec["components"]["schemas"]["Book"] = {"type": "object", "properties": {
+            "levels": {"type": "array", "items": {"type": "array", "items": ref("FixedPointDollars")}}}}
+        members = {m.json_name: m for m in generate(spec).structs["Book"].members}
+        self.assertEqual(members["levels"].cpp_type, "std::optional<std::vector<std::vector<FixedPointDollars>>>")
+
 
 class Rejected(unittest.TestCase):
     def setUp(self) -> None:
@@ -270,6 +320,14 @@ class Rejected(unittest.TestCase):
         self.schemas["GetThingParams"] = {"type": "object", "properties": {"x": {"type": "string"}}}
         self.stops("GetThingParams is already a schema name")
 
+    def test_operation_servers_override(self) -> None:
+        self.get["servers"] = [{"url": "https://other.example/v1"}]
+        self.stops("GetThing: `servers` overrides are not supported")
+
+    def test_path_servers_override(self) -> None:
+        self.spec["paths"]["/things/{id}"]["servers"] = [{"url": "https://other.example/v1"}]
+        self.stops("/things/{id}: `servers` overrides are not supported")
+
     # ----- request bodies --------------------------------------------------
 
     def test_non_json_body(self) -> None:
@@ -296,6 +354,22 @@ class Rejected(unittest.TestCase):
     def test_read_only_field_in_request_body(self) -> None:
         self.schemas["Thing"]["properties"]["name"]["readOnly"] = True
         self.stops("Thing.name: required readOnly fields in request bodies")
+
+    def test_fixed_point_strings_nested_in_request_containers(self) -> None:
+        self.schemas["FixedPointDollars"] = {"type": "string"}
+        self.schemas["FixedPointPair"] = {"type": "array", "items": ref("FixedPointDollars")}
+        nested = {
+            "grid": {"type": "array", "items": {"type": "array", "items": ref("FixedPointDollars")}},
+            "pairs": {"type": "array", "items": ref("FixedPointPair")},
+            "by_market": {"type": "object", "additionalProperties": ref("FixedPointDollars")},
+        }
+        for field, schema in nested.items():
+            with self.subTest(field=field):
+                spec = copy.deepcopy(self.spec)
+                spec["components"]["schemas"]["Thing"]["properties"][field] = schema
+                with self.assertRaises(SystemExit) as caught:
+                    generate(spec)
+                self.assertIn(f"Thing.{field}: validation cannot check fixed-point strings", str(caught.exception.code))
 
     # ----- responses -------------------------------------------------------
 
@@ -376,6 +450,31 @@ class Rejected(unittest.TestCase):
     def test_all_of_with_conflicting_fields(self) -> None:
         self.schemas["BigThing"] = {"allOf": [ref("Thing"), {"type": "object", "properties": {"name": {"type": "integer"}}}]}
         self.stops("BigThing.name: incompatible allOf fields")
+
+    def test_all_of_with_a_ref_and_an_inline_type_for_one_field(self) -> None:
+        inline = {"type": "object", "properties": {"count": {"type": "integer"}}}
+        referenced = {"type": "object", "properties": {"count": ref("GetThingResponse")}}
+        for parts in ([inline, referenced], [referenced, inline]):
+            with self.subTest(first="$ref" if parts[0] is referenced else "type"):
+                self.schemas["BigThing"] = {"allOf": copy.deepcopy(parts)}
+                self.stops("BigThing.count: incompatible allOf fields")
+
+    def test_untyped_component(self) -> None:
+        self.schemas["Anything"] = {"description": "Free-form value"}
+        self.schemas["Thing"]["properties"]["anything"] = ref("Anything")
+        self.stops("Anything: a component with no `type` or `properties`")
+
+    def test_required_names_an_undeclared_property(self) -> None:
+        self.schemas["Thing"]["required"].append("colour")
+        self.stops("Thing: `required` names ['colour']")
+
+    def test_inline_object_requires_an_undeclared_property(self) -> None:
+        self.schemas["Thing"]["properties"]["detail"]["required"] = ["missing"]
+        self.stops("ThingDetail: `required` names ['missing']")
+
+    def test_all_of_requires_a_property_no_part_declares(self) -> None:
+        self.schemas["BigThing"] = {"allOf": [ref("Thing"), {"type": "object", "required": ["extra"]}]}
+        self.stops("BigThing: `required` names ['extra']")
 
     def test_type_list(self) -> None:
         self.schemas["Thing"]["properties"]["count"] = {"type": ["integer", "null"]}

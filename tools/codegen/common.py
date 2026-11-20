@@ -123,6 +123,8 @@ class Member:
     cpp_type: str
     doc: str = ""
     fixed_point: bool = False  # FixedPointDollars / FixedPointCount string
+    fixed_point_items: str = ""  # item type of an array whose items are fixed-point strings
+    fixed_point_deep: bool = False  # fixed-point strings inside nested arrays or maps
     required: bool = False
     base_kind: str = ""  # "string", "enum", "struct", "vector", ...
     element: str = ""  # struct or enum name for validation
