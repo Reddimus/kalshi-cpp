@@ -602,7 +602,7 @@ def update_command(actions: list[str], extra: dict | None = None, required: list
 
 
 WS_BASE = {
-    "channels": {"ticker": {"messages": {"ticker": {"$ref": "#/components/messages/ticker"}}}},
+    "channels": {"ticker": {"address": "ticker", "messages": {"ticker": {"$ref": "#/components/messages/ticker"}}}},
     "components": {
         "messages": {"ticker": {"summary": "Ticker update", "payload": ref("tickerPayload")}},
         "schemas": {
@@ -671,6 +671,27 @@ class WebSocketSpec(unittest.TestCase):
         generator = generate_ws(self.spec)
         self.assertIn("batch_communications", generator.channels)
         self.assertIn("BatchCommunications", generator.models_header())
+
+    def test_channel_address_is_the_wire_name(self) -> None:
+        self.spec["channels"] = {"tickerChannel": self.spec["channels"]["ticker"]}
+        generator = generate_ws(self.spec)
+        self.assertEqual(generator.channels, ["ticker"])
+        self.assertEqual(generator.messages[0].channels, ["ticker"])
+        self.assertIn("| `ticker` | `Ticker` | `ws::Ticker` |", generator.channels_doc())
+        self.assertNotIn("TickerChannel", generator.models_header())
+
+    def test_channel_without_an_address(self) -> None:
+        for address in ("absent", None, ""):
+            with self.subTest(address=address):
+                channel = self.spec["channels"]["ticker"]
+                channel.pop("address", None)
+                if address != "absent":
+                    channel["address"] = address
+                self.stops("ticker: a channel needs an `address`")
+
+    def test_channel_address_expression(self) -> None:
+        self.spec["channels"]["ticker"]["address"] = "ticker.{market_ticker}"
+        self.stops("ticker: channel address 'ticker.{market_ticker}' has parameters")
 
     def test_msg_given_as_a_ref(self) -> None:
         self.schemas["tickerMsg"] = self.schemas["tickerPayload"]["properties"]["msg"]

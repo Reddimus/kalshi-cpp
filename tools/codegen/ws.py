@@ -9,6 +9,8 @@ Mapping rules:
 - Messages that share a `type` are told apart by a `msg` property with a
   `const` value (`market_lifecycle_v2` frames with `event_type:
   metadata_updated` are `ws::MarketMetadataUpdated`).
+- A channel's `address`, not its key in `channels`, is its `ws::Channel` value
+  and the name subscribe sends.
 - Subscribe and update_subscription parameters become `ws::SubscribeParams`
   and `ws::UpdateSubscriptionParams`; the client adds the channel and `sid`.
 """
@@ -92,18 +94,20 @@ class WsGenerator:
                 raise SystemExit(f"{name} has no `sid`; the client sends `sid` in every update_subscription")
         subscribe = self.schemas["subscribeCommandPayload"]["properties"]["params"]
         self.channels = list(subscribe["properties"]["channels"]["items"]["enum"])
+        # Channel keys are document identifiers; the address is the name on the wire.
+        addresses = {channel: self.channel_address(channel, spec) for channel, spec in self.spec["channels"].items()
+                     if channel not in CONTROL_CHANNELS}
         # The channel declarations can precede updates to the command's enum.
-        for channel, spec in self.spec["channels"].items():
-            if channel not in CONTROL_CHANNELS and channel not in self.channels:
-                self.channels.append(channel)
+        for address in addresses.values():
+            if address not in self.channels:
+                self.channels.append(address)
         self.enums["Channel"] = EnumType("Channel", self.channels, "A WebSocket channel.")
 
-        for channel, spec in self.spec["channels"].items():
-            if channel in CONTROL_CHANNELS:
-                continue
-            self.channel_docs[channel] = first_sentence(spec.get("description"))
+        for channel, address in addresses.items():
+            spec = self.spec["channels"][channel]
+            self.channel_docs[address] = first_sentence(spec.get("description"))
             for ref in spec.get("messages", {}).values():
-                self.data_message(ref_name(ref["$ref"]), channel)
+                self.data_message(ref_name(ref["$ref"]), address)
         self.discriminate()
 
         self.subscribe_params = self.params_struct("SubscribeParams", [subscribe], skip={"channels"},
@@ -114,6 +118,17 @@ class WsGenerator:
             skip={"sid", "sids"}, doc="Options for update_subscription; the client sets the subscription.")
         self.error_codes = [(c["code"], c["name"]) for c in self.spec.get("x-error-codes", {}).get("codes", [])]
         check_enums(self.enums)
+
+    @staticmethod
+    def channel_address(channel: str, spec: dict) -> str:
+        """The channel's wire name. AsyncAPI 3 reads a missing or null `address` as unknown."""
+        address = spec.get("address")
+        if not isinstance(address, str) or not address:
+            raise SystemExit(f"{channel}: a channel needs an `address`; it is the name subscribe sends")
+        if "{" in address:
+            raise SystemExit(f"{channel}: channel address {address!r} has parameters; "
+                             "subscribe sends fixed channel names")
+        return address
 
     def data_message(self, key: str, channel: str) -> None:
         existing = next((m for m in self.messages if m.key == key), None)
