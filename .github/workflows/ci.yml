@@ -59,8 +59,11 @@ jobs:
       - name: Install dependencies
         run: |
           brew install ninja pkg-config libwebsockets
-          echo "PKG_CONFIG_PATH=$(brew --prefix openssl@3)/lib/pkgconfig:$(brew --prefix libwebsockets)/lib/pkgconfig" >> "$GITHUB_ENV"
-          echo "CMAKE_PREFIX_PATH=$(brew --prefix openssl@3)" >> "$GITHUB_ENV"
+          # The SDK must build against the OpenSSL that libwebsockets links.
+          openssl=$(brew deps libwebsockets | grep -E '^openssl@[0-9]+$' | head -n 1)
+          test -n "$openssl" || { echo "libwebsockets does not depend on an openssl@ formula"; exit 1; }
+          echo "PKG_CONFIG_PATH=$(brew --prefix "$openssl")/lib/pkgconfig:$(brew --prefix libwebsockets)/lib/pkgconfig" >> "$GITHUB_ENV"
+          echo "CMAKE_PREFIX_PATH=$(brew --prefix "$openssl")" >> "$GITHUB_ENV"
       - uses: hendrikmuhs/ccache-action@dbeefd73e8e2ffc1bbc412570072735eb4db3607 # v1.2.25
         with:
           key: macos-release

@@ -13,14 +13,18 @@ and Perpetuals API is out of scope. The
 
 ## Install
 
-You need a C++23 compiler, CMake 3.31+, OpenSSL 3, libcurl, and libwebsockets.
+You need a C++23 compiler, CMake 3.31+, OpenSSL 3 or later, libcurl, and
+libwebsockets. When libwebsockets uses OpenSSL, as the packages below do,
+kalshi-cpp must use the same OpenSSL, because it calls OpenSSL on
+libwebsockets' TLS connections. CMake warns when it can tell they differ.
 CI tests GCC 13 on Ubuntu 24.04, Apple Clang on Apple silicon, and MSVC on
 Windows, where [`vcpkg.json`](https://github.com/Reddimus/kalshi-cpp/blob/main/vcpkg.json)
 supplies the dependencies. On macOS, the deployment target must be 13.3 or later.
 
 ```bash
-# macOS
-brew install cmake openssl libwebsockets pkg-config
+# macOS: build against the OpenSSL that Homebrew's libwebsockets links
+brew install cmake libwebsockets pkg-config
+export CMAKE_PREFIX_PATH="$(brew --prefix "$(brew deps libwebsockets | grep -E '^openssl@[0-9]+$' | head -n 1)")"
 
 # Ubuntu 24.04, whose apt CMake is older than 3.31
 sudo apt install build-essential pkg-config pipx libssl-dev libcurl4-openssl-dev libwebsockets-dev

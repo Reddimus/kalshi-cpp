@@ -26,6 +26,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 - `Signer::from_pem_file` reads with the operating system's file calls instead of C stdio, so
   no stream buffer outside its own, which it wipes, can hold key bytes.
+- CMake warns when libwebsockets' CMake package links a different OpenSSL from the one found
+  for kalshi-cpp. Both must be the same, because the SDK calls OpenSSL on libwebsockets' TLS
+  connections. The README's macOS steps now build against the OpenSSL that Homebrew's
+  libwebsockets links.
 
 ## [0.9.0] - 2026-11-20
 

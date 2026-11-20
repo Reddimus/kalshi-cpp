@@ -23,7 +23,9 @@ On macOS, Homebrew's `llvm@18` provides clang-format and clang-tidy 18, which
 `make` finds on its own. PyYAML goes in a virtual environment:
 
 ```bash
-brew install cmake ninja pkg-config openssl libwebsockets llvm@18 jq
+brew install cmake ninja pkg-config libwebsockets llvm@18 jq
+# The SDK must use the OpenSSL that libwebsockets links; CMake warns otherwise.
+export CMAKE_PREFIX_PATH="$(brew --prefix "$(brew deps libwebsockets | grep -E '^openssl@[0-9]+$' | head -n 1)")"
 python3 -m venv .venv && .venv/bin/pip install pyyaml
 export PYTHON=.venv/bin/python
 make test lint
