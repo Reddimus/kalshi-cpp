@@ -3,13 +3,17 @@
 #include "kalshi/signer.hpp"
 
 #include <cstddef>
+#include <fstream>
 #include <gtest/gtest.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
+#include <stdexcept>
 #include <string>
+#include <string_view>
 #include <vector>
 
+#include "support/scratch_directory.hpp"
 #include "test_signer_fixture.hpp"
 
 TEST(Signer, FromInvalidPemFails) {
@@ -78,6 +82,47 @@ TEST(HttpSigningPath, UsesFullApiPathAndOmitsQuery) {
 			  "/custom/root/portfolio/balance");
 }
 
+TEST(HttpSigningPath, BaseUrlQueriesAndFragmentsNeverReachTheSignedPath) {
+	using kalshi::detail::request_signing_path;
+	// A slash inside a query or fragment is not the start of the path.
+	EXPECT_EQ(request_signing_path("https://host?x=/y", "/markets"), "/markets");
+	EXPECT_EQ(request_signing_path("https://host#f/x", "/markets"), "/markets");
+	EXPECT_EQ(request_signing_path("https://host?x=1", "/markets"), "/markets");
+	// The path ends at the first `?` or `#`.
+	EXPECT_EQ(request_signing_path("https://host/trade-api/v2#frag", "/markets"),
+			  "/trade-api/v2/markets");
+	EXPECT_EQ(request_signing_path("https://host/trade-api/v2?x=/y#f/z", "/markets"),
+			  "/trade-api/v2/markets");
+	EXPECT_EQ(request_signing_path("https://host/trade-api/v2/#f?x", "markets?limit=1"),
+			  "/trade-api/v2/markets");
+	EXPECT_EQ(request_signing_path("https://user@host:8443?next=/a/b", "/markets"), "/markets");
+	// `://` only marks a scheme when it comes before the path, query, and fragment.
+	EXPECT_EQ(request_signing_path("host/v2?next=https://other/evil", "/markets"), "/v2/markets");
+	EXPECT_EQ(request_signing_path("host?next=https://other/evil", "/markets"), "/markets");
+	EXPECT_EQ(request_signing_path("host/a://b", "/markets"), "/a://b/markets");
+}
+
+TEST(HttpSigningPath, EndpointFragmentsAreNotSigned) {
+	using kalshi::detail::request_signing_path;
+	// libcurl never sends a fragment, so the server cannot have signed over it.
+	EXPECT_EQ(request_signing_path("https://host/trade-api/v2", "/markets#frag"),
+			  "/trade-api/v2/markets");
+	EXPECT_EQ(request_signing_path("https://host/trade-api/v2", "/markets#frag?limit=1"),
+			  "/trade-api/v2/markets");
+	EXPECT_EQ(request_signing_path("https://host/trade-api/v2", "/markets?limit=1#frag"),
+			  "/trade-api/v2/markets");
+}
+
+TEST(HttpSigningPath, BasesWithoutAPathOrSchemeKeepTheirDocumentedJoin) {
+	using kalshi::detail::request_signing_path;
+	EXPECT_EQ(request_signing_path("https://host", "/markets"), "/markets");
+	EXPECT_EQ(request_signing_path("https://host", "markets"), "/markets");
+	EXPECT_EQ(request_signing_path("https://host/", "/markets"), "/markets");
+	EXPECT_EQ(request_signing_path("https://host:8443/v2", "markets"), "/v2/markets");
+	EXPECT_EQ(request_signing_path("host/v2", "/markets"), "/v2/markets");
+	EXPECT_EQ(request_signing_path("https://host/v2", ""), "/v2");
+}
+
 TEST(HttpSigningPath, RequestUrlUsesTheSameNormalizedJoin) {
 	EXPECT_EQ(kalshi::detail::request_url("https://example.test/trade-api/v2/",
 										  "/portfolio/orders?limit=5"),
@@ -98,51 +143,14 @@ TEST(HttpSigningPath, WebSocketCallSitePassesAnEmptyBaseUrl) {
 
 namespace {
 
-/// Verify a signature the way Kalshi's gateway does: RSA-PSS/SHA-256 or Ed25519.
-///
-/// RSA-PSS salts every signature, so two calls over the same input are
-/// never byte-identical and cannot be pinned with a golden string. What
-/// *is* stable, and what a signing regression would break, is that the
-/// emitted signature verifies against the key over exactly
-/// `timestamp + method + path`.
-bool signature_verifies(const std::string& pem, const std::string& message,
-						const std::string& base64_signature) {
-	BIO* key_bio = BIO_new_mem_buf(pem.data(), static_cast<int>(pem.size()));
-	if (!key_bio)
-		return false;
-	EVP_PKEY* key = PEM_read_bio_PrivateKey(key_bio, nullptr, nullptr, nullptr);
-	BIO_free(key_bio);
-	if (!key)
-		return false;
+/// Key files larger than this are rejected. Mirrors the limit in signer.cpp.
+constexpr std::size_t kMaxKeyFileBytes = std::size_t{1024} * 1024;
 
-	std::vector<unsigned char> signature(base64_signature.size());
-	const int decoded_with_padding = EVP_DecodeBlock(
-		signature.data(), reinterpret_cast<const unsigned char*>(base64_signature.data()),
-		static_cast<int>(base64_signature.size()));
-	if (decoded_with_padding < 0) {
-		EVP_PKEY_free(key);
-		return false;
-	}
-	std::size_t padding = 0;
-	while (padding < base64_signature.size() &&
-		   base64_signature[base64_signature.size() - 1 - padding] == '=')
-		++padding;
-	signature.resize(static_cast<std::size_t>(decoded_with_padding) - padding);
-
-	EVP_MD_CTX* ctx = EVP_MD_CTX_new();
-	EVP_PKEY_CTX* pkey_ctx = nullptr;
-	const bool rsa = EVP_PKEY_get_base_id(key) == EVP_PKEY_RSA;
-	const bool verified =
-		ctx &&
-		EVP_DigestVerifyInit(ctx, &pkey_ctx, rsa ? EVP_sha256() : nullptr, nullptr, key) == 1 &&
-		(!rsa || (EVP_PKEY_CTX_set_rsa_padding(pkey_ctx, RSA_PKCS1_PSS_PADDING) == 1 &&
-				  EVP_PKEY_CTX_set_rsa_pss_saltlen(pkey_ctx, RSA_PSS_SALTLEN_DIGEST) == 1)) &&
-		EVP_DigestVerify(ctx, signature.data(), signature.size(),
-						 reinterpret_cast<const unsigned char*>(message.data()),
-						 message.size()) == 1;
-	EVP_MD_CTX_free(ctx);
-	EVP_PKEY_free(key);
-	return verified;
+/// `pem` followed by enough blank lines to make it `size` bytes long.
+std::string padded_to(const std::string& pem, std::size_t size) {
+	std::string padded = pem;
+	padded.resize(size, '\n');
+	return padded;
 }
 
 } // namespace
@@ -159,13 +167,16 @@ TEST(Signer, SignatureVerifiesOverTimestampMethodAndPath) {
 	ASSERT_TRUE(headers.has_value());
 	EXPECT_EQ(headers->timestamp, "1234567890000");
 
-	EXPECT_TRUE(signature_verifies(pem, "1234567890000GET" + path, headers->signature));
+	EXPECT_TRUE(
+		kalshi::test::signature_verifies(pem, "1234567890000GET" + path, headers->signature));
 	// A different path, method, or timestamp must not verify — otherwise
 	// the assertion above would pass for any signed message.
+	EXPECT_FALSE(kalshi::test::signature_verifies(pem, "1234567890000GET" + path + "?token=value",
+												  headers->signature));
 	EXPECT_FALSE(
-		signature_verifies(pem, "1234567890000GET" + path + "?token=value", headers->signature));
-	EXPECT_FALSE(signature_verifies(pem, "1234567890000POST" + path, headers->signature));
-	EXPECT_FALSE(signature_verifies(pem, "1234567890001GET" + path, headers->signature));
+		kalshi::test::signature_verifies(pem, "1234567890000POST" + path, headers->signature));
+	EXPECT_FALSE(
+		kalshi::test::signature_verifies(pem, "1234567890001GET" + path, headers->signature));
 }
 
 TEST(Signer, Ed25519KeysSignWithEd25519) {
@@ -179,8 +190,10 @@ TEST(Signer, Ed25519KeysSignWithEd25519) {
 		signer->sign_with_timestamp("GET", path, 1234567890000);
 	ASSERT_TRUE(headers.has_value()) << headers.error().message;
 	EXPECT_EQ(headers->signature.size(), 88U); // 64 bytes, base64
-	EXPECT_TRUE(signature_verifies(pem, "1234567890000GET" + path, headers->signature));
-	EXPECT_FALSE(signature_verifies(pem, "1234567890000GET/other", headers->signature));
+	EXPECT_TRUE(
+		kalshi::test::signature_verifies(pem, "1234567890000GET" + path, headers->signature));
+	EXPECT_FALSE(
+		kalshi::test::signature_verifies(pem, "1234567890000GET/other", headers->signature));
 }
 
 TEST(Signer, RsaKeysReportTheirType) {
@@ -226,3 +239,147 @@ TEST(Signer, RejectsEmptyIdsAndHeaderControlBytes) {
 		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidKey);
 	}
 }
+
+TEST(Signer, RsaPssKeysLoadAsRsaAndSign) {
+	const std::string pem = kalshi::test::generate_rsa_pss_pem();
+	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem("pss-key", pem);
+	ASSERT_TRUE(signer.has_value()) << signer.error().message;
+	EXPECT_EQ(signer->key_type(), kalshi::KeyType::Rsa);
+
+	const std::string path = "/trade-api/v2/portfolio/balance";
+	const kalshi::Result<kalshi::AuthHeaders> headers =
+		signer->sign_with_timestamp("GET", path, 1234567890000);
+	ASSERT_TRUE(headers.has_value()) << headers.error().message;
+	EXPECT_TRUE(
+		kalshi::test::signature_verifies(pem, "1234567890000GET" + path, headers->signature));
+	EXPECT_FALSE(
+		kalshi::test::signature_verifies(pem, "1234567890000GET/other", headers->signature));
+}
+
+TEST(Signer, RsaPssKeysRestrictedToKalshisParametersLoadAndSign) {
+	// SHA-256 for the digest and MGF1 with a salt of at least 32 bytes, or a
+	// shorter minimum, is what the signer produces anyway.
+	for (const int salt_length : {32, 20}) {
+		const std::string pem =
+			kalshi::test::generate_rsa_pss_pem(EVP_sha256(), EVP_sha256(), salt_length);
+		const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem("pss-key", pem);
+		ASSERT_TRUE(signer.has_value()) << signer.error().message;
+		EXPECT_EQ(signer->key_type(), kalshi::KeyType::Rsa);
+		const kalshi::Result<kalshi::AuthHeaders> headers =
+			signer->sign_with_timestamp("GET", "/trade-api/v2/markets", 1234567890000);
+		ASSERT_TRUE(headers.has_value()) << headers.error().message;
+		EXPECT_TRUE(kalshi::test::signature_verifies(pem, "1234567890000GET/trade-api/v2/markets",
+													 headers->signature));
+	}
+}
+
+TEST(Signer, RsaPssKeysThatCannotSignForKalshiFailAtLoadTime) {
+	struct Restriction {
+		const char* name;
+		const EVP_MD* digest;
+		const EVP_MD* mgf1;
+		int salt_length;
+	};
+	for (const Restriction& restriction :
+		 {Restriction{"digest pinned to SHA-384", EVP_sha384(), EVP_sha384(), 48},
+		  Restriction{"minimum salt above the digest length", EVP_sha256(), EVP_sha256(), 64},
+		  Restriction{"MGF1 pinned to SHA-384", EVP_sha256(), EVP_sha384(), 32}}) {
+		const std::string pem = kalshi::test::generate_rsa_pss_pem(
+			restriction.digest, restriction.mgf1, restriction.salt_length);
+		const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem("pss-key", pem);
+		ASSERT_FALSE(signer.has_value()) << restriction.name;
+		EXPECT_EQ(signer.error().code, kalshi::ErrorCode::InvalidKey) << restriction.name;
+		EXPECT_NE(signer.error().message.find("cannot produce the signature"), std::string::npos)
+			<< signer.error().message;
+	}
+}
+
+TEST(Signer, RsaKeysTooShortForKalshisSignatureFailAtLoadTime) {
+	// RSA-PSS with SHA-256 and a 32-byte salt needs a modulus of at least 522 bits.
+	std::string pem;
+	try {
+		pem = kalshi::test::generate_pem("RSA", {}, 512);
+	} catch (const std::runtime_error&) {
+		GTEST_SKIP() << "this OpenSSL build does not generate 512-bit RSA keys";
+	}
+	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem("short-key", pem);
+	ASSERT_FALSE(signer.has_value());
+	EXPECT_EQ(signer.error().code, kalshi::ErrorCode::InvalidKey);
+}
+
+TEST(SignerKeyFile, LoadsAKeyFromAFile) {
+	const kalshi::test::ScratchDirectory scratch;
+	const std::string path = scratch.write("kalshi.pem", kalshi::test::private_key_pem());
+	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem_file("key", path);
+	ASSERT_TRUE(signer.has_value()) << signer.error().message;
+	EXPECT_EQ(signer->key_type(), kalshi::KeyType::Rsa);
+	EXPECT_TRUE(signer->sign("GET", "/trade-api/v2/markets").has_value());
+}
+
+TEST(SignerKeyFile, DirectoriesFailAsErrorsNotExceptions) {
+	const kalshi::test::ScratchDirectory scratch;
+	kalshi::Result<kalshi::Signer> signer =
+		std::unexpected(kalshi::Error{kalshi::ErrorCode::Unknown, "not called"});
+	ASSERT_NO_THROW(signer = kalshi::Signer::from_pem_file("key", scratch.path()));
+	ASSERT_FALSE(signer.has_value());
+	EXPECT_EQ(signer.error().code, kalshi::ErrorCode::InvalidKey);
+	// "Failed to read key file" where a directory opens, "Failed to open" elsewhere.
+	EXPECT_NE(signer.error().message.find("key file '" + scratch.path() + "'"), std::string::npos)
+		<< signer.error().message;
+}
+
+TEST(SignerKeyFile, EmptyFilesAreInvalidKeys) {
+	const kalshi::test::ScratchDirectory scratch;
+	const kalshi::Result<kalshi::Signer> signer =
+		kalshi::Signer::from_pem_file("key", scratch.write("empty.pem", ""));
+	ASSERT_FALSE(signer.has_value());
+	EXPECT_EQ(signer.error().code, kalshi::ErrorCode::InvalidKey);
+}
+
+TEST(SignerKeyFile, FilesOverTheSizeLimitAreRejectedWhateverTheyHold) {
+	const kalshi::test::ScratchDirectory scratch;
+	// Without the limit this file loads: the PEM parser stops at the key's end.
+	const std::string path = scratch.write(
+		"padded.pem", padded_to(kalshi::test::private_key_pem(), kMaxKeyFileBytes + 1));
+	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem_file("key", path);
+	ASSERT_FALSE(signer.has_value());
+	EXPECT_EQ(signer.error().code, kalshi::ErrorCode::InvalidKey);
+	EXPECT_NE(signer.error().message.find("Key file '" + path + "' is larger than"),
+			  std::string::npos)
+		<< signer.error().message;
+}
+
+TEST(SignerKeyFile, FilesAtTheSizeLimitStillLoad) {
+	const kalshi::test::ScratchDirectory scratch;
+	const std::string path =
+		scratch.write("padded.pem", padded_to(kalshi::test::private_key_pem(), kMaxKeyFileBytes));
+	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem_file("key", path);
+	ASSERT_TRUE(signer.has_value()) << signer.error().message;
+}
+
+#ifndef _WIN32
+TEST(SignerKeyFile, EndlessDevicesAreRejectedInsteadOfReadForever) {
+	if (!std::ifstream{"/dev/zero", std::ios::binary}) {
+		GTEST_SKIP() << "/dev/zero is not readable here";
+	}
+	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem_file("key", "/dev/zero");
+	ASSERT_FALSE(signer.has_value());
+	EXPECT_EQ(signer.error().code, kalshi::ErrorCode::InvalidKey);
+	EXPECT_NE(signer.error().message.find("larger than"), std::string::npos)
+		<< signer.error().message;
+}
+#endif
+
+#ifdef __linux__
+TEST(SignerKeyFile, FilesWhoseReadsFailAreErrorsNotExceptions) {
+	// Opens, but the first read fails with EIO.
+	kalshi::Result<kalshi::Signer> signer =
+		std::unexpected(kalshi::Error{kalshi::ErrorCode::Unknown, "not called"});
+	ASSERT_NO_THROW(signer = kalshi::Signer::from_pem_file("key", "/proc/self/mem"));
+	ASSERT_FALSE(signer.has_value());
+	EXPECT_EQ(signer.error().code, kalshi::ErrorCode::InvalidKey);
+	EXPECT_NE(signer.error().message.find("Failed to read key file '/proc/self/mem'"),
+			  std::string::npos)
+		<< signer.error().message;
+}
+#endif

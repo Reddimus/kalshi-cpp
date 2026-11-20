@@ -52,6 +52,9 @@ enum class WsState : std::uint8_t { Disconnected, Connecting, Connected, Reconne
 }
 
 struct WsConfig {
+	/// A `wss://` server's certificate must chain to one of OpenSSL's default
+	/// certificate authorities (which `SSL_CERT_FILE` and `SSL_CERT_DIR`
+	/// override) and name the URL's host.
 	std::string url{websocket_url(Environment::Production)};
 	/// How long `connect()` waits for the handshake.
 	std::chrono::milliseconds connect_timeout{std::chrono::seconds{10}};
@@ -139,7 +142,8 @@ public:
 	[[nodiscard]] Result<void> request_snapshot(ws::Subscription subscription,
 												std::vector<std::string> market_tickers);
 	/// Asks the server for its view of this connection's subscriptions. The
-	/// reply arrives as `ws::SubscriptionList` carrying the returned ID.
+	/// reply arrives as `ws::SubscriptionList` carrying the returned ID, or as
+	/// a `WsError` carrying it when the reply is not a valid list.
 	[[nodiscard]] Result<std::int64_t> list_subscriptions();
 	/// The subscriptions this client holds.
 	[[nodiscard]] std::vector<ws::Subscription> subscriptions() const;

@@ -60,6 +60,17 @@ Result<std::string> expand_path(std::string_view pattern,
 										 0,
 										 {}});
 		}
+		// A parameter fills a whole path segment, and HTTP clients and servers
+		// remove "." and ".." segments, which would turn the request into one
+		// for a different route. Every other value is safe once encoded: "/"
+		// and "%" are escaped, so no value can add a segment or an encoded dot.
+		if (*value == "." || *value == "..") {
+			return std::unexpected(
+				Error{ErrorCode::InvalidRequest,
+					  "Path parameter '" + std::string(name) + "' must not be '.' or '..'",
+					  0,
+					  {}});
+		}
 		path += percent_encode(*value++);
 		pattern.remove_prefix(close + 1);
 	}

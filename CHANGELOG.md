@@ -31,6 +31,22 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `CMAKE_POSITION_INDEPENDENT_CODE` is set, so they can link into shared libraries.
 - `WebSocketClient::connect()` rejects a non-positive `ping_interval` and an `idle_timeout` no
   longer than it, which would drop healthy connections.
+- `Signer::from_pem` accepts RSA-PSS keys ([#90](https://github.com/Reddimus/kalshi-cpp/issues/90)) and signs a test message while loading.
+  A key that cannot produce Kalshi's signature now fails there with `InvalidKey` instead of on
+  every request: an RSA-PSS key restricted to another digest, another MGF1 digest, or a longer
+  salt, or an RSA key shorter than 522 bits.
+- `Signer::from_pem_file` rejects key files larger than 1 MiB.
+- `HttpClient::request` returns `InvalidRequest` when `ClientConfig::base_url` names no host or
+  contains a query string or a fragment, or when `timeout` or `connect_timeout` is zero or
+  negative.
+- WebSocket `subscribed`, `unsubscribed`, `ok`, and `error` messages that lack a field Kalshi's
+  contract requires, or carry a subscription ID below 1, are reported through `on_error` and
+  otherwise ignored.
+- An HTTP response larger than `max_response_bytes` returns `ParseError` instead of
+  `InvalidRequest`. The request was sent by then and may have taken effect, which
+  `InvalidRequest` denied.
+- Glaze, GoogleTest, and Google Benchmark are downloaded as release archives pinned by
+  SHA-256 instead of by git tag, so a moved tag fails the build instead of changing it.
 
 ### Fixed
 
@@ -52,6 +68,24 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   accumulate on a long-lived connection.
 - Treat error 7 on an unsubscribe as the end of the subscription, and deliver `Unsubscribed`
   for unsubscribes still pending when the connection drops.
+- Return `InvalidKey` from `Signer::from_pem_file` instead of throwing when a key file opens
+  but cannot be read, such as a directory ([#89](https://github.com/Reddimus/kalshi-cpp/issues/89)).
+- Wipe key file contents from memory before freeing it, and stop reading endless files such
+  as `/dev/zero`.
+- Keep a base URL's query string or fragment out of the signed request path ([#84](https://github.com/Reddimus/kalshi-cpp/issues/84)).
+- Stop a zero or negative HTTP timeout from disabling the timeout and letting requests hang
+  ([#87](https://github.com/Reddimus/kalshi-cpp/issues/87)).
+- Stop a `subscribed` message without a subscription ID from confirming a subscription as
+  ID 0 or sending an `unsubscribe` for ID 0 ([#88](https://github.com/Reddimus/kalshi-cpp/issues/88)).
+- Report a malformed `list_subscriptions` reply as an error instead of an empty list.
+- Reject `.` and `..` as path parameters such as a market ticker. They reached a different
+  route than the one requested, which could answer with another resource's data.
+- Trust only OpenSSL's default certificate authorities for WebSocket TLS, as REST calls do.
+  libwebsockets also trusted a `../share` directory relative to the working directory.
+- Report and retry a reconnect attempt whose handshake cannot be signed, instead of staying
+  in `Reconnecting` for good.
+- Publish a release only after CI passes on the tagged commit itself. A pull request's run no
+  longer counts, and a cancelled run is started again.
 
 ## [0.8.0] - 2026-11-03
 

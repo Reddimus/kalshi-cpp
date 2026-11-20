@@ -9,6 +9,7 @@
 #include <cstdint>
 #include <future>
 #include <gtest/gtest.h>
+#include <map>
 #include <memory>
 #include <mutex>
 #include <optional>
@@ -179,6 +180,38 @@ TEST_F(WsClient, HandshakeCarriesSignedHeadersAndNoOrigin) {
 	EXPECT_FALSE(headers["kalshi-access-signature:"].empty());
 	EXPECT_EQ(headers["kalshi-access-timestamp:"].size(), 13U); // milliseconds
 	EXPECT_TRUE(headers["origin:"].empty());
+
+	// Kalshi verifies the signature over the timestamp, GET, and the path it
+	// received. A non-empty signature over anything else would be refused.
+	const std::string& key = kalshi::test::private_key_pem();
+	const std::string& timestamp = headers["kalshi-access-timestamp:"];
+	const std::string& signature = headers["kalshi-access-signature:"];
+	EXPECT_TRUE(
+		kalshi::test::signature_verifies(key, timestamp + "GET" + headers["path"], signature));
+	EXPECT_FALSE(
+		kalshi::test::signature_verifies(key, timestamp + "POST" + headers["path"], signature));
+	EXPECT_FALSE(kalshi::test::signature_verifies(key, timestamp + "GET/", signature));
+}
+
+TEST_F(WsClient, HandshakeSignatureLeavesOutTheQueryString) {
+	kalshi::WsConfig config = local(server);
+	config.url += "?shard=3";
+	kalshi::WebSocketClient ws(kalshi::test::make_signer("key-123"), config);
+	ASSERT_TRUE(ws.connect().has_value());
+	ASSERT_TRUE(server.wait_for_connections(1));
+
+	std::map<std::string, std::string> headers = server.headers();
+	if (headers["kalshi-access-key:"].empty()) {
+		GTEST_SKIP() << "libwebsockets was built without custom header support";
+	}
+	EXPECT_EQ(headers["path"], "/trade-api/ws/v2");
+	const std::string& key = kalshi::test::private_key_pem();
+	const std::string& timestamp = headers["kalshi-access-timestamp:"];
+	const std::string& signature = headers["kalshi-access-signature:"];
+	EXPECT_TRUE(
+		kalshi::test::signature_verifies(key, timestamp + "GET/trade-api/ws/v2", signature));
+	EXPECT_FALSE(kalshi::test::signature_verifies(key, timestamp + "GET/trade-api/ws/v2?shard=3",
+												  signature));
 }
 
 TEST_F(WsClient, RefusedHandshakeFailsFastWithTheReason) {
@@ -448,6 +481,40 @@ TEST_F(WsClient, ServerErrorsNameTheirCommandAndSubscription) {
 	EXPECT_EQ(error->id, id_of(*command));
 	EXPECT_EQ(error->subscription, *fills);
 	EXPECT_TRUE(ws.subscriptions().empty());
+}
+
+TEST_F(WsClient, AcksMissingRequiredMembersAreReportedAndNeverActedOn) {
+	Recorder recorder;
+	kalshi::WebSocketClient ws(kalshi::test::make_signer(), local(server));
+	recorder.attach(ws);
+	ASSERT_TRUE(ws.connect().has_value());
+
+	const kalshi::Result<kalshi::ws::Subscription> trades =
+		ws.subscribe(kalshi::ws::Channel::Trade);
+	ASSERT_TRUE(trades.has_value());
+	const std::optional<std::string> command = server.next_command();
+	ASSERT_TRUE(command.has_value());
+
+	// An ack nobody asked for is answered with an unsubscribe naming its sid, and
+	// an ack for the pending subscribe confirms it. Neither may happen without a sid.
+	server.send(R"({"id":999,"type":"subscribed"})");
+	server.send(R"({"id":)" + std::to_string(id_of(*command)) +
+				R"(,"type":"subscribed","msg":{"channel":"trade"}})");
+	for (int frame = 0; frame < 2; ++frame) {
+		const std::optional<kalshi::WsError> error = recorder.next_error();
+		ASSERT_TRUE(error.has_value());
+		EXPECT_EQ(error->message, "Could not parse a subscribed frame");
+	}
+	EXPECT_FALSE(recorder.next<kalshi::ws::Subscribed>(200ms).has_value());
+	const std::optional<std::string> reply = server.next_command(200ms);
+	EXPECT_FALSE(reply.has_value()) << *reply;
+
+	// The subscription is still waiting, so a well-formed ack completes it.
+	server.send(subscribed(id_of(*command), "trade", 7));
+	const std::optional<kalshi::ws::Subscribed> confirmed = recorder.next<kalshi::ws::Subscribed>();
+	ASSERT_TRUE(confirmed.has_value());
+	EXPECT_EQ(confirmed->subscription, *trades);
+	EXPECT_EQ(confirmed->sid, 7);
 }
 
 TEST_F(WsClient, ListSubscriptionsRepliesWithTheCommandId) {

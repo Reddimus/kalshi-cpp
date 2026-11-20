@@ -18,7 +18,7 @@ struct AuthHeaders {
 
 /// Algorithm of the loaded API key.
 enum class KeyType : std::uint8_t {
-	Rsa,	///< RSA-PSS with SHA-256 and a digest-length salt
+	Rsa,	///< RSA or RSA-PSS key; signs RSA-PSS with SHA-256 and a digest-length salt
 	Ed25519 ///< Ed25519 (RFC 8032)
 };
 
@@ -33,11 +33,18 @@ class Signer {
 public:
 	/// Loads an unencrypted PEM private key (PKCS#1 or PKCS#8). Encrypted
 	/// keys and algorithms other than RSA and Ed25519 are rejected.
+	/// RSA-PSS keys load as RSA. Loading signs a test message, so a key that
+	/// cannot produce Kalshi's signature (RSA-PSS with SHA-256, MGF1 with
+	/// SHA-256, and a 32-byte salt) fails here with ErrorCode::InvalidKey: an
+	/// RSA-PSS key restricted to another digest, another MGF1 digest, or a
+	/// salt longer than 32 bytes, or an RSA key shorter than 522 bits.
 	/// The key ID must be nonempty printable ASCII without spaces.
 	[[nodiscard]] static Result<Signer> from_pem(std::string_view api_key_id,
 												 std::string_view pem_key);
 
-	/// Reads a PEM private key from a file. See from_pem().
+	/// Reads a PEM private key from a file. See from_pem(). A file that cannot
+	/// be opened or read, or that is larger than 1 MiB, fails with
+	/// ErrorCode::InvalidKey.
 	[[nodiscard]] static Result<Signer> from_pem_file(std::string_view api_key_id,
 													  std::string_view file_path);
 

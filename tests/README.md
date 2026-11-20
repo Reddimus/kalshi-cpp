@@ -12,7 +12,8 @@ memory.
 | `test_api_support.cpp` | Encoding, error mapping, null handling, validation |
 | `test_http_client.cpp` | The libcurl transport on POSIX and Windows |
 | `test_transports.cpp` | Retries, token buckets, rate limiting |
-| `test_signer.cpp` | Ed25519 and RSA-PSS signing |
+| `test_signer.cpp` | Ed25519 and RSA-PSS signing, key files |
+| `test_signer_key_file_memory.cpp` | Key bytes wiped before their memory is freed, in the allocation binary |
 | `test_helpers.cpp` | Cents, contracts, timestamps, order directions, pagination |
 | `test_fixed_point.cpp` | Exact decimal parsing and scaling |
 | `test_features.cpp` | Defaults for configs and enums |
@@ -21,12 +22,14 @@ memory.
 | `parse_benchmark.cpp` | A coarse throughput guard, run as its own test |
 | `test_allocation_counter.cpp` | The `operator new` counter in `support/`, in its own binary |
 | `test_ws_allocation_failure.cpp` | Sustained allocation failure during disconnect and client reuse |
+| `test_ws_signing_failure.cpp` | A reconnect whose handshake cannot be signed, in the allocation binary |
 | `test_allocation_budgets.cpp` | Hot paths whose allocations must not grow with the size of each item |
 | `test_ws_messages.cpp` | Every example frame in the AsyncAPI spec (generated) |
 | `test_ws_frames.cpp` | Control frames, discriminated types, nulls, unknown values |
 | `test_ws_subscriptions.cpp` | Command frames, held commands, resubscribing, gaps |
 | `test_ws_client.cpp` | The WebSocket client against a local server |
 | `test_ws_lifecycle.cpp` | URL validation, moved-from clients, concurrent calls |
+| `test_ws_tls.cpp` | Which certificate authorities the WebSocket client trusts, against a local TLS server |
 
 Allocation suites replace `operator new` and are excluded from sanitizer and
 coverage builds.

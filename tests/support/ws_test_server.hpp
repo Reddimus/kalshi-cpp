@@ -23,7 +23,14 @@ namespace kalshi::test {
 
 class WsTestServer {
 public:
-	WsTestServer() {
+	/// Paths of a PEM certificate and its private key. Serving them makes the
+	/// server speak TLS, and url() then starts with `wss://`.
+	struct TlsFiles {
+		std::string certificate;
+		std::string private_key;
+	};
+
+	explicit WsTestServer(std::optional<TlsFiles> tls = std::nullopt) : tls_(std::move(tls)) {
 		lws_set_log_level(LLL_ERR, nullptr);
 		protocols_[0] =
 			lws_protocols{"kalshi-test", &WsTestServer::callback, 0, 65536, 0, nullptr, 0};
@@ -33,6 +40,15 @@ public:
 		info.iface = "127.0.0.1";
 		info.protocols = protocols_.data();
 		info.user = this;
+		if (tls_) {
+			// libwebsockets 4.4 and later shut OpenSSL down with the last TLS
+			// context. A test that serves TLS must have called
+			// WebSocketClient::connect(), which keeps one alive, before this
+			// server is destroyed.
+			info.options = LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT;
+			info.ssl_cert_filepath = tls_->certificate.c_str();
+			info.ssl_private_key_filepath = tls_->private_key.c_str();
+		}
 		context_ = lws_create_context(&info);
 		if (context_ != nullptr) {
 			port_ = lws_get_vhost_listen_port(lws_get_vhost_by_name(context_, "default"));
@@ -61,7 +77,8 @@ public:
 	[[nodiscard]] int port() const { return port_; }
 
 	[[nodiscard]] std::string url() const {
-		return "ws://127.0.0.1:" + std::to_string(port_) + "/trade-api/ws/v2";
+		return std::string(tls_ ? "wss" : "ws") + "://127.0.0.1:" + std::to_string(port_) +
+			   "/trade-api/ws/v2";
 	}
 
 	/// The next command a client sent, waiting up to `timeout`.
@@ -251,6 +268,7 @@ private:
 		}
 	}
 
+	std::optional<TlsFiles> tls_;
 	std::array<lws_protocols, 2> protocols_{};
 	lws_context* context_{nullptr};
 	int port_{0};

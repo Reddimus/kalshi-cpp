@@ -1,9 +1,10 @@
 #include "kalshi/signer.hpp"
 
 #include <array>
+#include <cerrno>
 #include <chrono>
-#include <fstream>
-#include <iterator>
+#include <cstddef>
+#include <cstdio>
 #include <limits>
 #include <memory>
 #include <openssl/crypto.h>
@@ -12,6 +13,7 @@
 #include <openssl/pem.h>
 #include <openssl/rsa.h>
 #include <string>
+#include <string_view>
 #include <vector>
 
 namespace kalshi {
@@ -28,9 +30,36 @@ struct BioDeleter {
 	void operator()(BIO* bio) const noexcept { BIO_free(bio); }
 };
 
+struct FileCloser {
+	void operator()(std::FILE* file) const noexcept { (void)std::fclose(file); }
+};
+
 using PkeyPtr = std::unique_ptr<EVP_PKEY, PkeyDeleter>;
 using MdCtxPtr = std::unique_ptr<EVP_MD_CTX, MdCtxDeleter>;
 using BioPtr = std::unique_ptr<BIO, BioDeleter>;
+using FilePtr = std::unique_ptr<std::FILE, FileCloser>;
+
+/// PEM keys are a few kilobytes. The limit keeps a device or a mistaken path
+/// from being read without end.
+constexpr std::size_t kMaxKeyFileBytes = std::size_t{1024} * 1024;
+
+/// Holds a key file's bytes in one allocation, sized up front so that reading
+/// never moves them, and wipes it before the memory is freed. One byte more
+/// than the limit tells a file at the limit from a longer one.
+class KeyFileBuffer {
+public:
+	static constexpr std::size_t kCapacity = kMaxKeyFileBytes + 1;
+
+	KeyFileBuffer() : bytes_(std::make_unique_for_overwrite<char[]>(kCapacity)) {}
+	~KeyFileBuffer() { OPENSSL_cleanse(bytes_.get(), kCapacity); }
+	KeyFileBuffer(const KeyFileBuffer&) = delete;
+	KeyFileBuffer& operator=(const KeyFileBuffer&) = delete;
+
+	[[nodiscard]] char* data() noexcept { return bytes_.get(); }
+
+private:
+	std::unique_ptr<char[]> bytes_;
+};
 
 /// Drains OpenSSL's thread-local error queue into one message.
 std::string openssl_error(std::string_view what) {
@@ -52,6 +81,46 @@ Error signing_error(std::string_view what) {
 /// Refuses encrypted keys instead of letting OpenSSL prompt on the terminal.
 int no_passphrase(char* /*buffer*/, int /*size*/, int /*rwflag*/, void* /*userdata*/) {
 	return -1;
+}
+
+/// Signs `message` the way Kalshi verifies it: RSA-PSS with SHA-256 as the
+/// digest and the MGF1 digest and a salt as long as the digest, or Ed25519.
+/// from_pem() signs once with this to check a key, so every setting a key could
+/// refuse belongs here.
+Result<std::vector<unsigned char>> sign_message(EVP_PKEY* key, KeyType type,
+												std::string_view message) {
+	ERR_clear_error();
+	const MdCtxPtr ctx{EVP_MD_CTX_new()};
+	if (!ctx) {
+		return std::unexpected(signing_error("Failed to create a signing context"));
+	}
+	EVP_PKEY_CTX* pkey_ctx = nullptr;
+	// Ed25519 signs the message directly, so it takes no digest.
+	const EVP_MD* digest = type == KeyType::Rsa ? EVP_sha256() : nullptr;
+	if (EVP_DigestSignInit(ctx.get(), &pkey_ctx, digest, nullptr, key) != 1) {
+		return std::unexpected(signing_error("Failed to initialize signing"));
+	}
+	// MGF1 uses the signing digest unless an RSA-PSS key's parameters name
+	// another one. Asking for SHA-256 makes such a key fail instead of producing
+	// a signature Kalshi cannot verify.
+	if (type == KeyType::Rsa &&
+		(EVP_PKEY_CTX_set_rsa_padding(pkey_ctx, RSA_PKCS1_PSS_PADDING) != 1 ||
+		 EVP_PKEY_CTX_set_rsa_mgf1_md(pkey_ctx, EVP_sha256()) != 1 ||
+		 EVP_PKEY_CTX_set_rsa_pss_saltlen(pkey_ctx, RSA_PSS_SALTLEN_DIGEST) != 1)) {
+		return std::unexpected(signing_error("Failed to configure RSA-PSS"));
+	}
+
+	const unsigned char* data = reinterpret_cast<const unsigned char*>(message.data());
+	std::size_t signature_size = 0;
+	if (EVP_DigestSign(ctx.get(), nullptr, &signature_size, data, message.size()) != 1) {
+		return std::unexpected(signing_error("Failed to size the signature"));
+	}
+	std::vector<unsigned char> signature(signature_size);
+	if (EVP_DigestSign(ctx.get(), signature.data(), &signature_size, data, message.size()) != 1) {
+		return std::unexpected(signing_error("Failed to sign"));
+	}
+	signature.resize(signature_size);
+	return signature;
 }
 
 std::string base64(const std::vector<unsigned char>& bytes) {
@@ -110,6 +179,8 @@ Result<Signer> Signer::from_pem(std::string_view api_key_id, std::string_view pe
 	KeyType type = KeyType::Rsa;
 	switch (EVP_PKEY_get_base_id(key.get())) {
 		case EVP_PKEY_RSA:
+		// An RSA-PSS key is an RSA key that may only make PSS signatures.
+		case EVP_PKEY_RSA_PSS:
 			type = KeyType::Rsa;
 			break;
 		case EVP_PKEY_ED25519:
@@ -121,6 +192,22 @@ Result<Signer> Signer::from_pem(std::string_view api_key_id, std::string_view pe
 					  "Unsupported key type: Kalshi accepts RSA and Ed25519 keys"});
 	}
 
+	// Some keys load but can never sign for Kalshi: an RSA-PSS key restricted to
+	// another digest, another MGF1 digest, or a longer salt, or an RSA key too
+	// short for the padding.
+	// Signing once finds them here instead of on every request.
+	const Result<std::vector<unsigned char>> trial =
+		sign_message(key.get(), type, "kalshi-cpp key check");
+	if (!trial) {
+		return std::unexpected(Error{
+			ErrorCode::InvalidKey,
+			"Key cannot produce the signature Kalshi requires (" +
+				std::string(type == KeyType::Rsa
+								? "RSA-PSS with SHA-256, MGF1 with SHA-256, and a 32-byte salt"
+								: "Ed25519") +
+				"): " + trial.error().message});
+	}
+
 	std::shared_ptr<Impl> impl = std::make_shared<Impl>();
 	impl->api_key_id = std::string(api_key_id);
 	impl->key = std::move(key);
@@ -129,15 +216,57 @@ Result<Signer> Signer::from_pem(std::string_view api_key_id, std::string_view pe
 }
 
 Result<Signer> Signer::from_pem_file(std::string_view api_key_id, std::string_view file_path) {
-	std::ifstream file{std::string(file_path), std::ios::binary};
-	if (!file) {
-		return std::unexpected(Error{ErrorCode::InvalidKey,
-									 "Failed to open key file '" + std::string(file_path) + "'"});
+	// Nothing may escape: the path string, the buffer, and from_pem() allocate.
+	try {
+		const std::string path{file_path};
+		const FilePtr file{std::fopen(path.c_str(), "rb")};
+		if (!file) {
+			return std::unexpected(
+				Error{ErrorCode::InvalidKey, "Failed to open key file '" + path + "'"});
+		}
+		// Unbuffered, so the stream keeps no copy of the key: each read goes
+		// straight into `buffer`, which is wiped when this function returns.
+		if (std::setvbuf(file.get(), nullptr, _IONBF, 0) != 0) {
+			return std::unexpected(
+				Error{ErrorCode::InvalidKey, "Failed to read key file '" + path + "'"});
+		}
+		KeyFileBuffer buffer;
+		std::size_t size = 0;
+		while (size < KeyFileBuffer::kCapacity) {
+			errno = 0;
+			const std::size_t count =
+				std::fread(buffer.data() + size, 1, KeyFileBuffer::kCapacity - size, file.get());
+			size += count;
+			if (std::ferror(file.get()) != 0 && errno == EINTR) {
+				// A signal interrupted a read from a pipe; nothing was lost.
+				std::clearerr(file.get());
+				continue;
+			}
+			if (count == 0) {
+				break; // end of file, or an error that ferror() reports below
+			}
+		}
+		// A directory or a device can open and then fail to read.
+		if (std::ferror(file.get()) != 0) {
+			return std::unexpected(
+				Error{ErrorCode::InvalidKey, "Failed to read key file '" + path + "'"});
+		}
+		if (size > kMaxKeyFileBytes) {
+			return std::unexpected(
+				Error{ErrorCode::InvalidKey, "Key file '" + path + "' is larger than 1 MiB"});
+		}
+		return from_pem(api_key_id, std::string_view{buffer.data(), size});
+	} catch (...) {
+		try {
+			return std::unexpected(Error{ErrorCode::InvalidKey, "Failed to read key file '" +
+																	std::string(file_path) + "'"});
+		} catch (...) {
+			// Out of memory even for the message. This one fits the small-string
+			// storage of libstdc++, libc++, and MSVC's release library, so
+			// building it does not allocate.
+			return std::unexpected(Error{ErrorCode::InvalidKey, "Key read failed"});
+		}
 	}
-	std::string pem{std::istreambuf_iterator<char>(file), std::istreambuf_iterator<char>()};
-	Result<Signer> signer = from_pem(api_key_id, pem);
-	OPENSSL_cleanse(pem.data(), pem.size());
-	return signer;
 }
 
 Result<AuthHeaders> Signer::sign(std::string_view method, std::string_view path) const {
@@ -157,36 +286,13 @@ Result<AuthHeaders> Signer::sign_with_timestamp(std::string_view method, std::st
 	message.reserve(timestamp.size() + method.size() + path.size());
 	message.append(timestamp).append(method).append(path);
 
-	ERR_clear_error();
-	const MdCtxPtr ctx{EVP_MD_CTX_new()};
-	if (!ctx) {
-		return std::unexpected(signing_error("Failed to create a signing context"));
+	Result<std::vector<unsigned char>> signature =
+		sign_message(impl_->key.get(), impl_->type, message);
+	if (!signature) {
+		return std::unexpected(std::move(signature.error()));
 	}
-	EVP_PKEY_CTX* pkey_ctx = nullptr;
-	// Ed25519 signs the message directly, so it takes no digest.
-	const EVP_MD* digest = impl_->type == KeyType::Rsa ? EVP_sha256() : nullptr;
-	if (EVP_DigestSignInit(ctx.get(), &pkey_ctx, digest, nullptr, impl_->key.get()) != 1) {
-		return std::unexpected(signing_error("Failed to initialize signing"));
-	}
-	if (impl_->type == KeyType::Rsa &&
-		(EVP_PKEY_CTX_set_rsa_padding(pkey_ctx, RSA_PKCS1_PSS_PADDING) != 1 ||
-		 EVP_PKEY_CTX_set_rsa_pss_saltlen(pkey_ctx, RSA_PSS_SALTLEN_DIGEST) != 1)) {
-		return std::unexpected(signing_error("Failed to configure RSA-PSS"));
-	}
-
-	const unsigned char* data = reinterpret_cast<const unsigned char*>(message.data());
-	std::size_t signature_size = 0;
-	if (EVP_DigestSign(ctx.get(), nullptr, &signature_size, data, message.size()) != 1) {
-		return std::unexpected(signing_error("Failed to size the signature"));
-	}
-	std::vector<unsigned char> signature(signature_size);
-	if (EVP_DigestSign(ctx.get(), signature.data(), &signature_size, data, message.size()) != 1) {
-		return std::unexpected(signing_error("Failed to sign"));
-	}
-	signature.resize(signature_size);
-
 	return AuthHeaders{.access_key = impl_->api_key_id,
-					   .signature = base64(signature),
+					   .signature = base64(*signature),
 					   .timestamp = std::move(timestamp)};
 }
 
