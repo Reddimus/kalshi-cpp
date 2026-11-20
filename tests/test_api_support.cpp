@@ -6,6 +6,7 @@
 #include <gtest/gtest.h>
 #include <memory>
 #include <string>
+#include <string_view>
 #include <vector>
 
 #include "support.hpp"
@@ -45,6 +46,51 @@ TEST(ApiSupport, PathParametersArePercentEncodedAndMustBeNonEmpty) {
 	ASSERT_FALSE(empty.has_value());
 	EXPECT_EQ(empty.error().code, kalshi::ErrorCode::InvalidRequest);
 	EXPECT_NE(empty.error().message.find("ticker"), std::string::npos);
+}
+
+TEST(ApiSupport, DotSegmentPathParametersAreRejected) {
+	// libcurl removes "." and ".." segments before sending, so these values
+	// would reach a different route than the one that was asked for and signed.
+	for (const std::string_view value : {".", ".."}) {
+		const kalshi::Result<std::string> path =
+			kalshi::detail::expand_path("/markets/{ticker}", {value});
+		ASSERT_FALSE(path.has_value()) << value;
+		EXPECT_EQ(path.error().code, kalshi::ErrorCode::InvalidRequest) << value;
+		EXPECT_NE(path.error().message.find("ticker"), std::string::npos) << value;
+	}
+	EXPECT_FALSE(kalshi::detail::expand_path("/series/{series}/markets/{ticker}", {"KXA", ".."}));
+	EXPECT_FALSE(kalshi::detail::expand_path("/series/{series}/markets/{ticker}", {".", "KXA"}));
+
+	// Only a whole segment of dots is a dot segment, and an encoded dot in a
+	// value is escaped again, so the server decodes it back to the same text.
+	EXPECT_EQ(kalshi::detail::expand_path("/markets/{ticker}", {"..."}).value_or(""),
+			  "/markets/...");
+	EXPECT_EQ(kalshi::detail::expand_path("/markets/{ticker}", {".KXA"}).value_or(""),
+			  "/markets/.KXA");
+	EXPECT_EQ(kalshi::detail::expand_path("/markets/{ticker}", {"KXA.."}).value_or(""),
+			  "/markets/KXA..");
+	EXPECT_EQ(kalshi::detail::expand_path("/markets/{ticker}", {"%2E"}).value_or(""),
+			  "/markets/%252E");
+	EXPECT_EQ(kalshi::detail::expand_path("/markets/{ticker}", {"%2e%2E"}).value_or(""),
+			  "/markets/%252e%252E");
+	EXPECT_EQ(kalshi::detail::expand_path("/markets/{ticker}", {"../x"}).value_or(""),
+			  "/markets/..%2Fx");
+}
+
+TEST(ApiSupport, DotSegmentPathParametersNeverReachTheTransport) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	// What GET /markets answers; it parsed as a Market with an empty ticker.
+	transport->response_body = R"({"markets":[],"cursor":""})";
+	kalshi::KalshiClient client{transport};
+
+	const kalshi::Result<kalshi::Market> market = client.get_market(".");
+	ASSERT_FALSE(market.has_value());
+	EXPECT_EQ(market.error().code, kalshi::ErrorCode::InvalidRequest);
+	const kalshi::Result<kalshi::Order> order = client.get_order("..");
+	ASSERT_FALSE(order.has_value());
+	EXPECT_EQ(order.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(ApiSupport, HttpStatusesMapToErrorCodes) {

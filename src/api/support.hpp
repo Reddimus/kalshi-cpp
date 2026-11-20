@@ -37,7 +37,8 @@ namespace detail {
 [[nodiscard]] std::string percent_encode(std::string_view value);
 
 /// Fills `{name}` placeholders in order with percent-encoded values. An empty
-/// value is an error because it would silently address a different route.
+/// value, `.`, or `..` is an error because it would silently address a
+/// different route.
 [[nodiscard]] Result<std::string> expand_path(std::string_view pattern,
 											  std::initializer_list<std::string_view> values);
 
