@@ -5,7 +5,6 @@
 #include <atomic>
 #include <chrono>
 #include <cstddef>
-#include <fstream>
 #include <gtest/gtest.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
@@ -387,17 +386,6 @@ TEST(SignerKeyFile, FilesAtTheSizeLimitStillLoad) {
 }
 
 #ifndef _WIN32
-TEST(SignerKeyFile, EndlessDevicesAreRejectedInsteadOfReadForever) {
-	if (!std::ifstream{"/dev/zero", std::ios::binary}) {
-		GTEST_SKIP() << "/dev/zero is not readable here";
-	}
-	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem_file("key", "/dev/zero");
-	ASSERT_FALSE(signer.has_value());
-	EXPECT_EQ(signer.error().code, kalshi::ErrorCode::InvalidKey);
-	EXPECT_NE(signer.error().message.find("larger than"), std::string::npos)
-		<< signer.error().message;
-}
-
 namespace {
 
 std::atomic<int> interruptions{0};
@@ -508,6 +496,47 @@ TEST(SignerKeyFile, SignalsInterruptingAFifoReadDoNotFailTheLoad) {
 
 TEST(SignerKeyFile, SignalsInterruptingAFifoOpenDoNotFailTheLoad) {
 	expect_key_loads_through_fifo(2, 0);
+}
+
+// A stream with no end, such as a device or a pipe, must be cut off at the
+// limit. The writer stops after 8 MiB, so even a reader without the limit ends
+// there instead of filling memory until the test times out.
+TEST(SignerKeyFile, EndlessStreamsAreRejectedAtTheSizeLimit) {
+	const kalshi::test::ScratchDirectory scratch;
+	const std::string path = scratch.path() + "/endless.pem";
+	ASSERT_EQ(::mkfifo(path.c_str(), 0600), 0) << "mkfifo failed with errno " << errno;
+	// The reader closes its end at the limit, which makes the next write fail
+	// with EPIPE instead of raising SIGPIPE.
+	struct sigaction ignore {};
+	ignore.sa_handler = SIG_IGN;
+	sigemptyset(&ignore.sa_mask);
+	struct sigaction previous_pipe {};
+	ASSERT_EQ(::sigaction(SIGPIPE, &ignore, &previous_pipe), 0);
+
+	constexpr std::size_t kWriterLimit = std::size_t{8} * 1024 * 1024;
+	std::size_t written = 0;
+	std::thread writer{[&] {
+		const int fd =
+			open_fifo_writer(path, std::chrono::steady_clock::now() + std::chrono::seconds{10});
+		if (fd < 0) {
+			return;
+		}
+		const std::string chunk(std::size_t{64} * 1024, 'A');
+		while (written < kWriterLimit && write_all(fd, chunk)) {
+			written += chunk.size();
+		}
+		(void)::close(fd);
+	}};
+	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem_file("key", path);
+	writer.join();
+	(void)::sigaction(SIGPIPE, &previous_pipe, nullptr);
+
+	ASSERT_FALSE(signer.has_value());
+	EXPECT_EQ(signer.error().code, kalshi::ErrorCode::InvalidKey);
+	EXPECT_NE(signer.error().message.find("larger than"), std::string::npos)
+		<< signer.error().message;
+	// The reader took the limit and one byte more; the pipe held a little more.
+	EXPECT_LT(written, kMaxKeyFileBytes * 2) << "the reader did not stop at the limit";
 }
 #endif
 
