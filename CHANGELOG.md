@@ -6,6 +6,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Stop CMake from warning about an OpenSSL mismatch when libwebsockets comes from vcpkg. vcpkg
+  lists each library in a per-configuration generator expression, which the check compared as
+  a path. Only plain paths, such as Homebrew's, are compared now.
+
 ## [0.9.1] - 2026-11-20
 
 ### Fixed
