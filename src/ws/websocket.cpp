@@ -507,6 +507,12 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 	// ----- connection attempts (service thread, or before it starts) ---------
 
 	Result<void> attempt() {
+		// Reset before anything can fail. If signing fails below while this still
+		// says the previous attempt was handled, on_timer() would neither report
+		// the failure nor schedule another attempt, and the client would sit in
+		// Reconnecting for good.
+		open = false;
+		failure_handled = false;
 		Result<AuthHeaders> signed_headers =
 			signer.sign("GET", detail::request_signing_path("", endpoint.path));
 		if (!signed_headers) {
@@ -529,8 +535,6 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 		info.origin = nullptr;
 		info.ssl_connection = endpoint.use_ssl ? LCCSCF_USE_SSL : 0;
 		info.retry_and_idle_policy = &retry;
-		open = false;
-		failure_handled = false;
 		wsi = lws_client_connect_via_info(&info);
 		if (wsi == nullptr) {
 			return std::unexpected(Error::network("Failed to start the WebSocket connection"));
@@ -593,10 +597,6 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 	// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 	static int callback(lws* connection, lws_callback_reasons reason, void* user, void* in,
 						std::size_t len) noexcept {
-		lws_context* owner = lws_get_context(connection);
-		Impl* self = owner == nullptr ? nullptr : static_cast<Impl*>(lws_context_user(owner));
-		try {
-			return self == nullptr ? 0 : self->on_event(connection, reason, in, len);
 #if defined(KALSHI_WS_OWNS_TRUST_STORE)
 		// Sent once the client's TLS context exists and before any handshake,
 		// with that context in `user` and no real connection.
@@ -609,6 +609,10 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 #else
 		(void)user;
 #endif
+		lws_context* owner = lws_get_context(connection);
+		Impl* self = owner == nullptr ? nullptr : static_cast<Impl*>(lws_context_user(owner));
+		try {
+			return self == nullptr ? 0 : self->on_event(connection, reason, in, len);
 		} catch (...) {
 			if (self != nullptr) {
 				self->fail_session();
