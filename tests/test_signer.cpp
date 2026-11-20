@@ -114,6 +114,23 @@ TEST(HttpSigningPath, BaseUrlQueriesAndFragmentsNeverReachTheSignedPath) {
 	EXPECT_EQ(request_signing_path("host/a://b", "/markets"), "/a://b/markets");
 }
 
+TEST(HttpBaseUrl, OnlyHttpBasesThatNameAHostAreAccepted) {
+	for (const std::string_view base_url :
+		 {"https://api.elections.kalshi.com/trade-api/v2", "http://127.0.0.1:1234/trade-api/v2",
+		  "https://[::1]:8080/trade-api/v2", "https://[::1]/trade-api/v2", "HTTPS://Example.com",
+		  "http://localhost", "https://user@host/trade-api/v2", "https://user:p@ss@host:443/x",
+		  "https://host:/trade-api/v2"}) {
+		EXPECT_TRUE(kalshi::detail::names_http_host(base_url)) << base_url;
+	}
+	for (const std::string_view base_url :
+		 {"", "http:", "http://", "http:///", "https:///trade-api/v2", "https://:443/trade-api/v2",
+		  "https://@/trade-api/v2", "https://user@/x", "https://user@:443/x", "https://[]:443/x",
+		  "https://[::1", "https://[::1]junk/x", "ftp://host/x", "host/trade-api/v2",
+		  "https:/host/x"}) {
+		EXPECT_FALSE(kalshi::detail::names_http_host(base_url)) << base_url;
+	}
+}
+
 TEST(HttpSigningPath, EndpointFragmentsAreNotSigned) {
 	using kalshi::detail::request_signing_path;
 	// libcurl never sends a fragment, so the server cannot have signed over it.

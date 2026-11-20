@@ -169,17 +169,7 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 	// The base must name the host itself. Checked on the base, not the joined
 	// URL, so an endpoint can never supply the scheme or the host.
 	const std::string& base_url = impl_->config.base_url;
-	const auto authority_after = [&base_url](std::string_view prefix) {
-		return base_url.size() > prefix.size() && base_url[prefix.size()] != '/' &&
-			   std::equal(prefix.begin(), prefix.end(), base_url.begin(),
-						  [](char expected, char actual) {
-							  const char lower = actual >= 'A' && actual <= 'Z'
-													 ? static_cast<char>(actual - 'A' + 'a')
-													 : actual;
-							  return expected == lower;
-						  });
-	};
-	if (!authority_after("https://") && !authority_after("http://")) {
+	if (!detail::names_http_host(base_url)) {
 		return std::unexpected(
 			Error{ErrorCode::InvalidRequest,
 				  "ClientConfig.base_url must be an http:// or https:// URL with a host"});

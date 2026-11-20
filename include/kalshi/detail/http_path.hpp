@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 
@@ -22,6 +23,51 @@ namespace kalshi::detail {
 /// joined to such a URL: it would land inside the query or the fragment.
 [[nodiscard]] constexpr bool has_query_or_fragment(std::string_view base_url) noexcept {
 	return base_url.find_first_of("?#") != std::string_view::npos;
+}
+
+/// Whether a base URL starts with `http://` or `https://`, in any case, and
+/// names a host. The host is what is left of the authority, which ends at the
+/// first `/`, `?`, or `#`, after dropping the user information up to the last
+/// `@` and any `:port`. A bracketed IPv6 literal must be closed, and only a
+/// port may follow it.
+[[nodiscard]] constexpr bool names_http_host(std::string_view base_url) noexcept {
+	// The URL after `prefix`, matched in any case, or a view with no data.
+	const auto after_scheme = [base_url](std::string_view prefix) noexcept {
+		if (base_url.size() < prefix.size()) {
+			return std::string_view{};
+		}
+		std::size_t index = 0;
+		for (const char expected : prefix) {
+			const char actual = base_url[index++];
+			const char lower =
+				actual >= 'A' && actual <= 'Z' ? static_cast<char>(actual - 'A' + 'a') : actual;
+			if (lower != expected) {
+				return std::string_view{};
+			}
+		}
+		std::string_view rest = base_url;
+		rest.remove_prefix(prefix.size());
+		return rest;
+	};
+	std::string_view authority = after_scheme("https://");
+	if (authority.data() == nullptr) {
+		authority = after_scheme("http://");
+		if (authority.data() == nullptr) {
+			return false;
+		}
+	}
+	if (const std::size_t end = authority.find_first_of("/?#"); end != std::string_view::npos) {
+		authority.remove_suffix(authority.size() - end);
+	}
+	if (const std::size_t at = authority.rfind('@'); at != std::string_view::npos) {
+		authority.remove_prefix(at + 1);
+	}
+	if (!authority.empty() && authority.front() == '[') {
+		const std::size_t close = authority.find(']');
+		return close != std::string_view::npos && close > 1 &&
+			   (close + 1 == authority.size() || authority[close + 1] == ':');
+	}
+	return !authority.empty() && authority.front() != ':';
 }
 
 /// Build the URL path covered by Kalshi's request signature.

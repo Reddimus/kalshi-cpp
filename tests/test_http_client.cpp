@@ -468,6 +468,23 @@ TEST(HttpClientLoopback, BaseUrlsWithAQueryOrFragmentAreRejectedBeforeSending) {
 	EXPECT_TRUE(server.last().method.empty()) << "a request reached the server";
 }
 
+TEST(HttpClientLoopback, BaseUrlsWithoutAHostAreRejectedBeforeSending) {
+	// Each has an authority, but nothing left of it once the user information
+	// and the port are gone. libcurl would refuse them as malformed URLs.
+	for (const std::string_view base_url :
+		 {"https://:443/trade-api/v2", "https://@/trade-api/v2", "https://user@/trade-api/v2",
+		  "https://user:secret@:443/trade-api/v2", "http://:1234/trade-api/v2",
+		  "https://[]:443/trade-api/v2", "https://[::1/trade-api/v2", "https://@@/trade-api/v2"}) {
+		kalshi::ClientConfig config;
+		config.base_url = base_url;
+		const kalshi::HttpClient client(config);
+		const kalshi::Result<kalshi::HttpResponse> result = client.get("/markets");
+		ASSERT_FALSE(result) << base_url;
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest)
+			<< base_url << ": " << result.error().message;
+	}
+}
+
 TEST(HttpClientLoopback, EndpointsCannotSupplyTheSchemeOrHost) {
 	// Each of these joins into a valid URL for the server, but the signed path
 	// would come from a base that names no host.

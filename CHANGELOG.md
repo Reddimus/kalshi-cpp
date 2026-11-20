@@ -18,6 +18,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Leave libwebsockets' WebSocket trust store alone when it uses GnuTLS, Schannel, BearSSL,
   OpenHiTLS, PolarSSL, or CyaSSL for TLS. The SDK would have passed their TLS contexts to
   OpenSSL, corrupting memory.
+- `HttpClient::request` returns `InvalidRequest`, without sending anything, for a base URL
+  with no host once its user information and port are removed, such as
+  `https://:443/trade-api/v2`. It returned `NetworkError`.
 
 ### Changed
 
