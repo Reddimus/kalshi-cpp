@@ -29,6 +29,7 @@ memory.
 | `test_ws_lifecycle.cpp` | URL validation, moved-from clients, concurrent calls |
 
 Allocation suites replace `operator new` and are excluded from sanitizer and
+| `test_ws_tls.cpp` | Which certificate authorities the WebSocket client trusts, against a local TLS server |
 coverage builds.
 
 Response fixtures are synthetic and follow the Predictions OpenAPI document in

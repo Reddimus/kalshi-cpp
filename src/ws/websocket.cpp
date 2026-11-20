@@ -13,6 +13,10 @@
 #include <deque>
 #include <libwebsockets.h>
 #include <mutex>
+#include <openssl/opensslv.h>
+#include <openssl/ssl.h>
+#include <openssl/x509.h>
+#include <openssl/x509_vfy.h>
 #include <random>
 #include <string>
 #include <thread>
@@ -50,6 +54,62 @@ constexpr std::chrono::seconds kStableConnection{10};
 std::uint16_t seconds_field(std::chrono::seconds value) {
 	return static_cast<std::uint16_t>(std::clamp<std::int64_t>(value.count(), 1, 65535));
 }
+
+// libwebsockets hands its callbacks an OpenSSL SSL_CTX only when OpenSSL is its
+// TLS library, which is the one this SDK links.
+#if defined(LWS_WITH_TLS) && !defined(LWS_WITH_MBEDTLS) && !defined(LWS_WITH_BORINGSSL) && \
+	!defined(LWS_WITH_AWSLC) && !defined(LWS_WITH_WOLFSSL) && !defined(USE_WOLFSSL)
+
+/// Fails every certificate check. Stands in when the trust store below cannot
+/// be built, so the connection fails instead of trusting the wrong authorities.
+int reject_every_certificate(X509_STORE_CTX* /*chain*/, void* /*unused*/) noexcept {
+	return 0;
+}
+
+/// Makes `tls` trust OpenSSL's default verify paths and nothing else, which is
+/// what libcurl trusts for REST calls.
+///
+/// libwebsockets adds a CA directory to every client trust store that has no
+/// CA file configured: LWS_OPENSSL_CLIENT_CERTS, which is "../share" unless
+/// the library was built otherwise. OpenSSL resolves that against the working
+/// directory, so anyone able to write there could have a certificate
+/// authority of their own trusted. A store has no call that removes a
+/// directory, so this builds a new one. It keeps the certificates
+/// libwebsockets loaded directly, which on Windows are the system's roots. A
+/// CA directory is read only while a chain is verified, so nothing from it is
+/// among them yet.
+void trust_default_verify_paths_only(SSL_CTX* tls) noexcept {
+	X509_STORE* trusted = X509_STORE_new();
+	bool complete = trusted != nullptr && X509_STORE_set_default_paths(trusted) == 1;
+	if (complete) {
+#if OPENSSL_VERSION_NUMBER >= 0x30300000L
+		STACK_OF(X509_OBJECT)* loaded = X509_STORE_get1_objects(SSL_CTX_get_cert_store(tls));
+		complete = loaded != nullptr;
+#else
+		STACK_OF(X509_OBJECT)* loaded = X509_STORE_get0_objects(SSL_CTX_get_cert_store(tls));
+#endif
+		for (int index = 0; complete && index < sk_X509_OBJECT_num(loaded); ++index) {
+			const X509_OBJECT* object = sk_X509_OBJECT_value(loaded, index);
+			if (X509* certificate = X509_OBJECT_get0_X509(object)) {
+				complete = X509_STORE_add_cert(trusted, certificate) == 1;
+			} else if (X509_CRL* revoked = X509_OBJECT_get0_X509_CRL(object)) {
+				complete = X509_STORE_add_crl(trusted, revoked) == 1;
+			}
+		}
+#if OPENSSL_VERSION_NUMBER >= 0x30300000L
+		sk_X509_OBJECT_pop_free(loaded, X509_OBJECT_free);
+#endif
+	}
+	if (!complete) {
+		X509_STORE_free(trusted);
+		SSL_CTX_set_cert_verify_callback(tls, reject_every_certificate, nullptr);
+		return;
+	}
+	SSL_CTX_set_cert_store(tls, trusted); // frees the store it replaces
+}
+
+#define KALSHI_WS_OWNS_TRUST_STORE 1
+#endif
 
 /// libwebsockets calls OPENSSL_cleanup() when the last context created with
 /// LWS_SERVER_OPTION_DO_SSL_GLOBAL_INIT is destroyed (4.4 and later). OpenSSL
@@ -531,12 +591,24 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 
 	// libwebsockets fixes this callback ABI, including the adjacent opaque pointers.
 	// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-	static int callback(lws* connection, lws_callback_reasons reason, void* /*user*/, void* in,
+	static int callback(lws* connection, lws_callback_reasons reason, void* user, void* in,
 						std::size_t len) noexcept {
 		lws_context* owner = lws_get_context(connection);
 		Impl* self = owner == nullptr ? nullptr : static_cast<Impl*>(lws_context_user(owner));
 		try {
 			return self == nullptr ? 0 : self->on_event(connection, reason, in, len);
+#if defined(KALSHI_WS_OWNS_TRUST_STORE)
+		// Sent once the client's TLS context exists and before any handshake,
+		// with that context in `user` and no real connection.
+		if (reason == LWS_CALLBACK_OPENSSL_LOAD_EXTRA_CLIENT_VERIFY_CERTS) {
+			if (user != nullptr) {
+				trust_default_verify_paths_only(static_cast<SSL_CTX*>(user));
+			}
+			return 0;
+		}
+#else
+		(void)user;
+#endif
 		} catch (...) {
 			if (self != nullptr) {
 				self->fail_session();
