@@ -11,7 +11,9 @@ CLANG_FORMAT ?= $(firstword $(shell command -v clang-format-18 2>/dev/null) \
 	$(shell command -v clang-format 2>/dev/null))
 CLANG_FORMAT_MAJOR := 18
 # Tracked and new C++ sources that exist on disk (deleted files are skipped).
-CPP_SOURCES = git ls-files -z --cached --others --exclude-standard '*.cpp' '*.hpp' | \
+# tools/cpp_auto_audit.py audits the same suffixes.
+CPP_SOURCES = git ls-files -z --cached --others --exclude-standard \
+	'*.cpp' '*.hpp' '*.h' '*.ipp' '*.inl' '*.cc' '*.cxx' '*.hh' '*.hxx' | \
 	xargs -0 sh -c 'for f; do [ -e "$$f" ] && printf "%s\0" "$$f"; done' _
 
 .PHONY: all configure build debug test sanitize tsan tidy bench consumers codegen docs lint lint-docs \

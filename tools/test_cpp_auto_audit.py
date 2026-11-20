@@ -1,4 +1,5 @@
 """Exercise the explicit-type audit through its command-line interface."""
+import re
 import subprocess
 import sys
 import tempfile
@@ -6,6 +7,8 @@ import unittest
 from pathlib import Path
 
 SCRIPT = Path(__file__).with_name("cpp_auto_audit.py")
+sys.path.insert(0, str(SCRIPT.parent))
+import cpp_auto_audit  # noqa: E402
 
 
 class AutoAuditTests(unittest.TestCase):
@@ -332,6 +335,108 @@ class AutoAuditTests(unittest.TestCase):
         self.assertEqual(self.audit("--write-allowlist").returncode, 0)
         self.assertEqual((self.root / "tools/cpp_auto_allowlist.txt").read_text(), first)
         self.assertEqual(self.audit().returncode, 0)
+
+    def test_empty_allowlist_snippets_are_rejected(self):
+        (self.root / "value.cpp").write_text("auto value = 42;\n")
+        allowlist = self.root / "tools/cpp_auto_allowlist.txt"
+        allowlist.parent.mkdir()
+        for rule in ["value.cpp|", "value.cpp|   "]:
+            with self.subTest(rule=rule):
+                allowlist.write_text(rule + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("empty snippet", result.stderr)
+
+    def test_iterator_calls_inside_other_initializers_need_types(self):
+        declarations = [
+            "auto total = std::accumulate(values.begin(), values.end(), 0);",
+            "auto count = std::distance(values.begin(), values.end());",
+            "auto first = *values.begin();",
+            "auto name = names.begin()->second;",
+            "auto copy = std::vector<int>(values.begin(), values.end());",
+            "auto found = std::find(values.begin(), values.end(), 3) != values.end();",
+            "auto size = values.end() - values.begin();",
+            "auto it = table.find(0)->second;",
+            "auto it = std::next(values.begin()) == values.end();",
+            "auto value = std::move(*values.begin());",
+            "auto offset = std::find(values.begin(),\n    values.end(), 3) - values.begin();",
+            "if (auto value = std::count(values.begin(), values.end(), 3); value) {}",
+        ]
+        for declaration in declarations:
+            with self.subTest(declaration=declaration):
+                (self.root / "iterator.cpp").write_text(declaration + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("iterator.cpp:1", result.stderr)
+
+    def test_iterator_initializers_remain_allowed(self):
+        declarations = [
+            "auto it = values.begin();",
+            "auto last = values.rbegin();",
+            "auto it = table.find(key);",
+            'auto it = table.find("key; (");',
+            "auto it = std::find(values.begin(), values.end(), 3);",
+            "auto it = std::max_element(values.begin(), values.end());",
+            "auto it = std::find_if(values.begin(), values.end(), [](int n) { return n > 2; });",
+            "auto it{values.begin()};",
+            "auto next = std::next(it);",
+            "auto previous = std::prev(values.end(), 2);",
+            "auto it = (values.begin());",
+            "auto it = markets[0].legs.begin();",
+            "auto range = table.equal_range(key);",
+            "for (auto it = values.begin(); it != values.end(); ++it) {}",
+            "if (auto it = table.find(key); it != table.end()) {}",
+            "auto it = std::find(values.begin(),\n    values.end(), 3);",
+            "auto it = std::find(values.begin(), // first\n    values.end(), 3);",
+        ]
+        for declaration in declarations:
+            with self.subTest(declaration=declaration):
+                (self.root / "iterator.cpp").write_text(declaration + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_decltype_auto_declarations_need_types(self):
+        declarations = [
+            "decltype(auto) value = compute();",
+            "decltype( auto ) value = compute();",
+            "static decltype(auto) value = compute();",
+            "if (decltype(auto) value = compute(); value) {}",
+            "decltype(auto) value = [] { return 42; }();",
+            "decltype(auto) total = std::accumulate(values.begin(), values.end(), 0);",
+        ]
+        for declaration in declarations:
+            with self.subTest(declaration=declaration):
+                (self.root / "decltype.cpp").write_text(declaration + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("decltype.cpp:1", result.stderr)
+
+    def test_decltype_auto_shares_the_auto_exceptions(self):
+        declarations = [
+            "decltype(auto) fn = [] { return 42; };",
+            "decltype(auto) it = values.begin();",
+            "decltype(auto) value = compute(); // auto-ok: forwards a reference",
+        ]
+        for declaration in declarations:
+            with self.subTest(declaration=declaration):
+                (self.root / "decltype.cpp").write_text(declaration + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_header_and_inline_sources_are_audited(self):
+        suffixes = [".h", ".ipp", ".inl"]
+        for suffix in suffixes:
+            (self.root / f"value{suffix}").write_text("auto value = 42;\n")
+        result = self.audit()
+        self.assertEqual(result.returncode, 1, result.stdout)
+        for suffix in suffixes:
+            self.assertIn(f"value{suffix}:1", result.stderr)
+
+    def test_format_and_audit_cover_the_same_sources(self):
+        makefile = (SCRIPT.parents[1] / "Makefile").read_text()
+        command = re.search(r"^CPP_SOURCES = git ls-files[^|]*", makefile, re.MULTILINE)
+        self.assertIsNotNone(command)
+        self.assertEqual(set(re.findall(r"'\*(\.\w+)'", command[0])), cpp_auto_audit.CPP_SUFFIXES)
 
 
 if __name__ == "__main__":
