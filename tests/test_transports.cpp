@@ -212,7 +212,8 @@ TEST(TokenBucket, WaitersReserveTokensSoLaterCallersQueueBehindThem) {
 	kalshi::TokenBucket bucket(
 		{.capacity = 10.0, .refill_per_second = 10.0, .initial_tokens = 5.0});
 	std::latch started(1);
-	std::jthread waiter([&] {
+	// std::thread, not std::jthread: libc++ 18 ships jthread only as experimental.
+	std::thread waiter([&] {
 		started.count_down();
 		EXPECT_TRUE(bucket.acquire_for(10.0, 5s));
 	});
@@ -221,7 +222,8 @@ TEST(TokenBucket, WaitersReserveTokensSoLaterCallersQueueBehindThem) {
 	while (bucket.available() > 0.0 && std::chrono::steady_clock::now() < deadline) {
 		std::this_thread::sleep_for(1ms);
 	}
-	ASSERT_DOUBLE_EQ(bucket.available(), 0.0) << "waiter did not reserve its tokens";
+	// EXPECT, not ASSERT: returning before join() would terminate.
+	EXPECT_DOUBLE_EQ(bucket.available(), 0.0) << "waiter did not reserve its tokens";
 	// Without the reservation, the 5 tokens on hand would let this through.
 	EXPECT_FALSE(bucket.try_acquire(1.0));
 	EXPECT_DOUBLE_EQ(bucket.available(), 0.0);
