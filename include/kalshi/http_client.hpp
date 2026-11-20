@@ -44,10 +44,18 @@ struct HttpResponse {
 };
 
 struct ClientConfig {
-	/// Base URL including `/trade-api/v2`. See rest_base_url().
+	/// Base URL including `/trade-api/v2`. See rest_base_url(). It must be an
+	/// `http://` or `https://` URL with a host and without a query string or a
+	/// fragment; HttpClient::request() fails with ErrorCode::InvalidRequest
+	/// otherwise.
 	std::string base_url{rest_base_url(Environment::Production)};
-	/// Limit for the whole request, including the response body.
+	/// Limit for the whole request, including the response body. Must be
+	/// positive: zero and negative durations do not disable the limit, and
+	/// HttpClient::request() fails with ErrorCode::InvalidRequest for them.
+	/// Durations above 2^31 - 1 milliseconds (about 24.8 days) are capped there.
 	std::chrono::milliseconds timeout{std::chrono::seconds{30}};
+	/// Limit for connecting, including the TLS handshake. Must be positive, and
+	/// is capped, exactly as `timeout` is.
 	std::chrono::milliseconds connect_timeout{std::chrono::seconds{10}};
 	bool verify_ssl{true};
 	/// Maximum decompressed response body; zero disables the limit.

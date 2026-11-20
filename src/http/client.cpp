@@ -90,8 +90,10 @@ std::size_t write_header(char* data, std::size_t size, std::size_t count, void* 
 	}
 }
 
+/// libcurl reads a timeout of zero as "no timeout", so request() rejects
+/// durations that are not positive before they get here.
 long to_curl_millis(std::chrono::milliseconds duration) {
-	return static_cast<long>(std::clamp<std::int64_t>(duration.count(), 0, 0x7fffffff));
+	return static_cast<long>(std::clamp<std::int64_t>(duration.count(), 1, 0x7fffffff));
 }
 
 } // namespace
@@ -145,6 +147,17 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 	if (!impl_) {
 		return std::unexpected(Error::network("HttpClient is empty (moved-from)"));
 	}
+	if (impl_->config.timeout <= std::chrono::milliseconds::zero() ||
+		impl_->config.connect_timeout <= std::chrono::milliseconds::zero()) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest,
+				  "ClientConfig.timeout and ClientConfig.connect_timeout must be positive"});
+	}
+	if (detail::has_query_or_fragment(impl_->config.base_url)) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest,
+				  "ClientConfig.base_url must not contain a query string or a fragment"});
+	}
 	const std::scoped_lock lock(impl_->mutex);
 	CURL* curl = impl_->curl.get();
 	if (curl == nullptr) {
@@ -153,10 +166,12 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 												  : curl_easy_strerror(impl_->init_result)));
 	}
 
-	const std::string url = detail::request_url(impl_->config.base_url, path);
-	const auto has_scheme = [&url](std::string_view prefix) {
-		return url.size() >= prefix.size() &&
-			   std::equal(prefix.begin(), prefix.end(), url.begin(),
+	// The base must name the host itself. Checked on the base, not the joined
+	// URL, so an endpoint can never supply the scheme or the host.
+	const std::string& base_url = impl_->config.base_url;
+	const auto authority_after = [&base_url](std::string_view prefix) {
+		return base_url.size() > prefix.size() && base_url[prefix.size()] != '/' &&
+			   std::equal(prefix.begin(), prefix.end(), base_url.begin(),
 						  [](char expected, char actual) {
 							  const char lower = actual >= 'A' && actual <= 'Z'
 													 ? static_cast<char>(actual - 'A' + 'a')
@@ -164,8 +179,13 @@ Result<HttpResponse> HttpClient::request(HttpMethod method, std::string_view pat
 							  return expected == lower;
 						  });
 	};
-	if ((!has_scheme("https://") && !has_scheme("http://")) ||
-		url.find('\0') != std::string::npos) {
+	if (!authority_after("https://") && !authority_after("http://")) {
+		return std::unexpected(
+			Error{ErrorCode::InvalidRequest,
+				  "ClientConfig.base_url must be an http:// or https:// URL with a host"});
+	}
+	const std::string url = detail::request_url(base_url, path);
+	if (url.find('\0') != std::string::npos) {
 		return std::unexpected(
 			Error{ErrorCode::InvalidRequest, "Expected an HTTP or HTTPS URL without NUL bytes"});
 	}

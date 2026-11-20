@@ -78,6 +78,47 @@ TEST(HttpSigningPath, UsesFullApiPathAndOmitsQuery) {
 			  "/custom/root/portfolio/balance");
 }
 
+TEST(HttpSigningPath, BaseUrlQueriesAndFragmentsNeverReachTheSignedPath) {
+	using kalshi::detail::request_signing_path;
+	// A slash inside a query or fragment is not the start of the path.
+	EXPECT_EQ(request_signing_path("https://host?x=/y", "/markets"), "/markets");
+	EXPECT_EQ(request_signing_path("https://host#f/x", "/markets"), "/markets");
+	EXPECT_EQ(request_signing_path("https://host?x=1", "/markets"), "/markets");
+	// The path ends at the first `?` or `#`.
+	EXPECT_EQ(request_signing_path("https://host/trade-api/v2#frag", "/markets"),
+			  "/trade-api/v2/markets");
+	EXPECT_EQ(request_signing_path("https://host/trade-api/v2?x=/y#f/z", "/markets"),
+			  "/trade-api/v2/markets");
+	EXPECT_EQ(request_signing_path("https://host/trade-api/v2/#f?x", "markets?limit=1"),
+			  "/trade-api/v2/markets");
+	EXPECT_EQ(request_signing_path("https://user@host:8443?next=/a/b", "/markets"), "/markets");
+	// `://` only marks a scheme when it comes before the path, query, and fragment.
+	EXPECT_EQ(request_signing_path("host/v2?next=https://other/evil", "/markets"), "/v2/markets");
+	EXPECT_EQ(request_signing_path("host?next=https://other/evil", "/markets"), "/markets");
+	EXPECT_EQ(request_signing_path("host/a://b", "/markets"), "/a://b/markets");
+}
+
+TEST(HttpSigningPath, EndpointFragmentsAreNotSigned) {
+	using kalshi::detail::request_signing_path;
+	// libcurl never sends a fragment, so the server cannot have signed over it.
+	EXPECT_EQ(request_signing_path("https://host/trade-api/v2", "/markets#frag"),
+			  "/trade-api/v2/markets");
+	EXPECT_EQ(request_signing_path("https://host/trade-api/v2", "/markets#frag?limit=1"),
+			  "/trade-api/v2/markets");
+	EXPECT_EQ(request_signing_path("https://host/trade-api/v2", "/markets?limit=1#frag"),
+			  "/trade-api/v2/markets");
+}
+
+TEST(HttpSigningPath, BasesWithoutAPathOrSchemeKeepTheirDocumentedJoin) {
+	using kalshi::detail::request_signing_path;
+	EXPECT_EQ(request_signing_path("https://host", "/markets"), "/markets");
+	EXPECT_EQ(request_signing_path("https://host", "markets"), "/markets");
+	EXPECT_EQ(request_signing_path("https://host/", "/markets"), "/markets");
+	EXPECT_EQ(request_signing_path("https://host:8443/v2", "markets"), "/v2/markets");
+	EXPECT_EQ(request_signing_path("host/v2", "/markets"), "/v2/markets");
+	EXPECT_EQ(request_signing_path("https://host/v2", ""), "/v2");
+}
+
 TEST(HttpSigningPath, RequestUrlUsesTheSameNormalizedJoin) {
 	EXPECT_EQ(kalshi::detail::request_url("https://example.test/trade-api/v2/",
 										  "/portfolio/orders?limit=5"),

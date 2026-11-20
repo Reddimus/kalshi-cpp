@@ -19,9 +19,11 @@
 #include <chrono>
 #include <cstdint>
 #include <cstdlib>
+#include <future>
 #include <gtest/gtest.h>
 #include <map>
 #include <mutex>
+#include <optional>
 #include <stdexcept>
 #include <string>
 #include <string_view>
@@ -382,5 +384,71 @@ TEST(HttpClientLoopback, HttpSchemesAreCaseInsensitive) {
 		const kalshi::Result<kalshi::HttpResponse> result = client.get("/markets");
 		ASSERT_TRUE(result);
 		EXPECT_EQ(result->status_code, 200);
+	}
+}
+
+TEST(HttpClientLoopback, BaseUrlsWithAQueryOrFragmentAreRejectedBeforeSending) {
+	const LoopbackServer server(http_response(200, "{}"));
+	for (const std::string_view suffix : {"?x=1", "#frag", "?x=/y#z", "/?x=1", "?", "#"}) {
+		kalshi::ClientConfig config = config_for(server);
+		config.base_url += suffix;
+		const kalshi::HttpClient client(kalshi::test::make_signer(), config);
+		const kalshi::Result<kalshi::HttpResponse> result = client.get("/markets");
+		ASSERT_FALSE(result) << suffix;
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest) << suffix;
+	}
+	EXPECT_TRUE(server.last().method.empty()) << "a request reached the server";
+}
+
+TEST(HttpClientLoopback, EndpointsCannotSupplyTheSchemeOrHost) {
+	// Each of these joins into a valid URL for the server, but the signed path
+	// would come from a base that names no host.
+	const LoopbackServer server(http_response(200, "{}"));
+	const std::string authority = server.base_url().substr(std::string_view{"http://"}.size());
+	struct Split {
+		std::string base_url;
+		std::string endpoint;
+	};
+	for (const Split& split :
+		 {Split{"", "http://" + authority + "/markets"},
+		  Split{"http:", "//" + authority + "/markets"}, Split{"http://", authority + "/markets"},
+		  Split{"http:///", authority + "/markets"}}) {
+		kalshi::ClientConfig config = config_for(server);
+		config.base_url = split.base_url;
+		const kalshi::HttpClient client(kalshi::test::make_signer(), config);
+		const kalshi::Result<kalshi::HttpResponse> result = client.get(split.endpoint);
+		ASSERT_FALSE(result) << split.base_url;
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest) << split.base_url;
+	}
+	EXPECT_TRUE(server.last().method.empty()) << "a request reached the server";
+}
+
+TEST(HttpClientLoopback, NonPositiveTimeoutsAreRejectedInsteadOfDisablingTheTimeout) {
+	struct Timeouts {
+		std::chrono::milliseconds timeout;
+		std::chrono::milliseconds connect_timeout;
+	};
+	for (const Timeouts& timeouts :
+		 {Timeouts{0ms, 1s}, Timeouts{-1ms, 1s}, Timeouts{std::chrono::milliseconds::min(), 1s},
+		  Timeouts{2s, 0ms}, Timeouts{2s, -1ms}}) {
+		// Never answers, so only a timeout or a rejection ends the request.
+		std::optional<LoopbackServer> server{std::in_place, ""};
+		kalshi::ClientConfig config = config_for(*server);
+		config.timeout = timeouts.timeout;
+		config.connect_timeout = timeouts.connect_timeout;
+		const kalshi::HttpClient client(config);
+
+		std::future<kalshi::Result<kalshi::HttpResponse>> pending =
+			std::async(std::launch::async, [&client] { return client.get("/markets"); });
+		EXPECT_EQ(pending.wait_for(3s), std::future_status::ready)
+			<< "still in flight with timeout " << timeouts.timeout.count()
+			<< " ms and connect_timeout " << timeouts.connect_timeout.count() << " ms";
+		const bool sent = !server->last().method.empty();
+		server.reset(); // closes the connection, which ends a request that has no timeout
+		const kalshi::Result<kalshi::HttpResponse> result = pending.get();
+
+		ASSERT_FALSE(result);
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest) << result.error().message;
+		EXPECT_FALSE(sent) << "the request was sent";
 	}
 }
