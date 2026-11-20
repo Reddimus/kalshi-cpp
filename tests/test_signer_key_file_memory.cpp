@@ -35,8 +35,11 @@ TEST(SignerKeyFileMemory, FreedMemoryHoldsNoKeyBytes) {
 	key_text = std::string_view{pem}.substr(pem.size() / 2, 48);
 	blocks_freed_with_key_text = 0;
 
-	// The observer sees operator delete only: the SDK's read buffer and any
-	// C++ stream buffer. OpenSSL's buffers and a C stream's come from malloc.
+	// The observer sees only blocks this thread frees through operator delete:
+	// the SDK's read buffer and the path string, or a std::string or C++ stream
+	// buffer if the read ever went through one. It does not see free(), so it
+	// would miss a C stdio buffer or OpenSSL's own buffers. from_pem_file()
+	// reads with read(2), or _read() on Windows, so it has no stdio buffer.
 	kalshi::test::set_free_observer(find_key_text);
 	const bool loaded = kalshi::Signer::from_pem_file("key", path).has_value();
 	kalshi::test::set_free_observer(nullptr);
@@ -62,8 +65,12 @@ TEST(SignerKeyFileMemory, RejectedFilesAreWipedToo) {
 }
 
 TEST(SignerKeyFileMemory, RunningOutOfMemoryIsAnErrorNotAnException) {
-#if defined(_MSC_VER) && defined(_ITERATOR_DEBUG_LEVEL) && _ITERATOR_DEBUG_LEVEL != 0
-	GTEST_SKIP() << "debug iterators allocate for every string, so no Error can be built";
+	// Where every std::string allocates, even the last-resort Error does, so
+	// from_pem_file() can throw std::bad_alloc once memory runs out.
+#if defined(_ITERATOR_DEBUG_LEVEL) && _ITERATOR_DEBUG_LEVEL != 0
+	GTEST_SKIP() << "MSVC debug iterators allocate for every string, so no Error can be built";
+#elif defined(_GLIBCXX_USE_CXX11_ABI) && _GLIBCXX_USE_CXX11_ABI == 0
+	GTEST_SKIP() << "copy-on-write strings allocate for any text, so no Error can be built";
 #endif
 	const kalshi::test::ScratchDirectory scratch;
 	const std::string path = scratch.write("kalshi.pem", kalshi::test::private_key_pem());

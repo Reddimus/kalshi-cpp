@@ -2,8 +2,9 @@
 #include "kalshi/http_client.hpp"
 #include "kalshi/signer.hpp"
 
+#include <atomic>
+#include <chrono>
 #include <cstddef>
-#include <fstream>
 #include <gtest/gtest.h>
 #include <openssl/evp.h>
 #include <openssl/pem.h>
@@ -11,7 +12,20 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <thread>
+#include <utility>
 #include <vector>
+
+#ifndef _WIN32
+#include <cerrno>
+#include <condition_variable>
+#include <csignal>
+#include <fcntl.h>
+#include <mutex>
+#include <pthread.h>
+#include <sys/stat.h>
+#include <unistd.h>
+#endif
 
 #include "support/scratch_directory.hpp"
 #include "test_signer_fixture.hpp"
@@ -100,6 +114,38 @@ TEST(HttpSigningPath, BaseUrlQueriesAndFragmentsNeverReachTheSignedPath) {
 	EXPECT_EQ(request_signing_path("host/v2?next=https://other/evil", "/markets"), "/v2/markets");
 	EXPECT_EQ(request_signing_path("host?next=https://other/evil", "/markets"), "/markets");
 	EXPECT_EQ(request_signing_path("host/a://b", "/markets"), "/a://b/markets");
+}
+
+TEST(HttpBaseUrl, OnlyHttpBasesThatNameAHostAreAccepted) {
+	for (const std::string_view base_url :
+		 {"https://api.elections.kalshi.com/trade-api/v2", "http://127.0.0.1:1234/trade-api/v2",
+		  "https://[::1]:8080/trade-api/v2", "https://[::1]/trade-api/v2", "HTTPS://Example.com",
+		  "http://localhost", "https://user@host/trade-api/v2", "https://user:p@ss@host:443/x",
+		  "https://host:/trade-api/v2"}) {
+		EXPECT_TRUE(kalshi::detail::names_http_host(base_url)) << base_url;
+	}
+	for (const std::string_view base_url :
+		 {"", "http:", "http://", "http:///", "https:///trade-api/v2", "https://:443/trade-api/v2",
+		  "https://@/trade-api/v2", "https://user@/x", "https://user@:443/x", "https://[]:443/x",
+		  "https://[::1", "https://[::1]junk/x", "ftp://host/x", "host/trade-api/v2",
+		  "https:/host/x"}) {
+		EXPECT_FALSE(kalshi::detail::names_http_host(base_url)) << base_url;
+	}
+}
+
+TEST(HttpPath, DotSegmentsAreSegmentsOfOnlyOneOrTwoDots) {
+	for (const std::string_view path :
+		 {".", "..", "./a", "../a", "/.", "/..", "/a/./b", "/a/../b", "/a/b/.", "/a/b/..", "//..//",
+		  "/a/%2e%2e/b", "/a/%2E%2E/b", "/a/.%2e/b", "/a/%2E./b", "/a/%2e/b", "/a/..?q=1", "/a/.#f",
+		  "/trade-api/../v2/markets"}) {
+		EXPECT_TRUE(kalshi::detail::has_dot_segment(path)) << path;
+	}
+	for (const std::string_view path :
+		 {"", "/", "/a/b", "//", "/a/.../b", "/a/..foo", "/a/foo..", "/a/.hidden", "/a/%2e%2e%2e/b",
+		  "/a/%2ex/b", "/a/%2/b", "/a/%2f/b", "/a?cursor=../b", "/a?x=/./&y=..", "/a#../b",
+		  "/trade-api/v2/markets"}) {
+		EXPECT_FALSE(kalshi::detail::has_dot_segment(path)) << path;
+	}
 }
 
 TEST(HttpSigningPath, EndpointFragmentsAreNotSigned) {
@@ -358,15 +404,222 @@ TEST(SignerKeyFile, FilesAtTheSizeLimitStillLoad) {
 }
 
 #ifndef _WIN32
-TEST(SignerKeyFile, EndlessDevicesAreRejectedInsteadOfReadForever) {
-	if (!std::ifstream{"/dev/zero", std::ios::binary}) {
-		GTEST_SKIP() << "/dev/zero is not readable here";
+namespace {
+
+std::atomic<int> interruptions{0};
+
+void count_interruption(int /*signal*/) {
+	interruptions.fetch_add(1, std::memory_order_relaxed);
+}
+
+/// Interrupts `reader` with SIGUSR1 and waits, up to a second, until the
+/// handler has run. A signal still pending when a FIFO's two ends meet can make
+/// the reader's open() fail with EINTR after the writer's open succeeded. On
+/// macOS the writer then writes to a FIFO with no reader, and the reader, on
+/// retrying, waits for a writer that has gone.
+void interrupt_and_wait(pthread_t reader) {
+	const int handled = interruptions.load() + 1;
+	(void)::pthread_kill(reader, SIGUSR1);
+	const std::chrono::steady_clock::time_point deadline =
+		std::chrono::steady_clock::now() + std::chrono::seconds{1};
+	while (interruptions.load() < handled && std::chrono::steady_clock::now() < deadline) {
+		std::this_thread::sleep_for(std::chrono::milliseconds{1});
 	}
-	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem_file("key", "/dev/zero");
+}
+
+/// Opens the FIFO's write end, waiting in open() for the reader as a real
+/// writer would. Unlike a non-blocking open, it cannot miss a reader that is
+/// between two attempts.
+int open_fifo_writer(const std::string& path) {
+	int fd = -1;
+	do {
+		fd = ::open(path.c_str(), O_WRONLY | O_CLOEXEC);
+	} while (fd < 0 && errno == EINTR);
+	return fd;
+}
+
+bool write_all(int fd, std::string_view bytes) {
+	while (!bytes.empty()) {
+		const ssize_t written = ::write(fd, bytes.data(), bytes.size());
+		if (written < 0 && errno == EINTR) {
+			continue;
+		}
+		if (written <= 0) {
+			return false;
+		}
+		bytes.remove_prefix(static_cast<std::size_t>(written));
+	}
+	return true;
+}
+
+/// Opens both ends of a FIFO if the test has not called finish() within five
+/// seconds. That releases a reader or a writer stuck in open(), so a broken
+/// test fails in seconds instead of running into ctest's timeout.
+class FifoWatchdog {
+public:
+	explicit FifoWatchdog(std::string path)
+		: path_(std::move(path)), thread_([this] { watch(); }) {}
+	~FifoWatchdog() { finish(); }
+	FifoWatchdog(const FifoWatchdog&) = delete;
+	FifoWatchdog& operator=(const FifoWatchdog&) = delete;
+
+	/// Stops the watchdog. Returns whether it had to release an end.
+	bool finish() {
+		{
+			const std::scoped_lock lock(mutex_);
+			done_ = true;
+		}
+		finished_.notify_all();
+		if (thread_.joinable()) {
+			thread_.join();
+		}
+		return fired_;
+	}
+
+private:
+	void watch() {
+		std::unique_lock lock(mutex_);
+		if (finished_.wait_for(lock, std::chrono::seconds{5}, [this] { return done_; })) {
+			return;
+		}
+		fired_ = true;
+		lock.unlock();
+		// A non-blocking read open always succeeds and releases a waiting
+		// writer; with that reader in place, a non-blocking write open
+		// succeeds and releases a waiting reader.
+		const int read_end = ::open(path_.c_str(), O_RDONLY | O_NONBLOCK | O_CLOEXEC);
+		const int write_end = ::open(path_.c_str(), O_WRONLY | O_NONBLOCK | O_CLOEXEC);
+		for (const int fd : {write_end, read_end}) {
+			if (fd >= 0) {
+				(void)::close(fd);
+			}
+		}
+	}
+
+	std::string path_;
+	std::mutex mutex_;
+	std::condition_variable finished_;
+	bool done_{false};
+	bool fired_{false};
+	std::thread thread_; // last, so it starts after the members it uses
+};
+
+/// Loads a key through a FIFO, the way a secrets manager or a shell's process
+/// substitution hands one over, while SIGUSR1, handled without SA_RESTART,
+/// interrupts the reader `open_signals` times as it waits in open() for a
+/// writer and `read_signals` times as it waits in read() for the rest of the
+/// key. Each interrupted call fails with EINTR, and the load must retry it.
+void expect_key_loads_through_fifo(int open_signals, int read_signals) {
+	const kalshi::test::ScratchDirectory scratch;
+	const std::string path = scratch.path() + "/kalshi.pem";
+	ASSERT_EQ(::mkfifo(path.c_str(), 0600), 0) << "mkfifo failed with errno " << errno;
+
+	struct sigaction interrupt {};
+	interrupt.sa_handler = count_interruption;
+	sigemptyset(&interrupt.sa_mask);
+	interrupt.sa_flags = 0; // no SA_RESTART, so blocked calls return EINTR
+	struct sigaction previous_usr1 {};
+	ASSERT_EQ(::sigaction(SIGUSR1, &interrupt, &previous_usr1), 0);
+	// A reader that gives up early would turn the writer's next write into
+	// SIGPIPE, which on macOS goes to the whole process.
+	struct sigaction ignore {};
+	ignore.sa_handler = SIG_IGN;
+	sigemptyset(&ignore.sa_mask);
+	struct sigaction previous_pipe {};
+	ASSERT_EQ(::sigaction(SIGPIPE, &ignore, &previous_pipe), 0);
+	interruptions = 0;
+
+	const std::string& pem = kalshi::test::private_key_pem();
+	const pthread_t reader = ::pthread_self();
+	bool delivered = false;
+	FifoWatchdog watchdog{path};
+	std::thread writer{[&] {
+		const std::chrono::milliseconds pause{30};
+		// No writer yet, so the reader is blocked in open(). Every signal is
+		// handled before the writer opens its end.
+		for (int i = 0; i < open_signals; ++i) {
+			std::this_thread::sleep_for(pause);
+			interrupt_and_wait(reader);
+		}
+		const int fd = open_fifo_writer(path);
+		if (fd < 0) {
+			return;
+		}
+		const std::string_view text{pem};
+		const std::size_t half = text.size() / 2;
+		bool written = write_all(fd, text.substr(0, half));
+		// The reader has the first half and is blocked in read() for the rest.
+		for (int i = 0; i < read_signals && written; ++i) {
+			std::this_thread::sleep_for(pause);
+			interrupt_and_wait(reader);
+		}
+		written = written && write_all(fd, text.substr(half));
+		delivered = ::close(fd) == 0 && written;
+	}};
+	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem_file("key", path);
+	writer.join();
+	const bool released = watchdog.finish();
+	(void)::sigaction(SIGPIPE, &previous_pipe, nullptr);
+	(void)::sigaction(SIGUSR1, &previous_usr1, nullptr);
+
+	EXPECT_FALSE(released) << "the reader or the writer was stuck in open()";
+	ASSERT_TRUE(signer.has_value()) << signer.error().message;
+	EXPECT_TRUE(delivered);
+	EXPECT_EQ(interruptions.load(), open_signals + read_signals);
+	EXPECT_TRUE(signer->sign("GET", "/trade-api/v2/markets").has_value());
+}
+
+} // namespace
+
+TEST(SignerKeyFile, SignalsInterruptingAFifoReadDoNotFailTheLoad) {
+	expect_key_loads_through_fifo(0, 2);
+}
+
+TEST(SignerKeyFile, SignalsInterruptingAFifoOpenDoNotFailTheLoad) {
+	expect_key_loads_through_fifo(2, 0);
+}
+
+// A stream with no end, such as a device or a pipe, must be cut off at the
+// limit. The writer stops after 8 MiB, so even a reader without the limit ends
+// there instead of filling memory until the test times out.
+TEST(SignerKeyFile, EndlessStreamsAreRejectedAtTheSizeLimit) {
+	const kalshi::test::ScratchDirectory scratch;
+	const std::string path = scratch.path() + "/endless.pem";
+	ASSERT_EQ(::mkfifo(path.c_str(), 0600), 0) << "mkfifo failed with errno " << errno;
+	// The reader closes its end at the limit, which makes the next write fail
+	// with EPIPE instead of raising SIGPIPE.
+	struct sigaction ignore {};
+	ignore.sa_handler = SIG_IGN;
+	sigemptyset(&ignore.sa_mask);
+	struct sigaction previous_pipe {};
+	ASSERT_EQ(::sigaction(SIGPIPE, &ignore, &previous_pipe), 0);
+
+	constexpr std::size_t kWriterLimit = std::size_t{8} * 1024 * 1024;
+	std::size_t written = 0;
+	FifoWatchdog watchdog{path};
+	std::thread writer{[&] {
+		const int fd = open_fifo_writer(path);
+		if (fd < 0) {
+			return;
+		}
+		const std::string chunk(std::size_t{64} * 1024, 'A');
+		while (written < kWriterLimit && write_all(fd, chunk)) {
+			written += chunk.size();
+		}
+		(void)::close(fd);
+	}};
+	const kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem_file("key", path);
+	writer.join();
+	const bool released = watchdog.finish();
+	(void)::sigaction(SIGPIPE, &previous_pipe, nullptr);
+
+	EXPECT_FALSE(released) << "the reader or the writer was stuck in open()";
 	ASSERT_FALSE(signer.has_value());
 	EXPECT_EQ(signer.error().code, kalshi::ErrorCode::InvalidKey);
 	EXPECT_NE(signer.error().message.find("larger than"), std::string::npos)
 		<< signer.error().message;
+	// The reader took the limit and one byte more; the pipe held a little more.
+	EXPECT_LT(written, kMaxKeyFileBytes * 2) << "the reader did not stop at the limit";
 }
 #endif
 

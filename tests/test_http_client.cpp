@@ -2,6 +2,7 @@
 
 #include "kalshi/http_client.hpp"
 #include "kalshi/retry.hpp"
+#include "kalshi/websocket.hpp"
 
 #ifdef _WIN32
 #include <winsock2.h>
@@ -466,6 +467,117 @@ TEST(HttpClientLoopback, BaseUrlsWithAQueryOrFragmentAreRejectedBeforeSending) {
 		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest) << suffix;
 	}
 	EXPECT_TRUE(server.last().method.empty()) << "a request reached the server";
+}
+
+TEST(HttpClientLoopback, BaseUrlsWithoutAHostAreRejectedBeforeSending) {
+	// Each has an authority, but nothing left of it once the user information
+	// and the port are gone. libcurl would refuse them as malformed URLs.
+	for (const std::string_view base_url :
+		 {"https://:443/trade-api/v2", "https://@/trade-api/v2", "https://user@/trade-api/v2",
+		  "https://user:secret@:443/trade-api/v2", "http://:1234/trade-api/v2",
+		  "https://[]:443/trade-api/v2", "https://[::1/trade-api/v2", "https://@@/trade-api/v2"}) {
+		kalshi::ClientConfig config;
+		config.base_url = base_url;
+		const kalshi::HttpClient client(config);
+		const kalshi::Result<kalshi::HttpResponse> result = client.get("/markets");
+		ASSERT_FALSE(result) << base_url;
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest)
+			<< base_url << ": " << result.error().message;
+	}
+}
+
+// libcurl removes dot segments before sending, and newer versions decode %2e
+// first, so the server would get another path than the one signed (#95).
+TEST(HttpClientLoopback, DotSegmentsAreRejectedBeforeSending) {
+	const LoopbackServer server(http_response(200, "{}"));
+	struct Case {
+		std::string_view base_suffix;
+		std::string_view endpoint;
+	};
+	for (const Case& test : {
+			 Case{"", "/markets/../events"},
+			 Case{"", "/a/b/./c"},
+			 Case{"", "/markets/.."},
+			 Case{"", "/markets/."},
+			 Case{"", "markets/../events"},
+			 Case{"", "/markets/%2e%2e/events"},
+			 Case{"", "/markets/.%2E/events"},
+			 Case{"", "/markets/%2e/events"},
+			 Case{"", "/markets/../events?limit=1"},
+			 Case{"/../v2", "/markets"},
+			 Case{"/./x", "/markets"},
+			 Case{"/..", "/markets"},
+			 Case{"/%2E%2E", "/markets"},
+		 }) {
+		kalshi::ClientConfig config = config_for(server);
+		config.base_url += test.base_suffix;
+		const kalshi::HttpClient client(kalshi::test::make_signer(), config);
+		const kalshi::Result<kalshi::HttpResponse> result = client.get(std::string{test.endpoint});
+		ASSERT_FALSE(result) << config.base_url << " + " << test.endpoint;
+		EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest)
+			<< config.base_url << " + " << test.endpoint;
+	}
+	EXPECT_TRUE(server.last().method.empty()) << "a request reached the server";
+}
+
+// libcurl may rewrite a path as it parses it, and each version differently:
+// 8.22 uppercases percent escapes, 8.18 does not. Whatever it sends must be
+// what was signed, and no segment may be dropped on the way.
+TEST(HttpClientLoopback, PathsAreSignedAsLibcurlSendsThem) {
+	const LoopbackServer server(http_response(200, "{}"));
+	const kalshi::HttpClient client(kalshi::test::make_signer(), config_for(server));
+	const std::string& key = kalshi::test::private_key_pem();
+	const auto lower = [](std::string text) {
+		std::transform(text.begin(), text.end(), text.begin(), [](unsigned char character) {
+			return static_cast<char>(std::tolower(character));
+		});
+		return text;
+	};
+	for (const std::string_view endpoint :
+		 {"/markets", "/markets/.../x", "/markets/..foo", "/markets/foo..", "/markets/.hidden",
+		  "/markets/%2e%2e%2e", "/markets/%2E%2E%2E", "/markets/a%2fb", "/markets/a%2Fb",
+		  "/markets/%7euser", "/markets/%41", "/markets/caf%c3%a9", "/markets?cursor=../x",
+		  "/markets?cursor=/./x&next=..&y=%2e"}) {
+		ASSERT_TRUE(client.get(std::string{endpoint}).has_value()) << endpoint;
+		RecordedRequest request = server.last();
+		// Percent escapes may change case, but nothing else.
+		EXPECT_EQ(lower(request.target), lower("/trade-api/v2" + std::string{endpoint}));
+		const std::string sent_path = request.target.substr(0, request.target.find('?'));
+		EXPECT_TRUE(kalshi::test::signature_verifies(
+			key, request.headers["kalshi-access-timestamp"] + "GET" + sent_path,
+			request.headers["kalshi-access-signature"]))
+			<< endpoint << " was sent as " << request.target;
+	}
+}
+
+// libwebsockets writes the handshake path into the request line as given, so
+// a WebSocket URL with dot segments is signed over exactly what is sent. This
+// raw server sees the request line before any parser could normalize it.
+TEST(WsHandshakeTarget, DotSegmentsAreSentAsGivenAndSigned) {
+	const std::string& key = kalshi::test::private_key_pem();
+	for (const std::string_view path :
+		 {"/trade-api/ws/../v2", "/trade-api/./ws/v2", "/trade-api/ws/%2e%2e/v2"}) {
+		const LoopbackServer server(http_response(400, "{}"));
+		const std::string base = server.base_url();
+		kalshi::WsConfig config;
+		config.url = "ws://" +
+					 base.substr(std::string_view{"http://"}.size(),
+								 base.find("/trade-api") - std::string_view{"http://"}.size()) +
+					 std::string{path};
+		config.auto_reconnect = false;
+		config.connect_timeout = 2s;
+		kalshi::WebSocketClient ws(kalshi::test::make_signer(), config);
+		EXPECT_FALSE(ws.connect().has_value()) << "the server refuses every handshake";
+		RecordedRequest request = server.last();
+		ASSERT_EQ(request.target, path);
+		if (request.headers["kalshi-access-signature"].empty()) {
+			GTEST_SKIP() << "libwebsockets was built without custom header support";
+		}
+		EXPECT_TRUE(kalshi::test::signature_verifies(
+			key, request.headers["kalshi-access-timestamp"] + "GET" + std::string{path},
+			request.headers["kalshi-access-signature"]))
+			<< path;
+	}
 }
 
 TEST(HttpClientLoopback, EndpointsCannotSupplyTheSchemeOrHost) {

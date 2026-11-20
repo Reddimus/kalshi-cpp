@@ -1,3 +1,44 @@
+# The SDK calls OpenSSL on the TLS contexts libwebsockets creates, so both must
+# use the same OpenSSL; one context handed to another OpenSSL's calls corrupts
+# memory. libwebsockets' CMake package names the libssl it links, so this warns
+# when that is not in the directory of the OpenSSL found for the SDK. A
+# pkg-config file does not name it, so that route goes unchecked.
+function(_kalshi_check_websockets_openssl target)
+    if(NOT TARGET OpenSSL::SSL)
+        return()
+    endif()
+    set(sdk_ssl "")
+    foreach(property IMPORTED_LOCATION IMPORTED_LOCATION_RELEASE IMPORTED_LOCATION_DEBUG)
+        get_target_property(location OpenSSL::SSL ${property})
+        if(location)
+            set(sdk_ssl "${location}")
+            break()
+        endif()
+    endforeach()
+    get_target_property(links ${target} INTERFACE_LINK_LIBRARIES)
+    if(NOT sdk_ssl OR NOT links)
+        return()
+    endif()
+    foreach(link IN LISTS links)
+        if(link MATCHES "OpenSSL::")
+            return() # the same imported target the SDK links
+        endif()
+        get_filename_component(name "${link}" NAME)
+        if(name MATCHES "^(lib)?ssl[.-]")
+            get_filename_component(websockets_dir "${link}" DIRECTORY)
+            get_filename_component(sdk_dir "${sdk_ssl}" DIRECTORY)
+            file(REAL_PATH "${websockets_dir}" websockets_dir)
+            file(REAL_PATH "${sdk_dir}" sdk_dir)
+            if(NOT websockets_dir STREQUAL sdk_dir)
+                message(WARNING "libwebsockets links ${link}, but kalshi-cpp found OpenSSL at "
+                                "${sdk_ssl}. Both must use the same OpenSSL; point CMake at the "
+                                "one libwebsockets uses, for example with CMAKE_PREFIX_PATH.")
+            endif()
+            return()
+        endif()
+    endforeach()
+endfunction()
+
 # kalshi_find_websockets(<required>)
 #
 # Finds libwebsockets and sets KALSHI_WEBSOCKETS_TARGET to an imported target
@@ -22,6 +63,7 @@ function(kalshi_find_websockets required)
                 set_property(TARGET ${candidate} APPEND PROPERTY
                     INTERFACE_INCLUDE_DIRECTORIES ${LIBWEBSOCKETS_INCLUDE_DIRS})
             endif()
+            _kalshi_check_websockets_openssl(${candidate})
             set(KALSHI_WEBSOCKETS_TARGET ${candidate} PARENT_SCOPE)
             set(KALSHI_WEBSOCKETS_VIA cmake PARENT_SCOPE)
             return()

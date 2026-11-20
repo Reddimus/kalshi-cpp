@@ -52,9 +52,10 @@ enum class WsState : std::uint8_t { Disconnected, Connecting, Connected, Reconne
 }
 
 struct WsConfig {
-	/// A `wss://` server's certificate must chain to one of OpenSSL's default
-	/// certificate authorities (which `SSL_CERT_FILE` and `SSL_CERT_DIR`
-	/// override) and name the URL's host.
+	/// A `wss://` server's certificate must name the URL's host and chain to
+	/// an authority in OpenSSL's default verify paths, which `SSL_CERT_FILE`
+	/// and `SSL_CERT_DIR` override, or on Windows in the system's root store.
+	/// REST calls trust what libcurl trusts, which can differ.
 	std::string url{websocket_url(Environment::Production)};
 	/// How long `connect()` waits for the handshake.
 	std::chrono::milliseconds connect_timeout{std::chrono::seconds{10}};

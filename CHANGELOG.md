@@ -6,6 +6,41 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Finish an unsubscribe when the `unsubscribed` confirmation has no `seq`. The confirmation was
+  dropped as malformed, so the subscription never ended and a new `orderbook_delta`
+  subscription was refused until the next reconnect.
+- Load a key from a FIFO or pipe when a signal interrupts `Signer::from_pem_file` while it waits
+  for a writer to open the other end. Only an interrupted read was retried before.
+- Keep the key file's descriptor out of child processes started while `Signer::from_pem_file`
+  reads it.
+- Leave libwebsockets' WebSocket trust store alone when it uses GnuTLS, Schannel, BearSSL,
+  OpenHiTLS, PolarSSL, or CyaSSL for TLS. The SDK would have passed their TLS contexts to
+  OpenSSL, corrupting memory.
+- `HttpClient::request` returns `InvalidRequest`, without sending anything, for a base URL
+  with no host once its user information and port are removed, such as
+  `https://:443/trade-api/v2`. It returned `NetworkError`.
+- `HttpClient::request` returns `InvalidRequest`, without sending anything, when the base URL or
+  the request path has a `.` or `..` segment, `%2e` included. libcurl removed those segments
+  before sending, so the request was signed over a path the server never received
+  ([#95](https://github.com/Reddimus/kalshi-cpp/issues/95)).
+- Sign each REST request over the path libcurl actually sends. libcurl rewrites some paths
+  while parsing them, and each version differently: 8.22, which vcpkg ships for Windows,
+  uppercases percent escapes, so a path such as `/markets/a%2fb` failed authentication.
+
+### Changed
+
+- `Signer::from_pem_file` reads with the operating system's file calls instead of C stdio, so
+  no stream buffer outside its own, which it wipes, can hold key bytes.
+- CMake warns when libwebsockets' CMake package links a different OpenSSL from the one found
+  for kalshi-cpp. Both must be the same, because the SDK calls OpenSSL on libwebsockets' TLS
+  connections. The README's macOS steps now build against the OpenSSL that Homebrew's
+  libwebsockets links.
+- kalshi-cpp needs libcurl 7.65 or newer.
+- A base URL and request path that libcurl cannot parse return `InvalidRequest`, without
+  sending anything, instead of `NetworkError`.
+
 ## [0.9.0] - 2026-11-20
 
 ### Added
@@ -41,9 +76,10 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - `HttpClient::request` returns `InvalidRequest` when `ClientConfig::base_url` names no host or
   contains a query string or a fragment, or when `timeout` or `connect_timeout` is zero or
   negative.
-- WebSocket `subscribed`, `unsubscribed`, `ok`, and `error` messages that lack a field Kalshi's
-  contract requires, or carry a subscription ID below 1, are reported through `on_error` and
-  otherwise ignored.
+- WebSocket `subscribed`, `unsubscribed`, and `error` messages that lack a field Kalshi's
+  contract requires, and those and `ok` messages that carry a subscription ID below 1, are
+  reported through `on_error` and otherwise ignored. Only an `ok` that answers
+  `list_subscriptions` has its contents checked.
 - An HTTP response larger than `max_response_bytes` returns `ParseError` instead of
   `InvalidRequest`. The request was sent by then and may have taken effect, which
   `InvalidRequest` denied.
@@ -82,8 +118,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Report a malformed `list_subscriptions` reply as an error instead of an empty list.
 - Reject `.` and `..` as path parameters such as a market ticker. They reached a different
   route than the one requested, which could answer with another resource's data.
-- Trust only OpenSSL's default certificate authorities for WebSocket TLS, as REST calls do.
-  libwebsockets also trusted a `../share` directory relative to the working directory.
+- Trust only OpenSSL's default verify paths for WebSocket TLS, which `SSL_CERT_FILE` and
+  `SSL_CERT_DIR` override, plus the system's root certificates on Windows. libwebsockets also
+  trusted a `../share` directory relative to the working directory.
 - Report and retry a reconnect attempt whose handshake cannot be signed, instead of staying
   in `Reconnecting` for good.
 - Publish a release only after CI passes on the tagged commit itself. A pull request's run no
