@@ -225,6 +225,16 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 		if (!parsed) {
 			return std::unexpected(std::move(parsed.error()));
 		}
+		// Compared as libwebsockets stores them; otherwise a healthy connection
+		// would drop every idle_timeout.
+		if (config.ping_interval <= std::chrono::seconds::zero() ||
+			seconds_field(config.idle_timeout) <= seconds_field(config.ping_interval)) {
+			return std::unexpected(
+				Error{ErrorCode::InvalidRequest,
+					  "WsConfig.idle_timeout must be longer than a positive ping_interval",
+					  0,
+					  {}});
+		}
 		endpoint = std::move(*parsed);
 
 		lws_context_creation_info info{};
@@ -315,7 +325,7 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 			if (forget) {
 				registry.clear();
 			} else {
-				registry.on_disconnected();
+				(void)registry.on_disconnected(); // stop() calls no user code
 			}
 			outbox.clear();
 			if (context != nullptr) {
@@ -670,9 +680,10 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 		wsi = nullptr;
 		const bool stable = std::chrono::steady_clock::now() - opened_at >= kStableConnection;
 		WsState next = WsState::Disconnected;
+		std::vector<ws::Subscription> ended;
 		{
 			const std::lock_guard lock(mutex);
-			registry.on_disconnected();
+			ended = registry.on_disconnected();
 			outbox.clear();
 			if (stopping) {
 				return;
@@ -682,6 +693,10 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 		}
 		changed.notify_all();
 		report(next);
+		// Unsubscribes the connection never confirmed are complete now.
+		for (const ws::Subscription& handle : ended) {
+			deliver(WsMessage{ws::Unsubscribed{handle, std::nullopt}});
+		}
 		if (next == WsState::Reconnecting) {
 			if (stable) {
 				failures = 0;
@@ -733,9 +748,9 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 						   std::get_if<detail::UnsubscribedFrame>(&frame)) {
 				reaction = registry.on_unsubscribed(*unsubscribed);
 			} else if (const detail::OkFrame* ok = std::get_if<detail::OkFrame>(&frame)) {
-				reaction = registry.on_ok(*ok);
+				reaction = registry.on_ok(*ok, config.resync_on_gap);
 			} else if (const detail::ErrorFrame* error = std::get_if<detail::ErrorFrame>(&frame)) {
-				reaction = registry.on_error(*error);
+				reaction = registry.on_error(*error, config.resync_on_gap);
 			} else if (const detail::MalformedFrame* malformed =
 						   std::get_if<detail::MalformedFrame>(&frame)) {
 				reaction.error = WsError{0,

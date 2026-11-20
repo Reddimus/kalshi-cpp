@@ -5,6 +5,7 @@
 
 #include <gtest/gtest.h>
 #include <limits>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -203,9 +204,9 @@ TEST(WsSubscriptions, GapsAreReportedAndOrderbookGapsRequestSnapshots) {
 
 	kalshi::ws::Update<kalshi::ws::OrderbookSnapshot> snapshot;
 	snapshot.sid = 3;
-	snapshot.seq = 9; // a snapshot starts a new baseline
+	snapshot.seq = 5; // snapshots share the subscription's sequence
 	kalshi::WsMessage baseline = snapshot;
-	kalshi::WsMessage next = delta(3, 10);
+	kalshi::WsMessage next = delta(3, 6);
 	EXPECT_FALSE(registry.on_data(baseline, true).error.has_value());
 	EXPECT_FALSE(registry.on_data(next, true).error.has_value());
 
@@ -654,4 +655,115 @@ TEST(WsSubscriptions, EbattleMatchesChosenBeforeConnectingFollowTheFirstConfirma
 	EXPECT_NE(ack.frames[0].find(R"("sid":3,"action":"subscribe_matches","match_ids":["all"])"),
 			  std::string::npos)
 		<< ack.frames[0];
+}
+
+namespace {
+
+kalshi::WsMessage snapshot(std::int64_t sid, std::int64_t seq,
+						   std::optional<std::int64_t> id = {}) {
+	kalshi::ws::Update<kalshi::ws::OrderbookSnapshot> update;
+	update.sid = sid;
+	update.seq = seq;
+	update.id = id;
+	return update;
+}
+
+} // namespace
+
+// A delta for one market can go missing just before another market's snapshot
+// or an `ok`; both carry the subscription's next seq.
+TEST(WsSubscriptions, SnapshotsAndOkFramesRevealGaps) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	ASSERT_TRUE(
+		registry.subscribe(Channel::OrderbookDelta, {.market_tickers = {"A", "B"}}, true, frames));
+	registry.on_subscribed({2, "orderbook_delta", 3});
+	kalshi::WsMessage first = delta(3, 1);
+	EXPECT_FALSE(registry.on_data(first, true).error.has_value());
+	kalshi::WsMessage after_gap = snapshot(3, 3);
+	const Reaction hidden = registry.on_data(after_gap, true);
+	ASSERT_TRUE(hidden.error.has_value());
+	ASSERT_EQ(hidden.frames.size(), 1U);
+	EXPECT_NE(hidden.frames[0].find(R"("action":"get_snapshot")"), std::string::npos);
+
+	const Reaction ok = registry.on_ok({std::nullopt, 3, 7}, true);
+	ASSERT_TRUE(ok.error.has_value());
+	EXPECT_EQ(ok.error->seq, 7);
+	EXPECT_EQ(ok.frames.size(), 1U);
+	kalshi::WsMessage next = delta(3, 8);
+	EXPECT_FALSE(registry.on_data(next, true).error.has_value());
+}
+
+// A get_snapshot reply is a snapshot carrying the command's id, not an `ok`.
+TEST(WsSubscriptions, SnapshotRepliesCompleteTheirCommand) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription book =
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames).value();
+	registry.on_subscribed({2, "orderbook_delta", 3});
+	for (std::int64_t i = 0; i < 3; ++i) {
+		ASSERT_TRUE(
+			registry
+				.update(book,
+						{.market_tickers = {"A"}, .action = kalshi::ws::UpdateAction::GetSnapshot},
+						true, frames)
+				.has_value());
+	}
+	// Commands 3, 4, and 5 are in flight; replies to 3 and 4 arrive.
+	kalshi::WsMessage reply = snapshot(3, 1, 3);
+	registry.on_data(reply, true);
+	kalshi::WsMessage second = snapshot(3, 2, 4);
+	registry.on_data(second, true);
+	// Only command 5 is left, so an `ok` naming 3 or 4 matches nothing.
+	EXPECT_FALSE(registry.on_ok({3, 3}).message.has_value());
+	EXPECT_FALSE(registry.on_ok({4, 3}).message.has_value());
+	EXPECT_TRUE(registry.on_ok({5, 3}).message.has_value());
+}
+
+TEST(WsSubscriptions, AReplyIdNeverCompletesAPendingSubscribe) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription book =
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames).value();
+	kalshi::WsMessage early = snapshot(3, 1, 2); // names the subscribe command
+	registry.on_data(early, true);
+	const Reaction ack = registry.on_subscribed({2, "orderbook_delta", 3});
+	ASSERT_TRUE(ack.message.has_value());
+	EXPECT_EQ(std::get<kalshi::ws::Subscribed>(*ack.message).subscription, book);
+}
+
+// Error 7 means the server no longer knows the subscription, so it is gone.
+TEST(WsSubscriptions, UnknownSubscriptionIdCompletesAnUnsubscribe) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription book =
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames).value();
+	registry.on_subscribed({2, "orderbook_delta", 9});
+	ASSERT_TRUE(registry.unsubscribe(book, frames).has_value());
+	const Reaction unknown = registry.on_error({3, 9, std::nullopt, 7, "Unknown subscription ID"});
+	ASSERT_TRUE(unknown.message.has_value());
+	EXPECT_EQ(std::get<kalshi::ws::Unsubscribed>(*unknown.message).subscription, book);
+	EXPECT_TRUE(registry.subscriptions().empty());
+	frames.clear();
+	registry.on_connected(frames);
+	EXPECT_TRUE(frames.empty());
+	EXPECT_TRUE(registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "B"}, true, frames)
+					.has_value());
+}
+
+// The server drops subscriptions with the connection, so a pending unsubscribe is done.
+TEST(WsSubscriptions, DisconnectingEndsPendingUnsubscribes) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription book =
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames).value();
+	const kalshi::ws::Subscription trades =
+		registry.subscribe(Channel::Trade, {}, true, frames).value();
+	const kalshi::ws::Subscription ticker =
+		registry.subscribe(Channel::Ticker, {}, true, frames).value();
+	registry.on_subscribed({2, "orderbook_delta", 9});
+	ASSERT_TRUE(registry.unsubscribe(book, frames).has_value());   // sent
+	ASSERT_TRUE(registry.unsubscribe(trades, frames).has_value()); // held until confirmed
+	EXPECT_EQ(registry.on_disconnected(), (std::vector<kalshi::ws::Subscription>{book, trades}));
+	EXPECT_EQ(registry.subscriptions(), (std::vector<kalshi::ws::Subscription>{ticker}));
 }

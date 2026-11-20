@@ -119,7 +119,7 @@ stateDiagram-v2
     Disconnected --> Connecting: connect()
     Connecting --> Connected: signed handshake accepted
     Connecting --> Disconnected: handshake failed, and connect() returns the error
-    Connected --> Reconnecting: dropped, or nothing received within idle_timeout
+    Connected --> Reconnecting: dropped, or no pong within idle_timeout
     Reconnecting --> Connected: a later attempt succeeds, after backoff with jitter
     Reconnecting --> Disconnected: max_reconnect_attempts reached
     Connected --> Disconnected: disconnect(), or a drop with auto_reconnect off
@@ -136,9 +136,10 @@ stateDiagram-v2
 - **Sequence gaps.** On sequenced channels a skipped `seq` is reported to
   `on_error`. For `orderbook_delta`, the client also requests fresh snapshots
   of the subscribed markets, unless `WsConfig::resync_on_gap` is off.
-- **Liveness.** The client pings after `ping_interval` of silence and drops
-  the connection when nothing arrives within `idle_timeout`. Kalshi sends its
-  own pings only after 10 seconds without a data message.
+- **Liveness.** The client pings when no pong has arrived for
+  `ping_interval` and drops the connection when none arrives within
+  `idle_timeout`. Kalshi sends its own pings only after 10 seconds without a
+  data message.
 
 ## From the specs to C++
 

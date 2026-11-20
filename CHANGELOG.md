@@ -29,6 +29,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   keep the old behavior.
 - Build the static libraries as position-independent code unless
   `CMAKE_POSITION_INDEPENDENT_CODE` is set, so they can link into shared libraries.
+- `WebSocketClient::connect()` rejects a non-positive `ping_interval` and an `idle_timeout` no
+  longer than it, which would drop healthy connections.
 
 ### Fixed
 
@@ -44,6 +46,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Fail calls on a moved-from `KalshiClient` with `NetworkError`, and `scaled_integer` on a
   moved-from `FixedPoint` with `InvalidRequest`, instead of crashing.
 - Bound the parallel jobs in `tools/test_consumers.sh` by `JOBS`.
+- Report sequence gaps that an orderbook snapshot or an `ok` or `error` frame reveals; they
+  share the subscription's sequence.
+- Complete `get_snapshot` and other commands whose reply is a data message, so they no longer
+  accumulate on a long-lived connection.
+- Treat error 7 on an unsubscribe as the end of the subscription, and deliver `Unsubscribed`
+  for unsubscribes still pending when the connection drops.
 
 ## [0.8.0] - 2026-11-03
 

@@ -64,9 +64,11 @@ struct WsConfig {
 	/// Stop after this many failed attempts in a row; 0 keeps trying. A
 	/// connection that drops within 10 seconds of opening counts as failed.
 	std::uint32_t max_reconnect_attempts{0};
-	/// Ping after this much silence, and drop the connection after
-	/// `idle_timeout` without a reply. Kalshi pings only after 10 seconds
-	/// without sending a data message, so a busy connection may see no pings.
+	/// Ping when no pong has arrived for `ping_interval`, and drop the
+	/// connection when none arrives for `idle_timeout`, which must be longer;
+	/// `connect()` rejects other values. The check runs about every five
+	/// seconds, so a drop can come a few seconds late. Kalshi sends its own
+	/// pings only after 10 seconds without a data message.
 	std::chrono::seconds ping_interval{std::chrono::seconds{15}};
 	std::chrono::seconds idle_timeout{std::chrono::seconds{30}};
 	/// Request fresh order book snapshots when an orderbook_delta sequence
