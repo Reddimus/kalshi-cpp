@@ -6,6 +6,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Docs
+
+- `Signer::from_pem_file` documents two existing behaviours. Opening a FIFO waits for a
+  writer, so the call blocks until one appears. Where building the error itself must
+  allocate, running out of memory can throw `std::bad_alloc` instead of returning
+  `InvalidKey`: MSVC builds with a nonzero `_ITERATOR_DEBUG_LEVEL` (the Debug default), and
+  libstdc++'s old copy-on-write string ABI.
+
 ## [0.9.4] - 2026-11-20
 
 ### Fixed
