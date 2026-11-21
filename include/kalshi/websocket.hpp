@@ -93,7 +93,11 @@ struct WsConfig {
 /// Internal failures stop the session and clear subscriptions.
 /// Subscriptions survive reconnects: the client resubscribes with the same
 /// parameters and keeps each `ws::Subscription` handle, while the server's
-/// `sid` changes. Callbacks run on the client's network thread, which blocks
+/// `sid` changes. The resubscribe carries the updates the server confirmed.
+/// Updates still unanswered or unsent when the connection dropped follow it,
+/// each on its own once the new subscription is confirmed, so a rejected one
+/// is reported in `on_error` and the subscription stays. Snapshot and list
+/// requests are not sent again. Callbacks run on the client's network thread, which blocks
 /// SIGPIPE on POSIX systems, except the Disconnected state change from
 /// `disconnect()`, which runs on the caller's.
 /// They may call any method, including destroying the client, but should
@@ -125,6 +129,10 @@ public:
 	/// Keep one OrderbookDelta handle per client; extend it with add_markets.
 	/// A second handle is rejected while the first remains registered.
 	/// `market_id` and `market_ids` are accepted only on the ticker channel.
+	/// Name markets with only one of `market_ticker`, `market_tickers`,
+	/// `market_id`, and `market_ids`; none may be empty. `shard_key` needs
+	/// `shard_factor`, from 1 to 100, and must be below it. Anything else
+	/// returns `InvalidRequest` without sending.
 	/// Matches added to an ebattle_scores subscription are added again after
 	/// a reconnect.
 	[[nodiscard]] Result<ws::Subscription> subscribe(ws::Channel channel,
@@ -132,6 +140,14 @@ public:
 	[[nodiscard]] Result<void> unsubscribe(ws::Subscription subscription);
 	/// Rejects updates while unsubscription is pending, and market changes to a
 	/// ticker subscription sent without markets, which Kalshi does not allow.
+	/// Markets follow the subscribe's rules and must be named the way the
+	/// subscription names them, by ticker or by ID. A subscription made
+	/// without markets takes the way its first added markets use.
+	/// Market actions need a market, and the index, underlying, and match
+	/// actions need their lists. Each action works only on the channels the
+	/// spec gives it: `get_snapshot` on orderbook_delta, the index actions on
+	/// the CF Benchmarks channels, the underlying actions on pyth_value, and
+	/// the match actions on ebattle_scores; those four take no market changes.
 	[[nodiscard]] Result<void> update_subscription(ws::Subscription subscription,
 												   const ws::UpdateSubscriptionParams& params);
 	[[nodiscard]] Result<void> add_markets(ws::Subscription subscription,

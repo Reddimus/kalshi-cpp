@@ -462,8 +462,16 @@ class WsGenerator:
                "Terminal channel errors 10 and 25 also remove the handle; subscribe again\n"
                "from `on_error` when ready to resume.\n"
                "`market_id` and `market_ids` select markets only on `Ticker`; other channels\n"
-               "reject them. Matches added to an `EbattleScores` subscription are added again\n"
-               "after a reconnect.\n"
+               "reject them. A subscribe names markets with one of `market_ticker`,\n"
+               "`market_tickers`, `market_id`, and `market_ids`, never an empty one, and its\n"
+               "updates name markets the same way. `shard_key` needs a `shard_factor` from 1\n"
+               "to 100 and must be below it. Index, underlying, and match actions need their\n"
+               "lists and work only on their channels; `get_snapshot` works only on\n"
+               "`OrderbookDelta`, and market actions need a market.\n"
+               "Matches added to an `EbattleScores` subscription are added again after a\n"
+               "reconnect. Updates the old connection had not confirmed are sent again, one\n"
+               "command each, once the new subscription is confirmed; a rejected one is\n"
+               "reported and leaves the subscription in place. Snapshot requests are not.\n"
                "Set `update_interval_ms` to `V0`, `V100`, or `V1000`, or omit it for zero milliseconds.\n\n",
                "| Channel | `ws::Channel` | Messages |\n| --- | --- | --- |\n"]
         from common import enumerator

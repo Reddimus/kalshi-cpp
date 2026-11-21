@@ -6,6 +6,37 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `WebSocketClient::subscribe` returns `InvalidRequest`, without sending anything, when more
+  than one of `market_ticker`, `market_tickers`, `market_id`, and `market_ids` names markets,
+  or when a ticker or ID is empty. `update_subscription` rejects the same selectors, and
+  market changes named by ID on a subscription that names markets by ticker, or the reverse.
+  Such a subscription was sent and sent again on every reconnect
+  ([#100](https://github.com/Reddimus/kalshi-cpp/issues/100)).
+- Return `InvalidRequest` locally for commands the spec's error table rejects, instead of
+  sending them. `subscribe` rejects `shard_key` without `shard_factor`, a `shard_factor`
+  outside 1 to 100, and a `shard_key` below 0 or not below `shard_factor`.
+  `update_subscription` rejects `subscribe_matches`, `unsubscribe_matches`,
+  `subscribe_indices`, `unsubscribe_indices`, `subscribe_underlyings`, and
+  `unsubscribe_underlyings` without their lists; `add_markets`, `delete_markets`, and
+  `get_snapshot` without a market; and actions on channels the spec does not give them:
+  index actions outside the CF Benchmarks channels, underlying actions outside `pyth_value`,
+  match actions outside `ebattle_scores`, `get_snapshot` outside `orderbook_delta`, and
+  market changes on those four channels
+  ([#101](https://github.com/Reddimus/kalshi-cpp/issues/101)).
+- Resubscribe with markets named one way after an `ok` reply lists them both by ticker and by
+  ID. The registry kept both lists, so the next resubscribe contradicted itself.
+- Keep a subscription alive across a reconnect when the server rejects an update it had not
+  answered before the connection dropped. Such updates were treated as applied and folded
+  into the resubscribe, so one bad ticker made the server reject the whole subscribe and the
+  handle was removed. The resubscribe now carries only confirmed updates; the others, and
+  updates held for a confirmation, follow it as separate commands in their original order,
+  and a rejection is reported in `on_error`. A subscription whose markets were all removed
+  still subscribes with its new markets rather than every market, and `get_snapshot`
+  requests from the old connection are not sent again, since the new subscription sends
+  fresh snapshots.
+
 ## [0.9.2] - 2026-11-20
 
 ### Fixed
