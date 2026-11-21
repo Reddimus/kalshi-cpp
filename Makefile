@@ -73,6 +73,7 @@ lint:
 	$(PYTHON) -m unittest discover -q -s tools/codegen
 	$(PYTHON) tools/test_release_gate.py
 	$(PYTHON) tools/test_dependency_pins.py
+	$(PYTHON) tools/test_websockets_cmake.py
 
 lint-docs:
 	markdownlint-cli2

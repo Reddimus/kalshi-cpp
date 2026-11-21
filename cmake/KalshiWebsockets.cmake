@@ -2,7 +2,8 @@
 # use the same OpenSSL; one context handed to another OpenSSL's calls corrupts
 # memory. libwebsockets' CMake package names the libssl it links, so this warns
 # when that is not in the directory of the OpenSSL found for the SDK. A
-# pkg-config file does not name it, so that route goes unchecked.
+# pkg-config file does not name it, and neither does a package manager's
+# configuration-dependent path, so those routes go unchecked.
 function(_kalshi_check_websockets_openssl target)
     if(NOT TARGET OpenSSL::SSL)
         return()
@@ -22,6 +23,12 @@ function(_kalshi_check_websockets_openssl target)
     foreach(link IN LISTS links)
         if(link MATCHES "OpenSSL::")
             return() # the same imported target the SDK links
+        endif()
+        # Only plain absolute paths can be compared. vcpkg writes each library as
+        # a per-configuration generator expression, and a package manager builds
+        # one OpenSSL for both packages anyway.
+        if(link MATCHES "\\$<" OR NOT IS_ABSOLUTE "${link}")
+            continue()
         endif()
         get_filename_component(name "${link}" NAME)
         if(name MATCHES "^(lib)?ssl[.-]")
