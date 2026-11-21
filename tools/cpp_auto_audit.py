@@ -448,9 +448,66 @@ def is_allowed_auto(
         return True
     lambda_allowed = lambda_initializer_allowed(line, source, offset)
     if lambda_allowed is not None:
-        return lambda_allowed
+        return lambda_allowed and later_declarators_allowed(line, source, offset)
     tokens = initializer_tokens(line, source, offset)
-    return tokens is not None and iterator_expression(tokens, line.partition("=")[0])
+    return (
+        tokens is not None
+        and iterator_expression(tokens, line.partition("=")[0])
+        and later_declarators_allowed(line, source, offset)
+    )
+
+
+def starts_declarator(tokens: list[str], start: int) -> bool:
+    """Whether ``tokens[start:]`` open a declarator, such as ``b =``, ``*p{``, or ``&r(``.
+
+    A comma in template arguments, as in ``std::pair<int, int>``, is followed by
+    a type, not a name and its initializer, so it does not start one.
+    """
+    index = start
+    while index < len(tokens) and tokens[index] in {"*", "&", "const", "volatile"}:
+        index += 1
+    return (
+        index + 1 < len(tokens)
+        and re.fullmatch(r"[A-Za-z_]\w*", tokens[index]) is not None
+        and tokens[index] not in {"typename", "class", "struct", "enum"}  # `typename = void`
+        and tokens[index + 1] in {"=", "{", "("}
+    )
+
+
+def later_declarators(line: str, source: str | None = None, offset: int = 0) -> list[str]:
+    """The declarators after the first in an ``auto`` declaration, each as its own declaration.
+
+    ``auto a = x, b = y;`` gives ``auto b = y ;``. Reading from ``source`` lets the
+    declaration continue on later lines.
+    """
+    declarator = DECLARATION_AUTO.search(line)
+    if declarator is None:
+        return []
+    text = source if source is not None else line
+    tokens = [token[0] for token in CPP_TOKEN.finditer(text, offset + declarator.end()) if token.lastgroup != "skip"]
+    closers: list[str] = []
+    pieces: list[list[str]] = []
+    for index, token in enumerate(tokens):
+        if token in GROUP_PAIRS:
+            closers.append(GROUP_PAIRS[token])
+        elif token in GROUP_PAIRS.values():
+            if not closers:
+                break  # the `)` that closes `if (`, `for (`, or `while (`
+            if token != closers.pop():
+                return []
+        elif not closers and token == ";":
+            break
+        elif not closers and token == "," and starts_declarator(tokens, index + 1):
+            pieces.append([])
+            continue
+        if pieces:
+            pieces[-1].append(token)
+    return ["auto " + " ".join(piece) + " ;" for piece in pieces]
+
+
+def later_declarators_allowed(line: str, source: str | None = None, offset: int = 0) -> bool:
+    """Whether each declarator after the first would be allowed as its own ``auto`` declaration."""
+    return all(is_allowed_auto(declaration) for declaration in later_declarators(line, source, offset))
 
 
 STATEMENT_BOUNDARIES = {";", "{", "}"}
