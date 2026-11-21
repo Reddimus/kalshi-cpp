@@ -214,6 +214,84 @@ class AutoAuditTests(unittest.TestCase):
             "offset.cpp:4: auto value =\n",
         )
 
+    def test_declarators_split_after_auto_need_types(self):
+        sources = [
+            "auto\nsplit = compute();",
+            "auto\n    split = compute();",
+            "const auto&\nsplit = compute();",
+            "auto\n&split = compute();",
+            "decltype(auto)\nsplit = compute();",
+            "auto\n// the name follows\nsplit = compute();",
+            "auto\n\nsplit = compute();",
+            "auto\nsplit = [] { return 42; }();",
+            "int a = 0; auto\nsplit = compute();",
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                (self.root / "split.cpp").write_text(source + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertEqual(
+                    result.stderr.splitlines()[1:], [f"split.cpp:1: {source.splitlines()[0]}"]
+                )
+
+    def test_declarators_split_after_auto_keep_their_exceptions(self):
+        sources = [
+            "auto\nit = values.begin();",
+            "auto\nfn = [] { return 42; };",
+            "auto&\n[a, b] = pair;",
+            "decltype(auto)\nit = values.begin();",
+            "auto // auto-ok: split on purpose\nvalue = compute();",
+            "auto fn = [](auto\n    x) { return x; };",
+            "void accept(int a, auto\n    b) {}",
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                (self.root / "split.cpp").write_text(source + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 0, result.stderr)
+
+    def test_later_statements_on_a_line_need_types(self):
+        sources = [
+            "int a = 0; auto b = compute();",
+            "int a = 0; const auto& b = compute();",
+            "auto it = values.begin(); auto b = compute();",
+            "auto [x, y] = pair; auto b = compute();",
+            "compute(); if (auto b = compute(); b) {}",
+            "void f() { auto b = compute(); }",
+            "if (ready) { auto b = compute(); }",
+            "auto fn = [] { int a = 0; auto b = compute(); return b; };",
+            "int a = 0; decltype(auto) b = compute();",
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                (self.root / "statements.cpp").write_text(source + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("statements.cpp:1", result.stderr)
+
+    def test_later_statements_on_a_line_keep_their_exceptions(self):
+        sources = [
+            "int a = 0; auto it = values.begin();",
+            "int a = 0; auto [x, y] = pair;",
+            "int a = 0; auto fn = [] { return 42; };",
+            "int a = 0; auto fn =\n    [] { return 42; };",
+            "int a = 0; auto b = compute(); // auto-ok: one line",
+            "compute(); if (auto it = table.find(key); it != table.end()) {}",
+            "} else if (auto it = table.find(key); it != table.end()) {}",
+            "for (auto it = values.begin(); it != values.end(); ++it) { auto& [k, v] = *it; }",
+            "std::sort(values.begin(), values.end(), [](auto a, auto b) { return a < b; });",
+            "auto fn = [] { int a = 0; auto it = values.begin(); return *it; };",
+            "template <auto N> struct Fixed {}; int a = 0;",
+            'const char* text = "x; auto b = compute();"; int a = 0;',
+            "int a = 0; /* ; auto b = compute(); */",
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                (self.root / "statements.cpp").write_text(source + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_scalar_reference_and_pointer_declarations_require_types(self):
         declarations = [
             "auto&& value = 42;",

@@ -125,6 +125,7 @@ class Member:
     fixed_point: bool = False  # FixedPointDollars / FixedPointCount string
     fixed_point_items: str = ""  # item type of an array whose items are fixed-point strings
     fixed_point_deep: bool = False  # fixed-point strings inside nested arrays or maps
+    nested_element: str = ""  # struct or enum inside nested arrays or maps, which validation skips
     required: bool = False
     base_kind: str = ""  # "string", "enum", "struct", "vector", ...
     element: str = ""  # struct or enum name for validation

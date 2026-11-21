@@ -453,6 +453,47 @@ def is_allowed_auto(
     return tokens is not None and iterator_expression(tokens, line.partition("=")[0])
 
 
+STATEMENT_BOUNDARIES = {";", "{", "}"}
+
+
+def auto_statements(code: str, start: int, end: int) -> list[tuple[int, int]]:
+    """Spans of ``code`` to audit for each ``auto`` on the line ``code[start:end]``.
+
+    ``code`` has literals and comments masked. A span starts after the last
+    ``;``, ``{``, or ``}`` before its ``auto``, so ``int a = 0; auto b = f();``
+    checks ``auto b = f();``. When ``auto`` and its specifiers end the line, the
+    span runs through the line that holds the declarator.
+    """
+    tokens = [token for token in CPP_TOKEN.finditer(code, start, end) if token.lastgroup != "skip"]
+    spans: dict[int, int] = {}
+    statement = start
+    for index, token in enumerate(tokens):
+        if token[0] in STATEMENT_BOUNDARIES:
+            statement = token.end()
+            continue
+        if token[0] != "auto" or statement in spans:
+            continue
+        after = index + 1
+        if (
+            [t[0] for t in tokens[max(index - 2, 0):index]] == ["decltype", "("]
+            and after < len(tokens)
+            and tokens[after][0] == ")"
+        ):
+            after += 1
+        while after < len(tokens) and (tokens[after][0] in {"*", "&"} or tokens[after][0] in DECL_SPECIFIERS):
+            after += 1
+        span_end = end
+        if after == len(tokens):
+            for following in CPP_TOKEN.finditer(code, end):
+                if following.lastgroup == "skip" or following[0] in {"*", "&"} or following[0] in DECL_SPECIFIERS:
+                    continue
+                line_end = code.find("\n", following.start())
+                span_end = len(code) if line_end < 0 else line_end
+                break
+        spans[statement] = span_end
+    return list(spans.items())
+
+
 def matches_allowlist(relative_path: str, line: str, rules: list[AllowRule]) -> bool:
     stripped = line.strip()
     for rule in rules:
@@ -474,7 +515,11 @@ def collect_violations(repo_root: Path, allowlist: list[AllowRule]) -> list[Viol
             code_line = code[line_offset:line_offset + len(line)]
             if not WORD_AUTO.search(code_line):
                 continue
-            if is_allowed_auto(code_line, source, line_offset, auto_ok=line_number in opt_out_lines):
+            # Newlines become spaces, so a span keeps the offsets of `source`.
+            if line_number in opt_out_lines or all(
+                is_allowed_auto(code[span_start:span_end].replace("\n", " "), source, span_start)
+                for span_start, span_end in auto_statements(code, line_offset, line_offset + len(line))
+            ):
                 continue
             if matches_allowlist(relative_path, line, allowlist):
                 continue

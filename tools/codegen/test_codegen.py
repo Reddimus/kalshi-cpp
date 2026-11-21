@@ -30,7 +30,7 @@ BASE = {
             "post": {
                 "operationId": "CreateThing",
                 "tags": ["things"],
-                "requestBody": json_content(ref("Thing")),
+                "requestBody": {"required": True, **json_content(ref("Thing"))},
                 "responses": {"201": json_content(ref("Thing"))},
             },
         },
@@ -230,7 +230,7 @@ class SupportedSpec(unittest.TestCase):
                 "marks": {"type": "array", "items": ref("FixedPointDollars")}}}},
         }}
         spec["paths"]["/quotes"] = {"post": {"operationId": "CreateQuote", "tags": ["things"],
-                                             "requestBody": json_content(ref("Quote")),
+                                             "requestBody": {"required": True, **json_content(ref("Quote"))},
                                              "responses": {"204": {"description": "created"}}}}
         gen = generate(spec)
         header = gen.validate_header()
@@ -252,6 +252,67 @@ class SupportedSpec(unittest.TestCase):
             "levels": {"type": "array", "items": {"type": "array", "items": ref("FixedPointDollars")}}}}
         members = {m.json_name: m for m in generate(spec).structs["Book"].members}
         self.assertEqual(members["levels"].cpp_type, "std::optional<std::vector<std::vector<FixedPointDollars>>>")
+
+    def test_nested_structs_that_need_validation_outside_request_bodies_are_allowed(self) -> None:
+        spec = copy.deepcopy(BASE)  # Thing requires a name, so it needs validation
+        spec["components"]["schemas"]["GetThingResponse"]["properties"].update({
+            "by_name": {"type": "object", "additionalProperties": ref("Thing")},
+            "pages": {"type": "array", "items": {"type": "array", "items": ref("Thing")}},
+        })
+        members = {m.json_name: m for m in generate(spec).structs["GetThingResponse"].members}
+        self.assertEqual(members["by_name"].cpp_type, "std::optional<std::map<std::string, Thing>>")
+        self.assertEqual(members["pages"].cpp_type, "std::optional<std::vector<std::vector<Thing>>>")
+
+    def test_nested_structs_without_validation_in_request_bodies_are_allowed(self) -> None:
+        spec = copy.deepcopy(BASE)
+        spec["components"]["schemas"]["Note"] = {"type": "object", "properties": {"text": {"type": "string"}}}
+        spec["components"]["schemas"]["Thing"]["properties"].update({
+            "notes_by_author": {"type": "object", "additionalProperties": ref("Note")},
+            "note_pages": {"type": "array", "items": {"type": "array", "items": ref("Note")}},
+        })
+        members = {m.json_name: m for m in generate(spec).structs["Thing"].members}
+        self.assertEqual(members["notes_by_author"].nested_element, "Note")
+        self.assertEqual(members["note_pages"].nested_element, "Note")
+
+    def test_optional_body_without_required_fields_keeps_its_parameter(self) -> None:
+        spec = copy.deepcopy(BASE)  # Kalshi's CreateSubaccount body is like this
+        spec["components"]["schemas"]["Note"] = {"type": "object", "properties": {"text": {"type": "string"}}}
+        for body in ({"required": False, **json_content(ref("Note"))}, json_content(ref("Note"))):
+            with self.subTest(required=body.get("required", "absent")):
+                spec["paths"]["/things"]["post"]["requestBody"] = body
+                gen = generate(copy.deepcopy(spec))
+                op = next(op for op in gen.operations if op.operation_id == "CreateThing")
+                self.assertEqual(gen.signature(op, qualified=False), "Result<Thing> create_thing(const Note& body)")
+
+    def test_ref_to_an_empty_object_component_is_raw_json(self) -> None:
+        spec = copy.deepcopy(BASE)
+        thing = spec["components"]["schemas"]["Thing"]
+        thing["properties"].update({
+            "inline_meta": {"type": "object"},
+            "meta": ref("Empty"),
+            "metas": {"type": "array", "items": ref("Empty")},
+            "meta_by_key": {"type": "object", "additionalProperties": ref("Empty")},
+        })
+        thing["required"].append("meta")
+        gen = generate(spec)
+        members = {m.json_name: m for m in gen.structs["Thing"].members}
+        self.assertEqual(members["meta"].cpp_type, "RawJson")  # the same as an inline empty object
+        self.assertEqual(members["inline_meta"].cpp_type, "std::optional<RawJson>")
+        self.assertEqual(members["metas"].cpp_type, "std::optional<std::vector<RawJson>>")
+        self.assertEqual(members["meta_by_key"].cpp_type, "std::optional<std::map<std::string, RawJson>>")
+        self.assertNotIn("Empty", gen.models_header())
+        self.assertTrue(next(op for op in gen.operations if op.operation_id == "ResetThing").empty_body)
+
+    def test_integer_enum_query_parameters_are_allowed(self) -> None:
+        spec = copy.deepcopy(BASE)  # Kalshi's candlestick period_interval parameters
+        spec["paths"]["/things/{id}"]["get"]["parameters"].extend([
+            {"name": "period_interval", "in": "query", "schema": {"type": "integer", "enum": [1, 60, 1440]}},
+            {"name": "periods", "in": "query",
+             "schema": {"type": "array", "items": {"type": "integer", "enum": [1, 60]}}},
+        ])
+        members = {m.json_name: m for m in generate(spec).structs["GetThingParams"].members}
+        self.assertEqual(members["period_interval"].cpp_type, "std::optional<std::int64_t>")
+        self.assertEqual(members["periods"].cpp_type, "std::vector<std::int64_t>")
 
 
 class Rejected(unittest.TestCase):
@@ -370,6 +431,38 @@ class Rejected(unittest.TestCase):
                 with self.assertRaises(SystemExit) as caught:
                     generate(spec)
                 self.assertIn(f"Thing.{field}: validation cannot check fixed-point strings", str(caught.exception.code))
+
+    def test_validated_structs_nested_in_request_containers(self) -> None:
+        self.schemas["Leg"] = {"type": "object", "required": ["ticker"], "properties": {"ticker": {"type": "string"}}}
+        leg_array = {"type": "array", "items": ref("Leg")}
+        nested = {
+            "leg_grid": {"type": "array", "items": leg_array},
+            "legs_by_market": {"type": "object", "additionalProperties": ref("Leg")},
+            "leg_lists": {"type": "object", "additionalProperties": leg_array},
+            "leg_maps": {"type": "array", "items": {"type": "object", "additionalProperties": ref("Leg")}},
+            "inline_grid": {"type": "array", "items": {"type": "array", "items": {
+                "type": "object", "required": ["side"], "properties": {"side": {"type": "string", "enum": ["a"]}}}}},
+        }
+        for field, schema in nested.items():
+            with self.subTest(field=field):
+                spec = copy.deepcopy(self.spec)
+                spec["components"]["schemas"]["Thing"]["properties"][field] = schema
+                with self.assertRaises(SystemExit) as caught:
+                    generate(spec)
+                self.assertIn(f"Thing.{field}: validation cannot check", str(caught.exception.code))
+                self.assertIn("inside nested arrays or maps in request bodies", str(caught.exception.code))
+
+    def test_validated_struct_nested_below_a_request_member(self) -> None:
+        self.schemas["Leg"] = {"type": "object", "required": ["ticker"], "properties": {"ticker": {"type": "string"}}}
+        self.schemas["Thing"]["properties"]["detail"]["properties"]["legs"] = {
+            "type": "object", "additionalProperties": ref("Leg")}
+        self.stops("ThingDetail.legs: validation cannot check Leg inside nested arrays or maps")
+
+    def test_optional_body_with_required_fields(self) -> None:
+        for body in ({"required": False, **json_content(ref("Thing"))}, json_content(ref("Thing"))):
+            with self.subTest(required=body.get("required", "absent")):
+                self.post["requestBody"] = body
+                self.stops("CreateThing request body: an optional body with required fields is not supported")
 
     # ----- responses -------------------------------------------------------
 
@@ -515,6 +608,28 @@ class Rejected(unittest.TestCase):
         self.schemas["Level"] = {"type": "integer", "enum": [1, 2, 3]}
         self.stops("Level: only string enums are supported")
 
+    def test_inline_non_string_enums_outside_query_parameters(self) -> None:
+        levels = {"type": "integer", "enum": [1, 2, 3]}
+        cases = {
+            "ThingLevel": lambda: self.schemas["Thing"]["properties"].update(level=levels),  # request body
+            "GetThingResponseLevel": lambda: self.schemas["GetThingResponse"]["properties"].update(level=levels),
+            "ThingDetailLevel": lambda: self.schemas["Thing"]["properties"]["detail"]["properties"].update(level=levels),
+            "ThingLevelsItem": lambda: self.schemas["Thing"]["properties"].update(
+                levels={"type": "array", "items": levels}),
+            "ThingLevelsValue": lambda: self.schemas["Thing"]["properties"].update(
+                levels={"type": "object", "additionalProperties": levels}),
+            "ThingRatio": lambda: self.schemas["Thing"]["properties"].update(
+                ratio={"type": "number", "enum": [0.5, 1.0]}),
+            "LevelsItem": lambda: self.schemas.update(Levels={"type": "array", "items": levels}),
+            "CreateThingResponseLevel": lambda: self.post["responses"].update({"201": json_content(
+                {"type": "object", "properties": {"level": levels}})}),
+        }
+        for where, mutate in cases.items():
+            with self.subTest(where=where):
+                self.setUp()
+                mutate()
+                self.stops(f"{where}: only string enums are supported outside query parameters")
+
     def test_inline_object_named_like_a_component(self) -> None:
         self.schemas["ThingDetail"] = {"type": "object", "properties": {"other": {"type": "integer"}}}
         self.stops("ThingDetail: an inline object has the same name as another schema")
@@ -541,6 +656,8 @@ class RejectedWebSocket(unittest.TestCase):
     def test_supported_types(self) -> None:
         self.assertEqual(self.ws.type_of({"type": ["string", "null"]}, "TickerMsg", "field")[0], "std::string")
         self.assertEqual(self.ws.type_of(ref("Tick"), "TickerMsg", "tick")[0], "Tick")
+        self.ws.schemas["Blank"] = {"type": "object"}  # REST maps this $ref to RawJson too
+        self.assertEqual(self.ws.type_of(ref("Blank"), "TickerMsg", "blank")[0], "RawJson")
 
     def test_one_of(self) -> None:
         self.stops({"oneOf": [{"type": "string"}, {"type": "integer"}]}, "`oneOf` is not supported")
