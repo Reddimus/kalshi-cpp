@@ -18,6 +18,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   ([#100](https://github.com/Reddimus/kalshi-cpp/issues/100)).
 - Resubscribe with markets named one way after an `ok` reply lists them both by ticker and by
   ID. The registry kept both lists, so the next resubscribe contradicted itself.
+- Keep a subscription alive across a reconnect when the server rejects an update it had not
+  answered before the connection dropped. Such updates were treated as applied and folded
+  into the resubscribe, so one bad ticker made the server reject the whole subscribe and the
+  handle was removed. The resubscribe now carries only confirmed updates; the others, and
+  updates held for a confirmation, follow it as separate commands in their original order,
+  and a rejection is reported in `on_error`. A subscription whose markets were all removed
+  still subscribes with its new markets rather than every market, and `get_snapshot`
+  requests from the old connection are not sent again, since the new subscription sends
+  fresh snapshots.
 
 ## [0.9.2] - 2026-11-20
 

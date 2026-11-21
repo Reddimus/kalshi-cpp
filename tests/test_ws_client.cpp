@@ -398,6 +398,8 @@ TEST_F(WsClient, UnsubscribeBeforeTheAckWaitsForTheServersSid) {
 	EXPECT_TRUE(ws.subscriptions().empty());
 }
 
+// An update the old connection never answered follows the resubscribe on its
+// own, so the server rejecting it does not end the subscription.
 TEST_F(WsClient, ReconnectsAndResubscribesWithTheCurrentMarkets) {
 	Recorder recorder;
 	kalshi::WebSocketClient ws(kalshi::test::make_signer(), local(server));
@@ -419,8 +421,7 @@ TEST_F(WsClient, ReconnectsAndResubscribesWithTheCurrentMarkets) {
 	ASSERT_TRUE(recorder.reached(kalshi::WsState::Connected));
 	const std::optional<std::string> resubscribe = server.next_command();
 	ASSERT_TRUE(resubscribe.has_value());
-	EXPECT_TRUE(
-		has(*resubscribe, R"("channels":["orderbook_delta"],"market_tickers":["KXA","KXB"])"))
+	EXPECT_TRUE(has(*resubscribe, R"("channels":["orderbook_delta"],"market_tickers":["KXA"]})"))
 		<< *resubscribe;
 
 	server.send(subscribed(id_of(*resubscribe), "orderbook_delta", 2));
@@ -428,6 +429,17 @@ TEST_F(WsClient, ReconnectsAndResubscribesWithTheCurrentMarkets) {
 	ASSERT_TRUE(ack.has_value());
 	EXPECT_EQ(ack->subscription, book);
 	EXPECT_EQ(ack->sid, 2);
+	const std::optional<std::string> resent = server.next_command();
+	ASSERT_TRUE(resent.has_value());
+	EXPECT_TRUE(
+		has(*resent, R"("params":{"sid":2,"market_tickers":["KXB"],"action":"add_markets"})"))
+		<< *resent;
+	server.send(R"({"id":)" + std::to_string(id_of(*resent)) +
+				R"(,"sid":2,"type":"error","msg":{"code":11,"msg":"Invalid parameter"}})");
+	const std::optional<kalshi::WsError> rejected = recorder.next_error();
+	ASSERT_TRUE(rejected.has_value());
+	EXPECT_EQ(rejected->subscription, book);
+	EXPECT_EQ(ws.subscriptions(), (std::vector<kalshi::ws::Subscription>{book}));
 
 	server.send(delta(2, 1));
 	const std::optional<kalshi::ws::Update<kalshi::ws::OrderbookDelta>> data =

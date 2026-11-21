@@ -467,7 +467,9 @@ class WsGenerator:
                "updates name markets the same way. `shard_key` needs a `shard_factor` from 1\n"
                "to 100 and must be below it.\n"
                "Matches added to an `EbattleScores` subscription are added again after a\n"
-               "reconnect.\n"
+               "reconnect. Updates the old connection had not confirmed are sent again, one\n"
+               "command each, once the new subscription is confirmed; a rejected one is\n"
+               "reported and leaves the subscription in place. Snapshot requests are not.\n"
                "Set `update_interval_ms` to `V0`, `V100`, or `V1000`, or omit it for zero milliseconds.\n\n",
                "| Channel | `ws::Channel` | Messages |\n| --- | --- | --- |\n"]
         from common import enumerator

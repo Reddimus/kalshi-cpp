@@ -42,6 +42,7 @@ public:
 	Result<void> unsubscribe(ws::Subscription subscription, std::vector<std::string>& frames);
 	/// Changes a subscription. The change reaches the parameters used to
 	/// resubscribe once the server confirms it, so a rejected change is dropped.
+	/// Before the subscription is sent, the change becomes part of its subscribe.
 	/// Markets are named with the selector the subscription uses, so its
 	/// resubscribe names them one way.
 	Result<void> update(ws::Subscription subscription, const ws::UpdateSubscriptionParams& params,
@@ -53,7 +54,13 @@ public:
 	/// whose market filter is now empty.
 	void on_connected(std::vector<std::string>& frames);
 	/// Forgets the server's state; subscriptions resend on the next connection.
-	/// Changes still awaiting confirmation are kept, since their outcome is unknown.
+	/// The resubscribe carries only confirmed changes. Changes sent without a
+	/// reply, and changes held for a confirmation, are sent on their own after
+	/// the next confirmation, in order, so a rejected one leaves the
+	/// subscription alive. A subscription whose markets were all removed is not
+	/// resubscribed; its changes become its next subscribe instead. Snapshot and
+	/// list requests are dropped: their replies belonged to the old connection,
+	/// and a new orderbook subscription sends fresh snapshots.
 	/// Returns the subscriptions being unsubscribed, which end with the connection.
 	std::vector<ws::Subscription> on_disconnected();
 	void clear();
@@ -82,7 +89,8 @@ private:
 		/// The server's ID once it confirms; 0 before. Kalshi's sids start at 1.
 		std::int64_t sid{0};
 		std::optional<std::int64_t> last_seq;
-		/// update_subscription calls made before the server confirmed.
+		/// update_subscription calls to send once the server confirms: those
+		/// made while Pending, and those a lost connection left unanswered.
 		std::vector<ws::UpdateSubscriptionParams> held;
 		bool unsubscribe_held{false};
 		/// Has used a market filter. Once every market is removed, it is
@@ -106,6 +114,8 @@ private:
 	Entry* find(std::int64_t subscription);
 	void erase(std::int64_t subscription);
 	static void record_update(Entry& entry, const ws::UpdateSubscriptionParams& params);
+	/// False for a subscription whose market filter is now empty.
+	static bool resubscribes(const Entry& entry);
 	std::optional<InFlight> take(std::optional<std::int64_t> command);
 	Entry* find_by_sid(std::int64_t sid);
 	/// Records `seq` for the subscription and reports a gap, appending the

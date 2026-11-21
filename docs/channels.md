@@ -18,7 +18,9 @@ reject them. A subscribe names markets with one of `market_ticker`,
 updates name markets the same way. `shard_key` needs a `shard_factor` from 1
 to 100 and must be below it.
 Matches added to an `EbattleScores` subscription are added again after a
-reconnect.
+reconnect. Updates the old connection had not confirmed are sent again, one
+command each, once the new subscription is confirmed; a rejected one is
+reported and leaves the subscription in place. Snapshot requests are not.
 Set `update_interval_ms` to `V0`, `V100`, or `V1000`, or omit it for zero milliseconds.
 
 | Channel | `ws::Channel` | Messages |

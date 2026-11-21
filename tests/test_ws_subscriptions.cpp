@@ -134,6 +134,8 @@ TEST(WsSubscriptions, ReconnectingResubscribesWithTheCurrentMarkets) {
 					{.market_tickers = {"A"}, .action = kalshi::ws::UpdateAction::DeleteMarkets},
 					true, frames)
 			.has_value());
+	registry.on_ok({3, 5});
+	registry.on_ok({4, 5});
 	ASSERT_TRUE(
 		registry
 			.update(book, {.market_tickers = {"C"}, .action = kalshi::ws::UpdateAction::AddMarkets},
@@ -145,13 +147,19 @@ TEST(WsSubscriptions, ReconnectingResubscribesWithTheCurrentMarkets) {
 	registry.on_data(stale, true);
 	EXPECT_EQ(std::get<kalshi::ws::Update<kalshi::ws::OrderbookDelta>>(stale).subscription, 0);
 
+	// Confirmed changes are part of the resubscribe; the unconfirmed one follows it.
 	frames.clear();
 	registry.on_connected(frames);
 	ASSERT_EQ(frames.size(), 1U);
-	EXPECT_NE(frames[0].find(R"("market_tickers":["B","C"])"), std::string::npos) << frames[0];
+	EXPECT_EQ(
+		frames[0],
+		R"({"id":6,"cmd":"subscribe","params":{"channels":["orderbook_delta"],"market_tickers":["B"]}})");
 
-	const std::int64_t id = std::stoll(frames[0].substr(6));
-	registry.on_subscribed({id, "orderbook_delta", 9});
+	const Reaction ack = registry.on_subscribed({6, "orderbook_delta", 9});
+	EXPECT_EQ(
+		ack.frames,
+		(std::vector<std::string>{
+			R"({"id":7,"cmd":"update_subscription","params":{"sid":9,"market_tickers":["C"],"action":"add_markets"}})"}));
 	kalshi::WsMessage fresh = delta(9, 1);
 	registry.on_data(fresh, true);
 	EXPECT_EQ(std::get<kalshi::ws::Update<kalshi::ws::OrderbookDelta>>(fresh).subscription,
@@ -1037,4 +1045,162 @@ TEST(WsSubscriptions, UpdateRepliesReplaceOnlyTheSubscriptionsSelectorKind) {
 		(std::vector<std::string>{
 			R"({"id":8,"cmd":"subscribe","params":{"channels":["ticker"],"market_tickers":["A","B"]}})",
 			R"({"id":9,"cmd":"subscribe","params":{"channels":["ticker"],"market_ids":["uuid-1","uuid-2","uuid-3"]}})"}));
+}
+
+// The server's subscriptions end with the connection, so an update it had not
+// answered is sent again on its own. Folded into the resubscribe, a rejected
+// change would end the whole subscription.
+TEST(WsSubscriptions, UnconfirmedUpdatesAreResentAfterTheNewConfirmation) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription ticker =
+		registry.subscribe(Channel::Ticker, {.market_tickers = {"A"}}, true, frames).value();
+	registry.on_subscribed({2, "ticker", 4});
+	ASSERT_TRUE(registry.update(
+		ticker, {.market_tickers = {"GOOD", "BAD"}, .action = UpdateAction::AddMarkets}, true,
+		frames));
+
+	frames.clear();
+	registry.on_disconnected();
+	registry.on_connected(frames);
+	EXPECT_EQ(
+		frames,
+		(std::vector<std::string>{
+			R"({"id":4,"cmd":"subscribe","params":{"channels":["ticker"],"market_tickers":["A"]}})"}));
+	const Reaction ack = registry.on_subscribed({4, "ticker", 8});
+	EXPECT_EQ(
+		ack.frames,
+		(std::vector<std::string>{
+			R"({"id":5,"cmd":"update_subscription","params":{"sid":8,"market_tickers":["GOOD","BAD"],"action":"add_markets"}})"}));
+
+	const Reaction rejected = registry.on_error({5, 8, std::nullopt, 11, "Invalid parameter"});
+	ASSERT_TRUE(rejected.error.has_value());
+	EXPECT_EQ(rejected.error->subscription, ticker);
+	EXPECT_EQ(registry.subscriptions(), (std::vector<kalshi::ws::Subscription>{ticker}));
+
+	frames.clear();
+	registry.on_disconnected();
+	registry.on_connected(frames);
+	EXPECT_EQ(
+		frames,
+		(std::vector<std::string>{
+			R"({"id":6,"cmd":"subscribe","params":{"channels":["ticker"],"market_tickers":["A"]}})"}));
+	EXPECT_TRUE(registry.on_subscribed({6, "ticker", 9}).frames.empty());
+}
+
+// Updates waiting for a confirmation stay separate too, and updates made while
+// disconnected queue behind them, in order.
+TEST(WsSubscriptions, HeldUpdatesStaySeparateAndInOrderAcrossReconnects) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription ticker =
+		registry.subscribe(Channel::Ticker, {.market_tickers = {"A"}}, true, frames).value();
+	ASSERT_TRUE(registry.update(
+		ticker, {.market_tickers = {"BAD"}, .action = UpdateAction::AddMarkets}, true, frames));
+	registry.on_disconnected();
+	ASSERT_TRUE(registry.update(
+		ticker, {.market_tickers = {"BAD"}, .action = UpdateAction::DeleteMarkets}, false, frames));
+	ASSERT_TRUE(registry.update(
+		ticker, {.market_tickers = {"C"}, .action = UpdateAction::AddMarkets}, false, frames));
+	ASSERT_TRUE(registry.update(
+		ticker, {.market_tickers = {"A"}, .action = UpdateAction::GetSnapshot}, false, frames));
+
+	frames.clear();
+	registry.on_connected(frames);
+	EXPECT_EQ(
+		frames,
+		(std::vector<std::string>{
+			R"({"id":3,"cmd":"subscribe","params":{"channels":["ticker"],"market_tickers":["A"]}})"}));
+	const Reaction ack = registry.on_subscribed({3, "ticker", 5});
+	EXPECT_EQ(
+		ack.frames,
+		(std::vector<std::string>{
+			R"({"id":4,"cmd":"update_subscription","params":{"sid":5,"market_tickers":["BAD"],"action":"add_markets"}})",
+			R"({"id":5,"cmd":"update_subscription","params":{"sid":5,"market_tickers":["BAD"],"action":"delete_markets"}})",
+			R"({"id":6,"cmd":"update_subscription","params":{"sid":5,"market_tickers":["C"],"action":"add_markets"}})"}));
+	registry.on_error({4, 5, std::nullopt, 11, "Invalid parameter"});
+	registry.on_error({5, 5, std::nullopt, 11, "Invalid parameter"});
+	registry.on_ok({6, 5});
+	EXPECT_EQ(registry.subscriptions(), (std::vector<kalshi::ws::Subscription>{ticker}));
+
+	frames.clear();
+	registry.on_disconnected();
+	registry.on_connected(frames);
+	EXPECT_EQ(
+		frames,
+		(std::vector<std::string>{
+			R"({"id":7,"cmd":"subscribe","params":{"channels":["ticker"],"market_tickers":["A","C"]}})"}));
+}
+
+// The new subscription sends fresh snapshots, so a snapshot request from the
+// old connection is not sent again.
+TEST(WsSubscriptions, SnapshotRequestsAreNotResentAfterAReconnect) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription book =
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames).value();
+	registry.on_subscribed({2, "orderbook_delta", 3});
+	ASSERT_TRUE(registry.update(
+		book, {.market_tickers = {"A"}, .action = UpdateAction::GetSnapshot}, true, frames));
+	ASSERT_TRUE(registry.update(book, {.market_tickers = {"B"}, .action = UpdateAction::AddMarkets},
+								true, frames));
+
+	frames.clear();
+	registry.on_disconnected();
+	registry.on_connected(frames);
+	ASSERT_EQ(frames.size(), 1U);
+	EXPECT_NE(frames[0].find(R"("market_ticker":"A")"), std::string::npos) << frames[0];
+	const Reaction ack = registry.on_subscribed({5, "orderbook_delta", 7});
+	EXPECT_EQ(
+		ack.frames,
+		(std::vector<std::string>{
+			R"({"id":6,"cmd":"update_subscription","params":{"sid":7,"market_tickers":["B"],"action":"add_markets"}})"}));
+}
+
+// A subscription whose markets were all removed is not resubscribed, so
+// markets added on the old connection become its next subscribe.
+TEST(WsSubscriptions, AnEmptiedSubscriptionSubscribesWithItsUnconfirmedMarkets) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription ticker =
+		registry.subscribe(Channel::Ticker, {.market_tickers = {"A"}}, true, frames).value();
+	registry.on_subscribed({2, "ticker", 4});
+	ASSERT_TRUE(registry.update(
+		ticker, {.market_tickers = {"A"}, .action = UpdateAction::DeleteMarkets}, true, frames));
+	registry.on_ok({3, 4, std::nullopt, R"({"market_tickers":[]})"});
+	ASSERT_TRUE(registry.update(
+		ticker, {.market_tickers = {"B"}, .action = UpdateAction::AddMarkets}, true, frames));
+
+	frames.clear();
+	registry.on_disconnected();
+	registry.on_connected(frames);
+	EXPECT_EQ(
+		frames,
+		(std::vector<std::string>{
+			R"({"id":5,"cmd":"subscribe","params":{"channels":["ticker"],"market_tickers":["B"]}})"}));
+	EXPECT_TRUE(registry.on_subscribed({5, "ticker", 6}).frames.empty());
+}
+
+TEST(WsSubscriptions, UnconfirmedMatchesFollowTheConfirmedOnes) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription scores =
+		registry.subscribe(Channel::EbattleScores, {}, true, frames).value();
+	registry.on_subscribed({2, "ebattle_scores", 6});
+	ASSERT_TRUE(registry.update(
+		scores, {.action = UpdateAction::SubscribeMatches, .match_ids = {"m1"}}, true, frames));
+	registry.on_ok({3, 6});
+	ASSERT_TRUE(registry.update(
+		scores, {.action = UpdateAction::SubscribeMatches, .match_ids = {"m2"}}, true, frames));
+
+	frames.clear();
+	registry.on_disconnected();
+	registry.on_connected(frames);
+	ASSERT_EQ(frames.size(), 1U);
+	const Reaction ack = registry.on_subscribed({5, "ebattle_scores", 8});
+	EXPECT_EQ(
+		ack.frames,
+		(std::vector<std::string>{
+			R"({"id":6,"cmd":"update_subscription","params":{"sid":8,"action":"subscribe_matches","match_ids":["m1"]}})",
+			R"({"id":7,"cmd":"update_subscription","params":{"sid":8,"action":"subscribe_matches","match_ids":["m2"]}})"}));
 }

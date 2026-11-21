@@ -93,7 +93,11 @@ struct WsConfig {
 /// Internal failures stop the session and clear subscriptions.
 /// Subscriptions survive reconnects: the client resubscribes with the same
 /// parameters and keeps each `ws::Subscription` handle, while the server's
-/// `sid` changes. Callbacks run on the client's network thread, which blocks
+/// `sid` changes. The resubscribe carries the updates the server confirmed.
+/// Updates still unanswered or unsent when the connection dropped follow it,
+/// each on its own once the new subscription is confirmed, so a rejected one
+/// is reported in `on_error` and the subscription stays. Snapshot and list
+/// requests are not sent again. Callbacks run on the client's network thread, which blocks
 /// SIGPIPE on POSIX systems, except the Disconnected state change from
 /// `disconnect()`, which runs on the caller's.
 /// They may call any method, including destroying the client, but should

@@ -74,6 +74,25 @@ bool has_markets(const ws::SubscribeParams& params) {
 		   !params.market_ids.empty();
 }
 
+/// Actions that change what a subscription receives, as opposed to requests
+/// such as get_snapshot and the list actions, whose replies go to the
+/// connection that asked.
+bool changes_subscription(ws::UpdateAction action) {
+	switch (action) {
+		case ws::UpdateAction::AddMarkets:
+		case ws::UpdateAction::DeleteMarkets:
+		case ws::UpdateAction::SubscribeIndices:
+		case ws::UpdateAction::UnsubscribeIndices:
+		case ws::UpdateAction::SubscribeUnderlyings:
+		case ws::UpdateAction::UnsubscribeUnderlyings:
+		case ws::UpdateAction::SubscribeMatches:
+		case ws::UpdateAction::UnsubscribeMatches:
+			return true;
+		default:
+			return false;
+	}
+}
+
 Error invalid_request(std::string message) {
 	return Error{ErrorCode::InvalidRequest, std::move(message), 0, {}};
 }
@@ -250,6 +269,15 @@ Result<void> SubscriptionRegistry::update(ws::Subscription subscription,
 	}
 	switch (entry->state) {
 		case State::Unsent:
+			if (!entry->held.empty()) {
+				// Changes from a lost connection follow the next confirmation;
+				// this one goes after them. As below, requests are dropped: the
+				// resubscribe sends fresh snapshots.
+				if (changes_subscription(params.action)) {
+					entry->held.push_back(params);
+				}
+				break;
+			}
 			// No server subscription to change; the next subscribe carries it. A
 			// subscription left out for having no markets starts again here.
 			record_update(*entry, params);
@@ -279,21 +307,19 @@ std::int64_t SubscriptionRegistry::list_subscriptions(std::vector<std::string>& 
 void SubscriptionRegistry::on_connected(std::vector<std::string>& frames) {
 	(void)on_disconnected();
 	for (std::pair<const std::int64_t, Entry>& item : entries_) {
-		Entry& entry = item.second;
-		if (!entry.filtered || has_markets(entry.params)) {
-			frames.push_back(subscribe_frame(entry));
+		if (resubscribes(item.second)) {
+			frames.push_back(subscribe_frame(item.second));
 		}
 	}
 }
 
 std::vector<ws::Subscription> SubscriptionRegistry::on_disconnected() {
-	// The server may have applied these before the connection dropped; keep
-	// what the caller asked for, in the order it was sent.
+	// Whether the server applied these is unknown, and its subscriptions end
+	// with the connection anyway. They go again, in the order sent.
+	std::map<std::int64_t, std::vector<ws::UpdateSubscriptionParams>> unconfirmed;
 	for (const std::pair<const std::int64_t, InFlight>& item : commands_) {
-		if (item.second.update) {
-			if (Entry* entry = find(item.second.subscription)) {
-				record_update(*entry, *item.second.update);
-			}
+		if (item.second.update && changes_subscription(item.second.update->action)) {
+			unconfirmed[item.second.subscription].push_back(*item.second.update);
 		}
 	}
 	commands_.clear();
@@ -312,10 +338,25 @@ std::vector<ws::Subscription> SubscriptionRegistry::on_disconnected() {
 		entry.state = State::Unsent;
 		entry.sid = 0;
 		entry.last_seq.reset();
-		for (const ws::UpdateSubscriptionParams& params : entry.held) {
-			record_update(entry, params); // never sent; the next subscribe carries them
+		// Sent changes come before held ones, which were made later.
+		std::vector<ws::UpdateSubscriptionParams> pending = std::move(unconfirmed[item.first]);
+		for (ws::UpdateSubscriptionParams& params : entry.held) {
+			if (changes_subscription(params.action)) {
+				pending.push_back(std::move(params));
+			}
 		}
 		entry.held.clear();
+		if (resubscribes(entry)) {
+			// Sent on their own after the next confirmation, a rejected change
+			// is reported and leaves the subscription as it was.
+			entry.held = std::move(pending);
+		} else {
+			// Not resubscribed until it has markets, so these are its next
+			// subscribe, as for a subscription never sent.
+			for (const ws::UpdateSubscriptionParams& params : pending) {
+				record_update(entry, params);
+			}
+		}
 	}
 	return ended;
 }
@@ -499,6 +540,10 @@ std::vector<ws::Subscription> SubscriptionRegistry::subscriptions() const {
 		}
 	}
 	return handles;
+}
+
+bool SubscriptionRegistry::resubscribes(const Entry& entry) {
+	return !entry.filtered || has_markets(entry.params);
 }
 
 SubscriptionRegistry::Entry* SubscriptionRegistry::find(std::int64_t subscription) {
