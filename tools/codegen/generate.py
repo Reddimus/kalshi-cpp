@@ -15,11 +15,13 @@ Mapping rules:
   std::optional, which also keeps absent fields out of request bodies.
 - String enums become `enum class` types with an `Unknown` value, so a new
   server value never fails a response. Identical value sets share one type.
-- Free-form objects become RawJson. Integers are int64.
+- Free-form objects, inline or a `$ref` to an empty `{type: object}`
+  component, become RawJson. Integers are int64.
 - Each operation becomes a KalshiClient method named after its operationId.
   Path parameters are arguments, query parameters are a `...Params` struct,
-  and a JSON body is its request schema. Responses with a single property are
-  unwrapped to that property's type.
+  and a JSON body is its request schema. An optional body is the same
+  `const Body&`; passing `{}` sends an empty object. Responses with a single
+  property are unwrapped to that property's type.
 
 tools/codegen/ws.py maps spec/asyncapi.yaml the same way.
 """
@@ -209,8 +211,8 @@ class Generator:
                 self.aliases[name] = self.primitive(schema)
         for name, schema in self.schemas.items():
             if schema.get("type") == "array":
-                inner, kind, _, fixed_point = self.type_of(self.element(schema.get("items", {}), name + "Item"),
-                                                           name + "Item")
+                inner, kind, _, fixed_point, _ = self.type_of(self.element(schema.get("items", {}), name + "Item"),
+                                                              name + "Item")
                 if kind not in ("scalar", "string"):
                     raise SystemExit(f"{name}: component arrays with composite or enum items are not supported")
                 size = schema.get("minItems")
@@ -297,7 +299,8 @@ class Generator:
         """Stops on request fields that validation would get wrong or skip.
 
         A required read-only field would fail validation whenever it is empty, and validate()
-        does not look inside nested arrays or maps for fixed-point strings.
+        does not look inside nested arrays or maps for fixed-point strings or for structs that
+        need validation.
         """
         pending, seen = sorted(self.request_bodies), set()
         while pending:
@@ -312,7 +315,10 @@ class Generator:
                 if m.fixed_point_deep:
                     raise SystemExit(f"{name}.{m.json_name}: validation cannot check fixed-point strings "
                                      "inside nested arrays or maps in request bodies")
-                pending.append(m.element)
+                if m.nested_element in self.structs and self.needs_validation(m.nested_element):
+                    raise SystemExit(f"{name}.{m.json_name}: validation cannot check {m.nested_element} "
+                                     "inside nested arrays or maps in request bodies")
+                pending.extend((m.element, m.nested_element))
 
     def enum_for(self, values: list, context: str, doc: str, fixed: str | None = None,
                  prop: str = "") -> str:
@@ -369,11 +375,15 @@ class Generator:
             schema = dict(schema["allOf"][0], nullable=nullable or schema["allOf"][0].get("nullable", False))
         return schema
 
-    def type_of(self, schema: dict, context: str, prop: str = "") -> tuple[str, str, str, str]:
-        """Returns (cpp type, kind, element name, fixed point).
+    def type_of(self, schema: dict, context: str, prop: str = "",
+                parameter: bool = False) -> tuple[str, str, str, str, str]:
+        """Returns (cpp type, kind, element name, fixed point, nested element).
 
         The fixed point entry names the FixedPoint alias the value or, for an array, each item
-        is; DEEP_FIXED_POINT means fixed-point strings inside nested arrays or maps.
+        is; DEEP_FIXED_POINT means fixed-point strings inside nested arrays or maps. The nested
+        element names a struct or enum held inside nested arrays or maps, such as `Leg` in
+        `std::vector<std::vector<Leg>>` or `std::map<std::string, Leg>`, which validate()
+        does not reach. `parameter` marks query parameters, which send integer enums as numbers.
         """
         self.check(schema, context)
         schema = self.unwrap(schema)
@@ -381,39 +391,54 @@ class Generator:
         if "$ref" in schema:
             name = ref_name(schema["$ref"])
             if name in self.enums:
-                return name, "enum", name, ""
+                return name, "enum", name, "", ""
             if name in self.aliases:
                 if self.aliases[name].startswith(("std::array", "std::vector")):
-                    return name, "container", "", self.fixed_point_items.get(name, "")
+                    return name, "container", "", self.fixed_point_items.get(name, ""), ""
                 kind = "string" if self.aliases[name] == "std::string" else "scalar"
-                return name, kind, "", name if name.startswith("FixedPoint") else ""
-            return name, "struct", name, ""
+                return name, kind, "", name if name.startswith("FixedPoint") else "", ""
+            # run() emits no struct for an empty `{type: object}` component. Like an inline
+            # empty object, it declares no members and allows any, so it is RawJson.
+            if self.empty_object(self.schemas.get(name, {})):
+                return "RawJson", "raw", "", "", ""
+            return name, "struct", name, "", ""
         if "enum" in schema and schema.get("type", "string") == "string":
             name = self.enum_for(schema["enum"], context, schema.get("description", ""), prop=prop)
-            return name, "enum", name, ""
+            return name, "enum", name, "", ""
+        if "enum" in schema and not parameter:
+            # A query parameter sends the number as given. A member would become a plain
+            # std::int64_t that accepts any value, dropping the value set.
+            raise SystemExit(f"{context}: only string enums are supported outside query parameters; "
+                             f"found {schema['enum']}")
         kind = schema.get("type")
         if kind == "array":
             items = self.element(schema.get("items", {}), context + "Item")
-            inner, inner_kind, element, inner_fixed = self.type_of(items, context + "Item", prop)
+            inner, inner_kind, element, inner_fixed, inner_nested = self.type_of(items, context + "Item", prop,
+                                                                                 parameter)
             fixed = DEEP_FIXED_POINT if inner_fixed and inner_kind in COLLECTION_KINDS else inner_fixed
-            return f"std::vector<{inner}>", "vector", element if inner_kind in ("struct", "enum") else "", fixed
+            nested = inner_nested or (element if inner_kind in COLLECTION_KINDS else "")
+            return (f"std::vector<{inner}>", "vector", element if inner_kind in ("struct", "enum") else "", fixed,
+                    nested)
         if kind == "object" or "properties" in schema or "additionalProperties" in schema or not kind:
             if schema.get("properties"):
                 # Each inline object is reached once, so an existing name is a clash.
                 if context in self.schemas or context in self.structs:
                     raise SystemExit(f"{context}: an inline object has the same name as another schema")
                 self.struct_for(context, schema)
-                return context, "struct", context, ""
+                return context, "struct", context, "", ""
             extra = schema.get("additionalProperties")
             if isinstance(extra, dict) and extra:
-                inner, _, element, inner_fixed = self.type_of(self.element(extra, context + "Value"), context + "Value")
-                return f"std::map<std::string, {inner}>", "map", element, DEEP_FIXED_POINT if inner_fixed else ""
-            return "RawJson", "raw", "", ""
-        return self.primitive(schema), "string" if kind == "string" else "scalar", "", ""
+                inner, _, element, inner_fixed, inner_nested = self.type_of(
+                    self.element(extra, context + "Value"), context + "Value", parameter=parameter)
+                # validate() checks no map values, so even a direct struct value is nested.
+                return (f"std::map<std::string, {inner}>", "map", element, DEEP_FIXED_POINT if inner_fixed else "",
+                        inner_nested or element)
+            return "RawJson", "raw", "", "", ""
+        return self.primitive(schema), "string" if kind == "string" else "scalar", "", "", ""
 
-    def member(self, owner: str, json_name: str, schema: dict, required: bool) -> Member:
+    def member(self, owner: str, json_name: str, schema: dict, required: bool, parameter: bool = False) -> Member:
         schema_u = self.unwrap(schema)
-        cpp, kind, element, fixed = self.type_of(schema, owner + pascal(json_name), json_name)
+        cpp, kind, element, fixed, nested = self.type_of(schema, owner + pascal(json_name), json_name, parameter)
         collection = kind in COLLECTION_KINDS
         nullable = bool(schema_u.get("nullable")) or bool(schema.get("nullable"))
         if "$ref" in schema_u:  # a nullable component is nullable wherever it is used
@@ -427,6 +452,7 @@ class Generator:
             fixed_point=bool(fixed) and not collection,
             fixed_point_items=fixed if collection and fixed != DEEP_FIXED_POINT else "",
             fixed_point_deep=fixed == DEEP_FIXED_POINT,
+            nested_element=nested,
             required=plain,
             base_kind=kind,
             element=element,
@@ -527,7 +553,7 @@ class Generator:
                 schema = dict(p.get("schema", {}))
                 if not schema.get("description") and p.get("description"):
                     schema["description"] = p["description"]
-                m = self.member(pascal(method_name), p["name"], schema, bool(p.get("required")))
+                m = self.member(pascal(method_name), p["name"], schema, bool(p.get("required")), parameter=True)
                 if m.base_kind in ("struct", "map", "raw") or (m.base_kind == "vector" and m.element in self.structs):
                     raise SystemExit(f"{op_id} parameter {p['name']}: detail::Query cannot send {m.cpp_type}")
                 # detail::Query repeats the key for each array item, which is form with
@@ -561,6 +587,13 @@ class Generator:
                 empty_body = True
             else:
                 raise SystemExit(f"{where}: must be a $ref to a component object")
+            # An optional body (OpenAPI's default) still maps to `const Body&`. Callers omit it by
+            # passing `{}`, which sends an empty object; that matches no body only when nothing
+            # in it is required.
+            if body_type and op["requestBody"].get("required") is not True and (
+                    body_type in REQUIRED_ALTERNATIVES or any(m.required for m in self.structs[body_type].members)):
+                raise SystemExit(f"{where}: an optional body with required fields is not supported; "
+                                 f"`const {body_type}&` cannot leave it out")
 
         responses = {str(code): response for code, response in op.get("responses", {}).items()}
         success = [code for code in responses if code.startswith("2")]
