@@ -448,9 +448,59 @@ def is_allowed_auto(
         return True
     lambda_allowed = lambda_initializer_allowed(line, source, offset)
     if lambda_allowed is not None:
-        return lambda_allowed
+        return lambda_allowed and later_declarators_allowed(line, source, offset)
     tokens = initializer_tokens(line, source, offset)
-    return tokens is not None and iterator_expression(tokens, line.partition("=")[0])
+    return (
+        tokens is not None
+        and iterator_expression(tokens, line.partition("=")[0])
+        and later_declarators_allowed(line, source, offset)
+    )
+
+
+def later_declarators(line: str, source: str | None = None, offset: int = 0) -> list[str]:
+    """The declarators after the first in an ``auto`` declaration, each as its own declaration.
+
+    ``auto a = x, b = y;`` gives ``auto b = y ;``. Reading from ``source`` lets the
+    declaration continue on later lines. A lambda's template parameter list, as in
+    ``[]<typename A, typename B>``, is skipped, so its commas do not split anything.
+    """
+    declarator = DECLARATION_AUTO.search(line)
+    if declarator is None:
+        return []
+    text = source if source is not None else line
+    tokens = [token[0] for token in CPP_TOKEN.finditer(text, offset + declarator.end()) if token.lastgroup != "skip"]
+    closers: list[str] = []
+    pieces: list[list[str]] = []
+    index = 0
+    while index < len(tokens):
+        token = tokens[index]
+        index += 1
+        if token == "<" and index >= 2 and tokens[index - 2] == "]":
+            depth = 1
+            while index < len(tokens) and depth:
+                depth += {"<": 1, ">": -1}.get(tokens[index], 0)
+                index += 1
+            continue
+        if token in GROUP_PAIRS:
+            closers.append(GROUP_PAIRS[token])
+        elif token in GROUP_PAIRS.values():
+            if not closers:
+                break  # the `)` that closes `if (`, `for (`, or `while (`
+            if token != closers.pop():
+                return []
+        elif not closers and token == ";":
+            break
+        elif not closers and token == ",":
+            pieces.append([])
+            continue
+        if pieces:
+            pieces[-1].append(token)
+    return ["auto " + " ".join(piece) + " ;" for piece in pieces]
+
+
+def later_declarators_allowed(line: str, source: str | None = None, offset: int = 0) -> bool:
+    """Whether each declarator after the first would be allowed as its own ``auto`` declaration."""
+    return all(is_allowed_auto(declaration) for declaration in later_declarators(line, source, offset))
 
 
 STATEMENT_BOUNDARIES = {";", "{", "}"}

@@ -292,6 +292,40 @@ class AutoAuditTests(unittest.TestCase):
                 result = self.audit()
                 self.assertEqual(result.returncode, 0, result.stderr)
 
+    def test_later_declarators_need_types(self):
+        sources = [
+            "auto a = values.begin(), b = make_it(values);",
+            "auto it = values.begin(), n = values.size();",
+            "for (auto it = values.begin(), n = values.size(); it != values.end(); ++it) {}",
+            "auto it = values.begin(), *p = compute();",
+            "auto it = values.begin(), b{compute()};",
+            "auto fn = [] { return 1; }, b = compute();",
+            "auto a = values.begin(),\n     b = make_it(values);",
+            "auto it = table.find(key), other = make(1, 2);",
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                (self.root / "declarators.cpp").write_text(source + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 1, result.stdout)
+                self.assertIn("declarators.cpp:1", result.stderr)
+
+    def test_later_declarators_keep_their_exceptions(self):
+        sources = [
+            "auto it = values.begin(), end = values.end();",
+            "for (auto it = values.begin(), end = values.end(); it != end; ++it) {}",
+            "auto first = values.begin(),\n     last = values.end();",
+            "auto fn = []<typename A, typename B>(A a, B b) { return a + b; };",
+            "auto it = std::find(values.begin(), values.end(), 3), end = values.end();",
+            "auto it = values.begin(); int a = 0, b = 1;",
+            "auto it = values.begin(), end = values.end(); // first, second",
+        ]
+        for source in sources:
+            with self.subTest(source=source):
+                (self.root / "declarators.cpp").write_text(source + "\n")
+                result = self.audit()
+                self.assertEqual(result.returncode, 0, result.stderr)
+
     def test_scalar_reference_and_pointer_declarations_require_types(self):
         declarations = [
             "auto&& value = 42;",
