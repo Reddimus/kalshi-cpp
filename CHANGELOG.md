@@ -6,6 +6,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.9.4] - 2026-11-20
+
 ### Fixed
 
 - `WebSocketClient::subscribe` and `update_subscription` return `InvalidRequest`, without
@@ -1059,7 +1061,7 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.3...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.4...HEAD
 [0.7.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.0...v0.6.1
@@ -1098,3 +1100,4 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 [0.9.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.0...v0.9.1
 [0.9.2]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.1...v0.9.2
 [0.9.3]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.2...v0.9.3
+[0.9.4]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.3...v0.9.4
