@@ -319,6 +319,11 @@ class AutoAuditTests(unittest.TestCase):
             "auto it = std::find(values.begin(), values.end(), 3), end = values.end();",
             "auto it = values.begin(); int a = 0, b = 1;",
             "auto it = values.begin(), end = values.end(); // first, second",
+            "auto fn = []() -> std::pair<int, int> { return {1, 2}; };",
+            "auto fn = [](auto t) -> std::map<int, std::vector<int>> { return t; };",
+            "auto fn = []<typename T>(T t) requires std::is_same_v<T, int> { return t; };",
+            "auto fn = [](int a, int b) { return a < b; };",
+            "auto fn = []<typename T, typename = void>(T t) { return t; };",
         ]
         for source in sources:
             with self.subTest(source=source):

@@ -457,12 +457,28 @@ def is_allowed_auto(
     )
 
 
+def starts_declarator(tokens: list[str], start: int) -> bool:
+    """Whether ``tokens[start:]`` open a declarator, such as ``b =``, ``*p{``, or ``&r(``.
+
+    A comma in template arguments, as in ``std::pair<int, int>``, is followed by
+    a type, not a name and its initializer, so it does not start one.
+    """
+    index = start
+    while index < len(tokens) and tokens[index] in {"*", "&", "const", "volatile"}:
+        index += 1
+    return (
+        index + 1 < len(tokens)
+        and re.fullmatch(r"[A-Za-z_]\w*", tokens[index]) is not None
+        and tokens[index] not in {"typename", "class", "struct", "enum"}  # `typename = void`
+        and tokens[index + 1] in {"=", "{", "("}
+    )
+
+
 def later_declarators(line: str, source: str | None = None, offset: int = 0) -> list[str]:
     """The declarators after the first in an ``auto`` declaration, each as its own declaration.
 
     ``auto a = x, b = y;`` gives ``auto b = y ;``. Reading from ``source`` lets the
-    declaration continue on later lines. A lambda's template parameter list, as in
-    ``[]<typename A, typename B>``, is skipped, so its commas do not split anything.
+    declaration continue on later lines.
     """
     declarator = DECLARATION_AUTO.search(line)
     if declarator is None:
@@ -471,16 +487,7 @@ def later_declarators(line: str, source: str | None = None, offset: int = 0) -> 
     tokens = [token[0] for token in CPP_TOKEN.finditer(text, offset + declarator.end()) if token.lastgroup != "skip"]
     closers: list[str] = []
     pieces: list[list[str]] = []
-    index = 0
-    while index < len(tokens):
-        token = tokens[index]
-        index += 1
-        if token == "<" and index >= 2 and tokens[index - 2] == "]":
-            depth = 1
-            while index < len(tokens) and depth:
-                depth += {"<": 1, ">": -1}.get(tokens[index], 0)
-                index += 1
-            continue
+    for index, token in enumerate(tokens):
         if token in GROUP_PAIRS:
             closers.append(GROUP_PAIRS[token])
         elif token in GROUP_PAIRS.values():
@@ -490,7 +497,7 @@ def later_declarators(line: str, source: str | None = None, offset: int = 0) -> 
                 return []
         elif not closers and token == ";":
             break
-        elif not closers and token == ",":
+        elif not closers and token == "," and starts_declarator(tokens, index + 1):
             pieces.append([])
             continue
         if pieces:
