@@ -912,6 +912,53 @@ TEST(WsSubscriptions, EmptyMarketSelectorsAreRejected) {
 	EXPECT_TRUE(frames.empty());
 }
 
+// No index, underlying, or match has an empty ID, so a list naming one would
+// subscribe to nothing.
+TEST(WsSubscriptions, EmptyListIdsAreRejected) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	expect_invalid(
+		registry.subscribe(Channel::CfbenchmarksValue, {.index_ids = {""}}, true, frames));
+	expect_invalid(
+		registry.subscribe(Channel::CfbenchmarksValue, {.index_ids = {"BRTI", ""}}, true, frames));
+	expect_invalid(
+		registry.subscribe(Channel::PythValue, {.underlying_tickers = {""}}, true, frames));
+	EXPECT_TRUE(frames.empty());
+
+	const kalshi::ws::Subscription indices =
+		registry.subscribe(Channel::CfbenchmarksValue, {}, true, frames).value();
+	const kalshi::ws::Subscription pyth =
+		registry.subscribe(Channel::PythValue, {}, true, frames).value();
+	const kalshi::ws::Subscription scores =
+		registry.subscribe(Channel::EbattleScores, {}, true, frames).value();
+	registry.on_subscribed({2, "cfbenchmarks_value", 3});
+	registry.on_subscribed({4, "pyth_value", 5});
+	registry.on_subscribed({6, "ebattle_scores", 7});
+	frames.clear();
+	for (const UpdateAction action :
+		 {UpdateAction::SubscribeIndices, UpdateAction::UnsubscribeIndices}) {
+		expect_invalid(
+			registry.update(indices, {.action = action, .index_ids = {""}}, true, frames));
+	}
+	for (const UpdateAction action :
+		 {UpdateAction::SubscribeUnderlyings, UpdateAction::UnsubscribeUnderlyings}) {
+		expect_invalid(registry.update(
+			pyth, {.action = action, .underlying_tickers = {"Metal.XAU/USD", ""}}, true, frames));
+	}
+	for (const UpdateAction action :
+		 {UpdateAction::SubscribeMatches, UpdateAction::UnsubscribeMatches}) {
+		expect_invalid(
+			registry.update(scores, {.action = action, .match_ids = {""}}, true, frames));
+	}
+	EXPECT_TRUE(frames.empty());
+
+	ASSERT_TRUE(registry.subscribe(Channel::PythValue, {.underlying_tickers = {"Metal.XAU/USD"}},
+								   true, frames));
+	ASSERT_TRUE(registry.update(
+		scores, {.action = UpdateAction::SubscribeMatches, .match_ids = {"m1"}}, true, frames));
+	EXPECT_EQ(frames.size(), 2U);
+}
+
 // Error codes 19 to 22 in the spec bound the communications shards.
 TEST(WsSubscriptions, ShardParametersFollowTheSpecsBounds) {
 	SubscriptionRegistry registry;

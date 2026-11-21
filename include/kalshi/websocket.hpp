@@ -130,9 +130,10 @@ public:
 	/// A second handle is rejected while the first remains registered.
 	/// `market_id` and `market_ids` are accepted only on the ticker channel.
 	/// Name markets with only one of `market_ticker`, `market_tickers`,
-	/// `market_id`, and `market_ids`; none may be empty. `shard_key` needs
-	/// `shard_factor`, from 1 to 100, and must be below it. Anything else
-	/// returns `InvalidRequest` without sending.
+	/// `market_id`, and `market_ids`; none may be empty, and neither may an
+	/// index ID or underlying ticker. `shard_key` needs `shard_factor`, from
+	/// 1 to 100, and must be below it. Anything else returns `InvalidRequest`
+	/// without sending.
 	/// Matches added to an ebattle_scores subscription are added again after
 	/// a reconnect.
 	[[nodiscard]] Result<ws::Subscription> subscribe(ws::Channel channel,
@@ -144,7 +145,7 @@ public:
 	/// subscription names them, by ticker or by ID. A subscription made
 	/// without markets takes the way its first added markets use.
 	/// Market actions need a market, and the index, underlying, and match
-	/// actions need their lists. Each action works only on the channels the
+	/// actions need their lists, with no empty IDs. Each action works only on the channels the
 	/// spec gives it: `get_snapshot` on orderbook_delta, the index actions on
 	/// the CF Benchmarks channels, the underlying actions on pyth_value, and
 	/// the match actions on ebattle_scores; those four take no market changes.
