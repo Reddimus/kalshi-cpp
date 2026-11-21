@@ -6,6 +6,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `WebSocketClient::subscribe` and `update_subscription` return `InvalidRequest`, without
+  sending anything, when `index_ids`, `underlying_tickers`, or `match_ids` holds an empty
+  string. The server acknowledged such a command, but no index, underlying, or match has an
+  empty ID, so the subscription streamed nothing
+  ([#106](https://github.com/Reddimus/kalshi-cpp/issues/106)).
+
 ## [0.9.3] - 2026-11-20
 
 ### Fixed

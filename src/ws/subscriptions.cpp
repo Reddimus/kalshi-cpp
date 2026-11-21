@@ -141,6 +141,7 @@ bool cfbenchmarks(ws::Channel channel) {
 
 /// Checks an update against the channels the spec gives its action, and that
 /// the action has the list it needs: the spec's errors 13, 14, 23, 24, and 28.
+/// An empty ID in that list names nothing, so it is rejected too.
 Result<void> check_action(ws::Channel channel, const ws::UpdateSubscriptionParams& params) {
 	bool allowed = true;
 	const std::vector<std::string>* list = nullptr;
@@ -191,6 +192,9 @@ Result<void> check_action(ws::Channel channel, const ws::UpdateSubscriptionParam
 	}
 	if (list != nullptr && list->empty()) {
 		return std::unexpected(invalid_request(action + " requires " + std::string{list_name}));
+	}
+	if (list != nullptr && std::any_of(list->begin(), list->end(), is_empty)) {
+		return std::unexpected(invalid_request(std::string{list_name} + " must not be empty"));
 	}
 	const bool market_action = params.action == ws::UpdateAction::AddMarkets ||
 							   params.action == ws::UpdateAction::DeleteMarkets ||
@@ -243,6 +247,12 @@ Result<ws::Subscription> SubscriptionRegistry::subscribe(ws::Channel channel,
 	}
 	if (Result<void> shards = check_shards(params); !shards) {
 		return std::unexpected(std::move(shards.error()));
+	}
+	// No index or underlying has an empty ID, so naming one subscribes to nothing.
+	if (std::any_of(params.index_ids.begin(), params.index_ids.end(), is_empty) ||
+		std::any_of(params.underlying_tickers.begin(), params.underlying_tickers.end(), is_empty)) {
+		return std::unexpected(
+			invalid_request("Index IDs and underlying tickers must not be empty"));
 	}
 	Result<MarketSelector> selector = check_selectors(channel, params);
 	if (!selector) {
