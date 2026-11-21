@@ -134,6 +134,75 @@ Result<MarketSelector> check_selectors(ws::Channel channel, const Params& params
 	return id || ids ? MarketSelector::Ids : MarketSelector::None;
 }
 
+bool cfbenchmarks(ws::Channel channel) {
+	return channel == ws::Channel::CfbenchmarksValue ||
+		   channel == ws::Channel::CfbenchmarksValue5hz;
+}
+
+/// Checks an update against the channels the spec gives its action, and that
+/// the action has the list it needs: the spec's errors 13, 14, 23, 24, and 28.
+Result<void> check_action(ws::Channel channel, const ws::UpdateSubscriptionParams& params) {
+	bool allowed = true;
+	const std::vector<std::string>* list = nullptr;
+	std::string_view list_name;
+	switch (params.action) {
+		case ws::UpdateAction::AddMarkets:
+		case ws::UpdateAction::DeleteMarkets:
+			allowed = !cfbenchmarks(channel) && channel != ws::Channel::PythValue &&
+					  channel != ws::Channel::EbattleScores;
+			break;
+		case ws::UpdateAction::GetSnapshot:
+			allowed = channel == ws::Channel::OrderbookDelta;
+			break;
+		case ws::UpdateAction::SubscribeIndices:
+		case ws::UpdateAction::UnsubscribeIndices:
+			list = &params.index_ids;
+			list_name = "index_ids";
+			allowed = cfbenchmarks(channel);
+			break;
+		case ws::UpdateAction::Indexlist:
+			allowed = cfbenchmarks(channel);
+			break;
+		case ws::UpdateAction::SubscribeUnderlyings:
+		case ws::UpdateAction::UnsubscribeUnderlyings:
+			list = &params.underlying_tickers;
+			list_name = "underlying_tickers";
+			allowed = channel == ws::Channel::PythValue;
+			break;
+		case ws::UpdateAction::UnderlyingList:
+			allowed = channel == ws::Channel::PythValue;
+			break;
+		case ws::UpdateAction::SubscribeMatches:
+		case ws::UpdateAction::UnsubscribeMatches:
+			list = &params.match_ids;
+			list_name = "match_ids";
+			allowed = channel == ws::Channel::EbattleScores;
+			break;
+		case ws::UpdateAction::Matchlist:
+			allowed = channel == ws::Channel::EbattleScores;
+			break;
+		case ws::UpdateAction::Unknown:
+			break;
+	}
+	const std::string action{ws::to_string(params.action)};
+	if (!allowed) {
+		return std::unexpected(invalid_request(action + " is not available on the " +
+											   std::string{ws::to_string(channel)} + " channel"));
+	}
+	if (list != nullptr && list->empty()) {
+		return std::unexpected(invalid_request(action + " requires " + std::string{list_name}));
+	}
+	const bool market_action = params.action == ws::UpdateAction::AddMarkets ||
+							   params.action == ws::UpdateAction::DeleteMarkets ||
+							   params.action == ws::UpdateAction::GetSnapshot;
+	if (market_action && !params.market_ticker && params.market_tickers.empty() &&
+		!params.market_id && params.market_ids.empty()) {
+		return std::unexpected(invalid_request(
+			action + " requires market_ticker, market_tickers, market_id, or market_ids"));
+	}
+	return {};
+}
+
 /// The bounds behind the spec's error codes 19 to 22.
 Result<void> check_shards(const ws::SubscribeParams& params) {
 	if (params.shard_key && !params.shard_factor) {
@@ -239,6 +308,9 @@ Result<void> SubscriptionRegistry::update(ws::Subscription subscription,
 	if (entry->unsubscribe_held || entry->state == State::Unsubscribing) {
 		return std::unexpected(Error{
 			ErrorCode::InvalidRequest, "Subscription is awaiting unsubscribe confirmation", 0, {}});
+	}
+	if (Result<void> action = check_action(entry->handle.channel, params); !action) {
+		return std::unexpected(std::move(action.error()));
 	}
 	Result<MarketSelector> selector = check_selectors(entry->handle.channel, params);
 	if (!selector) {

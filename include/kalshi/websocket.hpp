@@ -143,6 +143,11 @@ public:
 	/// Markets follow the subscribe's rules and must be named the way the
 	/// subscription names them, by ticker or by ID. A subscription made
 	/// without markets takes the way its first added markets use.
+	/// Market actions need a market, and the index, underlying, and match
+	/// actions need their lists. Each action works only on the channels the
+	/// spec gives it: `get_snapshot` on orderbook_delta, the index actions on
+	/// the CF Benchmarks channels, the underlying actions on pyth_value, and
+	/// the match actions on ebattle_scores; those four take no market changes.
 	[[nodiscard]] Result<void> update_subscription(ws::Subscription subscription,
 												   const ws::UpdateSubscriptionParams& params);
 	[[nodiscard]] Result<void> add_markets(ws::Subscription subscription,

@@ -16,7 +16,9 @@ from `on_error` when ready to resume.
 reject them. A subscribe names markets with one of `market_ticker`,
 `market_tickers`, `market_id`, and `market_ids`, never an empty one, and its
 updates name markets the same way. `shard_key` needs a `shard_factor` from 1
-to 100 and must be below it.
+to 100 and must be below it. Index, underlying, and match actions need their
+lists and work only on their channels; `get_snapshot` works only on
+`OrderbookDelta`, and market actions need a market.
 Matches added to an `EbattleScores` subscription are added again after a
 reconnect. Updates the old connection had not confirmed are sent again, one
 command each, once the new subscription is confirmed; a rejected one is

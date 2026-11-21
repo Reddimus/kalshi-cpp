@@ -44,7 +44,9 @@ public:
 	/// resubscribe once the server confirms it, so a rejected change is dropped.
 	/// Before the subscription is sent, the change becomes part of its subscribe.
 	/// Markets are named with the selector the subscription uses, so its
-	/// resubscribe names them one way.
+	/// resubscribe names them one way. Rejects actions on channels the spec
+	/// does not give them, market actions without markets, and the index,
+	/// underlying, and match actions without their lists.
 	Result<void> update(ws::Subscription subscription, const ws::UpdateSubscriptionParams& params,
 						bool connected, std::vector<std::string>& frames);
 	/// Returns the command's ID, which the reply's SubscriptionList carries.

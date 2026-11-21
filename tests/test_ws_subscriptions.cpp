@@ -1102,8 +1102,6 @@ TEST(WsSubscriptions, HeldUpdatesStaySeparateAndInOrderAcrossReconnects) {
 		ticker, {.market_tickers = {"BAD"}, .action = UpdateAction::DeleteMarkets}, false, frames));
 	ASSERT_TRUE(registry.update(
 		ticker, {.market_tickers = {"C"}, .action = UpdateAction::AddMarkets}, false, frames));
-	ASSERT_TRUE(registry.update(
-		ticker, {.market_tickers = {"A"}, .action = UpdateAction::GetSnapshot}, false, frames));
 
 	frames.clear();
 	registry.on_connected(frames);
@@ -1147,6 +1145,8 @@ TEST(WsSubscriptions, SnapshotRequestsAreNotResentAfterAReconnect) {
 
 	frames.clear();
 	registry.on_disconnected();
+	ASSERT_TRUE(registry.update(
+		book, {.market_tickers = {"A"}, .action = UpdateAction::GetSnapshot}, false, frames));
 	registry.on_connected(frames);
 	ASSERT_EQ(frames.size(), 1U);
 	EXPECT_NE(frames[0].find(R"("market_ticker":"A")"), std::string::npos) << frames[0];
@@ -1203,4 +1203,134 @@ TEST(WsSubscriptions, UnconfirmedMatchesFollowTheConfirmedOnes) {
 		(std::vector<std::string>{
 			R"({"id":6,"cmd":"update_subscription","params":{"sid":8,"action":"subscribe_matches","match_ids":["m1"]}})",
 			R"({"id":7,"cmd":"update_subscription","params":{"sid":8,"action":"subscribe_matches","match_ids":["m2"]}})"}));
+}
+
+// The spec's errors 23, 24, and 28: the list actions need their lists.
+TEST(WsSubscriptions, ListActionsRequireTheirLists) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription scores =
+		registry.subscribe(Channel::EbattleScores, {}, true, frames).value();
+	const kalshi::ws::Subscription indices =
+		registry.subscribe(Channel::CfbenchmarksValue, {}, true, frames).value();
+	const kalshi::ws::Subscription fast =
+		registry.subscribe(Channel::CfbenchmarksValue5hz, {}, true, frames).value();
+	const kalshi::ws::Subscription pyth =
+		registry.subscribe(Channel::PythValue, {}, false, frames).value(); // checked unsent too
+	registry.on_subscribed({2, "ebattle_scores", 6});
+	registry.on_subscribed({4, "cfbenchmarks_value", 7});
+	registry.on_subscribed({6, "cfbenchmarks_value_5hz", 8});
+	frames.clear();
+	for (const UpdateAction action :
+		 {UpdateAction::SubscribeMatches, UpdateAction::UnsubscribeMatches}) {
+		expect_invalid(registry.update(scores, {.action = action}, true, frames));
+	}
+	for (const kalshi::ws::Subscription subscription : {indices, fast}) {
+		for (const UpdateAction action :
+			 {UpdateAction::SubscribeIndices, UpdateAction::UnsubscribeIndices}) {
+			expect_invalid(registry.update(subscription, {.action = action}, true, frames));
+		}
+	}
+	for (const UpdateAction action :
+		 {UpdateAction::SubscribeUnderlyings, UpdateAction::UnsubscribeUnderlyings}) {
+		expect_invalid(registry.update(pyth, {.action = action}, false, frames));
+	}
+	EXPECT_TRUE(frames.empty());
+
+	ASSERT_TRUE(registry.update(
+		scores, {.action = UpdateAction::SubscribeMatches, .match_ids = {"m1"}}, true, frames));
+	ASSERT_TRUE(registry.update(scores, {.action = UpdateAction::Matchlist}, true, frames));
+	ASSERT_TRUE(registry.update(
+		fast, {.action = UpdateAction::SubscribeIndices, .index_ids = {"BRTI"}}, true, frames));
+	ASSERT_TRUE(registry.update(indices, {.action = UpdateAction::Indexlist}, true, frames));
+	EXPECT_EQ(
+		frames,
+		(std::vector<std::string>{
+			R"({"id":8,"cmd":"update_subscription","params":{"sid":6,"action":"subscribe_matches","match_ids":["m1"]}})",
+			R"({"id":9,"cmd":"update_subscription","params":{"sid":6,"action":"matchlist"}})",
+			R"({"id":10,"cmd":"update_subscription","params":{"sid":8,"action":"subscribe_indices","index_ids":["BRTI"]}})",
+			R"({"id":11,"cmd":"update_subscription","params":{"sid":7,"action":"indexlist"}})"}));
+	frames.clear();
+	ASSERT_TRUE(registry.update(
+		pyth,
+		{.action = UpdateAction::SubscribeUnderlyings, .underlying_tickers = {"Metal.XAU/USD"}},
+		false, frames));
+	ASSERT_TRUE(registry.update(pyth, {.action = UpdateAction::UnderlyingList}, false, frames));
+	registry.on_connected(frames);
+	EXPECT_NE(
+		frames.back().find(R"("channels":["pyth_value"],"underlying_tickers":["Metal.XAU/USD"])"),
+		std::string::npos)
+		<< frames.back();
+}
+
+// The spec's error 14: a market action names at least one market.
+TEST(WsSubscriptions, MarketActionsRequireAMarket) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription book =
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames).value();
+	const kalshi::ws::Subscription trades =
+		registry.subscribe(Channel::Trade, {.market_ticker = "A"}, true, frames).value();
+	registry.on_subscribed({2, "orderbook_delta", 3});
+	registry.on_subscribed({4, "trade", 5});
+	frames.clear();
+	for (const UpdateAction action :
+		 {UpdateAction::AddMarkets, UpdateAction::DeleteMarkets, UpdateAction::GetSnapshot}) {
+		expect_invalid(registry.update(book, {.action = action}, true, frames));
+		expect_invalid(
+			registry.update(book, {.market_tickers = {}, .action = action}, true, frames));
+	}
+	expect_invalid(registry.update(trades, {.action = UpdateAction::AddMarkets}, true, frames));
+	EXPECT_TRUE(frames.empty());
+	ASSERT_TRUE(registry.update(trades, {.market_ticker = "B", .action = UpdateAction::AddMarkets},
+								true, frames));
+	EXPECT_EQ(frames.size(), 1U);
+}
+
+// Each family of actions belongs to the channels the spec gives it.
+TEST(WsSubscriptions, UpdateActionsBelongToTheirChannels) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription ticker =
+		registry.subscribe(Channel::Ticker, {.market_ticker = "A"}, true, frames).value();
+	const kalshi::ws::Subscription indices =
+		registry.subscribe(Channel::CfbenchmarksValue, {}, true, frames).value();
+	const kalshi::ws::Subscription pyth =
+		registry.subscribe(Channel::PythValue, {}, true, frames).value();
+	const kalshi::ws::Subscription scores =
+		registry.subscribe(Channel::EbattleScores, {}, true, frames).value();
+	registry.on_subscribed({2, "ticker", 3});
+	registry.on_subscribed({4, "cfbenchmarks_value", 5});
+	registry.on_subscribed({6, "pyth_value", 7});
+	registry.on_subscribed({8, "ebattle_scores", 9});
+	frames.clear();
+
+	const kalshi::ws::UpdateSubscriptionParams matches{.action = UpdateAction::SubscribeMatches,
+													   .match_ids = {"m1"}};
+	const kalshi::ws::UpdateSubscriptionParams index{.action = UpdateAction::SubscribeIndices,
+													 .index_ids = {"BRTI"}};
+	const kalshi::ws::UpdateSubscriptionParams underlying{
+		.action = UpdateAction::SubscribeUnderlyings, .underlying_tickers = {"Metal.XAU/USD"}};
+	const kalshi::ws::UpdateSubscriptionParams add{.market_ticker = "B",
+												   .action = UpdateAction::AddMarkets};
+	const kalshi::ws::UpdateSubscriptionParams snapshot{.market_ticker = "A",
+														.action = UpdateAction::GetSnapshot};
+	for (const kalshi::ws::UpdateSubscriptionParams& params :
+		 {matches, index, underlying, snapshot}) {
+		expect_invalid(registry.update(ticker, params, true, frames));
+	}
+	expect_invalid(registry.update(indices, underlying, true, frames));
+	expect_invalid(registry.update(indices, matches, true, frames));
+	expect_invalid(registry.update(pyth, index, true, frames));
+	expect_invalid(registry.update(scores, {.action = UpdateAction::Indexlist}, true, frames));
+	for (const kalshi::ws::Subscription subscription : {indices, pyth, scores}) {
+		expect_invalid(registry.update(subscription, add, true, frames));
+	}
+	EXPECT_TRUE(frames.empty());
+
+	ASSERT_TRUE(registry.update(ticker, add, true, frames));
+	ASSERT_TRUE(registry.update(indices, index, true, frames));
+	ASSERT_TRUE(registry.update(pyth, underlying, true, frames));
+	ASSERT_TRUE(registry.update(scores, matches, true, frames));
+	EXPECT_EQ(frames.size(), 4U);
 }
