@@ -550,6 +550,24 @@ TEST(HttpClientLoopback, PathsAreSignedAsLibcurlSendsThem) {
 	}
 }
 
+// libcurl 7.84 and later percent-encode path bytes above 0x7f as they send
+// them; earlier versions send them raw. The client reads the path back the
+// way its libcurl sends it, so the signature covers the bytes on the wire.
+TEST(HttpClientLoopback, RawHighBytesInPathsAreSignedAsSent) {
+	const LoopbackServer server(http_response(200, "{}"));
+	const kalshi::HttpClient client(kalshi::test::make_signer(), config_for(server));
+	const std::string& key = kalshi::test::private_key_pem();
+	for (const std::string_view endpoint : {"/markets/caf\xc3\xa9", "/markets/\xe2\x82\xac/x"}) {
+		ASSERT_TRUE(client.get(std::string{endpoint}).has_value()) << endpoint;
+		const RecordedRequest request = server.last();
+		const std::string sent_path = request.target.substr(0, request.target.find('?'));
+		EXPECT_TRUE(kalshi::test::signature_verifies(
+			key, request.headers.at("kalshi-access-timestamp") + "GET" + sent_path,
+			request.headers.at("kalshi-access-signature")))
+			<< endpoint << " was sent as " << request.target;
+	}
+}
+
 // libwebsockets writes the handshake path into the request line as given, so
 // a WebSocket URL with dot segments is signed over exactly what is sent. This
 // raw server sees the request line before any parser could normalize it.

@@ -14,6 +14,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `InvalidKey`: MSVC builds with a nonzero `_ITERATOR_DEBUG_LEVEL` (the Debug default), and
   libstdc++'s old copy-on-write string ABI.
 
+### Tests
+
+- A loopback test checks that paths holding raw bytes above 0x7f are signed as libcurl sends
+  them: percent-encoded from 7.84, raw before. The suite passes against libcurl 7.65.0, 7.81.0,
+  7.83.1, and 7.84.0.
+
 ## [0.9.4] - 2026-11-20
 
 ### Fixed
