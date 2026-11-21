@@ -125,6 +125,10 @@ public:
 	/// Keep one OrderbookDelta handle per client; extend it with add_markets.
 	/// A second handle is rejected while the first remains registered.
 	/// `market_id` and `market_ids` are accepted only on the ticker channel.
+	/// Name markets with only one of `market_ticker`, `market_tickers`,
+	/// `market_id`, and `market_ids`; none may be empty. `shard_key` needs
+	/// `shard_factor`, from 1 to 100, and must be below it. Anything else
+	/// returns `InvalidRequest` without sending.
 	/// Matches added to an ebattle_scores subscription are added again after
 	/// a reconnect.
 	[[nodiscard]] Result<ws::Subscription> subscribe(ws::Channel channel,
@@ -132,6 +136,9 @@ public:
 	[[nodiscard]] Result<void> unsubscribe(ws::Subscription subscription);
 	/// Rejects updates while unsubscription is pending, and market changes to a
 	/// ticker subscription sent without markets, which Kalshi does not allow.
+	/// Markets follow the subscribe's rules and must be named the way the
+	/// subscription names them, by ticker or by ID. A subscription made
+	/// without markets takes the way its first added markets use.
 	[[nodiscard]] Result<void> update_subscription(ws::Subscription subscription,
 												   const ws::UpdateSubscriptionParams& params);
 	[[nodiscard]] Result<void> add_markets(ws::Subscription subscription,

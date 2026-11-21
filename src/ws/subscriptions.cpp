@@ -74,17 +74,59 @@ bool has_markets(const ws::SubscribeParams& params) {
 		   !params.market_ids.empty();
 }
 
-/// Kalshi selects markets by ID only on the ticker channel. Elsewhere an ID
-/// filter is acknowledged but selects nothing, so an orderbook would never
-/// receive its snapshots.
-Result<void> check_market_ids(ws::Channel channel, const std::optional<std::string>& market_id,
-							  const std::vector<std::string>& market_ids) {
-	if (channel != ws::Channel::Ticker && (market_id || !market_ids.empty())) {
-		return std::unexpected(Error{ErrorCode::InvalidRequest,
-									 "market_id and market_ids select markets only on the ticker "
-									 "channel; use market tickers",
-									 0,
-									 {}});
+Error invalid_request(std::string message) {
+	return Error{ErrorCode::InvalidRequest, std::move(message), 0, {}};
+}
+
+bool is_empty(const std::string& value) {
+	return value.empty();
+}
+
+/// Checks a command's market selectors and returns the kind it uses. Kalshi
+/// selects markets by ID only on the ticker channel. Elsewhere an ID filter is
+/// acknowledged but selects nothing, so an orderbook would never receive its
+/// snapshots. The spec makes the four selectors mutually exclusive, and an
+/// empty ticker or ID selects no market.
+template <typename Params>
+Result<MarketSelector> check_selectors(ws::Channel channel, const Params& params) {
+	const bool ticker = params.market_ticker.has_value();
+	const bool tickers = !params.market_tickers.empty();
+	const bool id = params.market_id.has_value();
+	const bool ids = !params.market_ids.empty();
+	if (channel != ws::Channel::Ticker && (id || ids)) {
+		return std::unexpected(invalid_request(
+			"market_id and market_ids select markets only on the ticker channel; use market "
+			"tickers"));
+	}
+	if (static_cast<int>(ticker) + static_cast<int>(tickers) + static_cast<int>(id) +
+			static_cast<int>(ids) >
+		1) {
+		return std::unexpected(invalid_request(
+			"Give only one of market_ticker, market_tickers, market_id, and market_ids"));
+	}
+	if ((ticker && params.market_ticker->empty()) || (id && params.market_id->empty()) ||
+		std::any_of(params.market_tickers.begin(), params.market_tickers.end(), is_empty) ||
+		std::any_of(params.market_ids.begin(), params.market_ids.end(), is_empty)) {
+		return std::unexpected(invalid_request("Market tickers and IDs must not be empty"));
+	}
+	if (ticker || tickers) {
+		return MarketSelector::Tickers;
+	}
+	return id || ids ? MarketSelector::Ids : MarketSelector::None;
+}
+
+/// The bounds behind the spec's error codes 19 to 22.
+Result<void> check_shards(const ws::SubscribeParams& params) {
+	if (params.shard_key && !params.shard_factor) {
+		return std::unexpected(invalid_request("SubscribeParams.shard_key requires shard_factor"));
+	}
+	if (params.shard_factor && (*params.shard_factor < 1 || *params.shard_factor > 100)) {
+		return std::unexpected(
+			invalid_request("SubscribeParams.shard_factor must be from 1 to 100"));
+	}
+	if (params.shard_key && (*params.shard_key < 0 || *params.shard_key >= *params.shard_factor)) {
+		return std::unexpected(invalid_request(
+			"SubscribeParams.shard_key must be at least 0 and less than shard_factor"));
 	}
 	return {};
 }
@@ -111,8 +153,12 @@ Result<ws::Subscription> SubscriptionRegistry::subscribe(ws::Channel channel,
 									 0,
 									 {}});
 	}
-	if (Result<void> ids = check_market_ids(channel, params.market_id, params.market_ids); !ids) {
-		return std::unexpected(std::move(ids.error()));
+	if (Result<void> shards = check_shards(params); !shards) {
+		return std::unexpected(std::move(shards.error()));
+	}
+	Result<MarketSelector> selector = check_selectors(channel, params);
+	if (!selector) {
+		return std::unexpected(std::move(selector.error()));
 	}
 	if (channel == ws::Channel::OrderbookDelta &&
 		std::any_of(entries_.begin(), entries_.end(),
@@ -130,6 +176,7 @@ Result<ws::Subscription> SubscriptionRegistry::subscribe(ws::Channel channel,
 	entry.handle = handle;
 	entry.params = std::move(params);
 	entry.filtered = has_markets(entry.params);
+	entry.selector = *selector;
 	if (connected) {
 		frames.push_back(subscribe_frame(entry));
 	}
@@ -174,10 +221,17 @@ Result<void> SubscriptionRegistry::update(ws::Subscription subscription,
 		return std::unexpected(Error{
 			ErrorCode::InvalidRequest, "Subscription is awaiting unsubscribe confirmation", 0, {}});
 	}
-	if (Result<void> ids =
-			check_market_ids(entry->handle.channel, params.market_id, params.market_ids);
-		!ids) {
-		return std::unexpected(std::move(ids.error()));
+	Result<MarketSelector> selector = check_selectors(entry->handle.channel, params);
+	if (!selector) {
+		return std::unexpected(std::move(selector.error()));
+	}
+	if (*selector != MarketSelector::None && entry->selector != MarketSelector::None &&
+		*selector != entry->selector) {
+		// Mixing kinds would leave a resubscribe naming markets both ways.
+		return std::unexpected(invalid_request(
+			entry->selector == MarketSelector::Tickers
+				? "This subscription names markets by ticker; use market_ticker or market_tickers"
+				: "This subscription names markets by ID; use market_id or market_ids"));
 	}
 	const bool changes_markets = params.action == ws::UpdateAction::AddMarkets ||
 								 params.action == ws::UpdateAction::DeleteMarkets;
@@ -190,6 +244,9 @@ Result<void> SubscriptionRegistry::update(ws::Subscription subscription,
 									 "unsubscribe, then subscribe with markets",
 									 0,
 									 {}});
+	}
+	if (changes_markets && entry->selector == MarketSelector::None) {
+		entry->selector = *selector;
 	}
 	switch (entry->state) {
 		case State::Unsent:
@@ -358,11 +415,12 @@ Reaction SubscriptionRegistry::on_ok(const OkFrame& frame, bool resync) {
 	updated.subscription = entry->handle;
 	updated.sending_ts_ms = frame.sending_ts_ms;
 	// The reply lists every market afterwards; trust it over local bookkeeping.
-	if (!updated.market_tickers.empty()) {
+	// It may list markets both ways, so only the subscription's own selector is
+	// taken, or a resubscribe would name both.
+	if (entry->selector == MarketSelector::Tickers && !updated.market_tickers.empty()) {
 		entry->params.market_ticker.reset();
 		entry->params.market_tickers = updated.market_tickers;
-	}
-	if (!updated.market_ids.empty()) {
+	} else if (entry->selector == MarketSelector::Ids && !updated.market_ids.empty()) {
 		entry->params.market_id.reset();
 		entry->params.market_ids = updated.market_ids;
 	}

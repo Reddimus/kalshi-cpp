@@ -6,6 +6,19 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- `WebSocketClient::subscribe` returns `InvalidRequest`, without sending anything, when more
+  than one of `market_ticker`, `market_tickers`, `market_id`, and `market_ids` names markets,
+  when a ticker or ID is empty, and when `shard_key` comes without `shard_factor` or either is
+  outside the spec's bounds: `shard_factor` from 1 to 100, `shard_key` from 0 to below
+  `shard_factor`. `update_subscription` rejects the same selectors, and market changes named
+  by ID on a subscription that names markets by ticker, or the reverse. Such a subscription
+  was sent and sent again on every reconnect
+  ([#100](https://github.com/Reddimus/kalshi-cpp/issues/100)).
+- Resubscribe with markets named one way after an `ok` reply lists them both by ticker and by
+  ID. The registry kept both lists, so the next resubscribe contradicted itself.
+
 ## [0.9.2] - 2026-11-20
 
 ### Fixed

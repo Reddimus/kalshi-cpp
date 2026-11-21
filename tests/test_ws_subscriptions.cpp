@@ -832,3 +832,209 @@ TEST(WsSubscriptions, DisconnectingEndsPendingUnsubscribes) {
 	EXPECT_EQ(registry.on_disconnected(), (std::vector<kalshi::ws::Subscription>{book, trades}));
 	EXPECT_EQ(registry.subscriptions(), (std::vector<kalshi::ws::Subscription>{ticker}));
 }
+
+namespace {
+
+using kalshi::ws::UpdateAction;
+
+void expect_invalid(const kalshi::Result<kalshi::ws::Subscription>& result) {
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+}
+
+void expect_invalid(const kalshi::Result<void>& result) {
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+}
+
+} // namespace
+
+// The spec makes market_ticker, market_tickers, market_id, and market_ids
+// mutually exclusive in a subscribe (#100).
+TEST(WsSubscriptions, ContradictoryMarketSelectorsAreRejected) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	for (const kalshi::ws::SubscribeParams& params : {
+			 kalshi::ws::SubscribeParams{.market_ticker = "KXHIGHNY-26", .market_id = "uuid-1"},
+			 kalshi::ws::SubscribeParams{.market_tickers = {"A"}, .market_ids = {"uuid-1"}},
+			 kalshi::ws::SubscribeParams{.market_id = "uuid-1", .market_ids = {"uuid-2"}},
+			 kalshi::ws::SubscribeParams{.market_ticker = "A", .market_tickers = {"B"}},
+			 kalshi::ws::SubscribeParams{.market_ticker = "A", .market_ids = {"uuid-1"}},
+			 kalshi::ws::SubscribeParams{.market_tickers = {"A"}, .market_id = "uuid-1"},
+		 }) {
+		expect_invalid(registry.subscribe(Channel::Ticker, params, true, frames));
+	}
+	expect_invalid(registry.subscribe(
+		Channel::OrderbookDelta, {.market_ticker = "A", .market_tickers = {"B"}}, true, frames));
+	EXPECT_TRUE(frames.empty());
+	EXPECT_TRUE(registry.subscriptions().empty());
+
+	ASSERT_TRUE(registry.subscribe(Channel::Ticker, {.market_id = "uuid-1"}, true, frames));
+	EXPECT_EQ(
+		frames,
+		(std::vector<std::string>{
+			R"({"id":2,"cmd":"subscribe","params":{"channels":["ticker"],"market_id":"uuid-1"}})"}));
+}
+
+// An empty ticker or ID can never select a market (#100).
+TEST(WsSubscriptions, EmptyMarketSelectorsAreRejected) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	for (const kalshi::ws::SubscribeParams& params : {
+			 kalshi::ws::SubscribeParams{.market_ticker = ""},
+			 kalshi::ws::SubscribeParams{.market_tickers = {"A", ""}},
+			 kalshi::ws::SubscribeParams{.market_id = ""},
+			 kalshi::ws::SubscribeParams{.market_ids = {"uuid-1", ""}},
+		 }) {
+		expect_invalid(registry.subscribe(Channel::Ticker, params, true, frames));
+	}
+	expect_invalid(
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = ""}, true, frames));
+	EXPECT_TRUE(frames.empty());
+
+	const kalshi::ws::Subscription ticker =
+		registry.subscribe(Channel::Ticker, {.market_tickers = {"A"}}, true, frames).value();
+	registry.on_subscribed({2, "ticker", 4});
+	frames.clear();
+	expect_invalid(registry.update(
+		ticker, {.market_ticker = "", .action = UpdateAction::AddMarkets}, true, frames));
+	expect_invalid(registry.update(
+		ticker, {.market_tickers = {"B", ""}, .action = UpdateAction::DeleteMarkets}, true,
+		frames));
+	EXPECT_TRUE(frames.empty());
+}
+
+// Error codes 19 to 22 in the spec bound the communications shards.
+TEST(WsSubscriptions, ShardParametersFollowTheSpecsBounds) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	for (const kalshi::ws::SubscribeParams& params : {
+			 kalshi::ws::SubscribeParams{.shard_key = 3},
+			 kalshi::ws::SubscribeParams{.shard_factor = 0},
+			 kalshi::ws::SubscribeParams{.shard_factor = -1},
+			 kalshi::ws::SubscribeParams{.shard_factor = 101},
+			 kalshi::ws::SubscribeParams{.shard_factor = 4, .shard_key = 4},
+			 kalshi::ws::SubscribeParams{.shard_factor = 4, .shard_key = -1},
+		 }) {
+		expect_invalid(registry.subscribe(Channel::Communications, params, true, frames));
+	}
+	EXPECT_TRUE(frames.empty());
+
+	ASSERT_TRUE(registry.subscribe(Channel::Communications, {.shard_factor = 4, .shard_key = 3},
+								   true, frames));
+	ASSERT_TRUE(registry.subscribe(Channel::Communications, {.shard_factor = 100}, true, frames));
+	ASSERT_TRUE(registry.subscribe(Channel::Communications, {.shard_factor = 1, .shard_key = 0},
+								   true, frames));
+	EXPECT_EQ(
+		frames,
+		(std::vector<std::string>{
+			R"({"id":2,"cmd":"subscribe","params":{"channels":["communications"],"shard_factor":4,"shard_key":3}})",
+			R"({"id":4,"cmd":"subscribe","params":{"channels":["communications"],"shard_factor":100}})",
+			R"({"id":6,"cmd":"subscribe","params":{"channels":["communications"],"shard_factor":1,"shard_key":0}})"}));
+}
+
+TEST(WsSubscriptions, UpdatesRejectContradictorySelectors) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription ticker =
+		registry.subscribe(Channel::Ticker, {.market_ticker = "A"}, true, frames).value();
+	registry.on_subscribed({2, "ticker", 9});
+	frames.clear();
+	expect_invalid(registry.update(
+		ticker, {.market_ticker = "B", .market_id = "uuid-9", .action = UpdateAction::AddMarkets},
+		true, frames));
+	expect_invalid(registry.update(
+		ticker, {.market_ticker = "B", .market_tickers = {"C"}, .action = UpdateAction::AddMarkets},
+		true, frames));
+	expect_invalid(registry.update(
+		ticker,
+		{.market_id = "uuid-1", .market_ids = {"uuid-2"}, .action = UpdateAction::DeleteMarkets},
+		true, frames));
+	EXPECT_TRUE(frames.empty());
+
+	frames.clear();
+	registry.on_disconnected();
+	registry.on_connected(frames);
+	EXPECT_EQ(
+		frames,
+		(std::vector<std::string>{
+			R"({"id":3,"cmd":"subscribe","params":{"channels":["ticker"],"market_ticker":"A"}})"}));
+}
+
+// A subscription keeps the selector it was created with, so a resubscribe
+// never names markets both by ticker and by ID.
+TEST(WsSubscriptions, UpdatesKeepTheSubscriptionsSelectorKind) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription by_ticker =
+		registry.subscribe(Channel::Ticker, {.market_tickers = {"A"}}, true, frames).value();
+	const kalshi::ws::Subscription by_id =
+		registry.subscribe(Channel::Ticker, {.market_id = "uuid-1"}, true, frames).value();
+	registry.on_subscribed({2, "ticker", 4});
+	registry.on_subscribed({4, "ticker", 5});
+	frames.clear();
+	expect_invalid(registry.update(
+		by_ticker, {.market_ids = {"uuid-2"}, .action = UpdateAction::AddMarkets}, true, frames));
+	expect_invalid(registry.update(
+		by_id, {.market_ticker = "B", .action = UpdateAction::AddMarkets}, true, frames));
+	EXPECT_TRUE(frames.empty());
+	ASSERT_TRUE(registry.update(
+		by_id, {.market_ids = {"uuid-2"}, .action = UpdateAction::AddMarkets}, true, frames));
+	registry.on_ok({5, 5});
+
+	// An unfiltered subscription not yet sent takes its selector from its first markets.
+	const kalshi::ws::Subscription later =
+		registry.subscribe(Channel::Ticker, {}, false, frames).value();
+	ASSERT_TRUE(registry.update(
+		later, {.market_ids = {"uuid-3"}, .action = UpdateAction::AddMarkets}, false, frames));
+	expect_invalid(registry.update(
+		later, {.market_tickers = {"C"}, .action = UpdateAction::AddMarkets}, false, frames));
+
+	frames.clear();
+	registry.on_disconnected();
+	registry.on_connected(frames);
+	EXPECT_EQ(
+		frames,
+		(std::vector<std::string>{
+			R"({"id":7,"cmd":"subscribe","params":{"channels":["ticker"],"market_tickers":["A"]}})",
+			R"({"id":8,"cmd":"subscribe","params":{"channels":["ticker"],"market_ids":["uuid-1","uuid-2"]}})",
+			R"({"id":9,"cmd":"subscribe","params":{"channels":["ticker"],"market_ids":["uuid-3"]}})"}));
+}
+
+// An `ok` reply may list markets both by ticker and by ID. Only the list in
+// the subscription's own selector replaces its markets.
+TEST(WsSubscriptions, UpdateRepliesReplaceOnlyTheSubscriptionsSelectorKind) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription by_ticker =
+		registry.subscribe(Channel::Ticker, {.market_tickers = {"A"}}, true, frames).value();
+	const kalshi::ws::Subscription by_id =
+		registry.subscribe(Channel::Ticker, {.market_ids = {"uuid-1"}}, true, frames).value();
+	registry.on_subscribed({2, "ticker", 4});
+	registry.on_subscribed({4, "ticker", 5});
+	ASSERT_TRUE(registry.update(
+		by_ticker, {.market_tickers = {"B"}, .action = UpdateAction::AddMarkets}, true, frames));
+	ASSERT_TRUE(registry.update(
+		by_id, {.market_ids = {"uuid-2"}, .action = UpdateAction::AddMarkets}, true, frames));
+	ASSERT_TRUE(registry.update(
+		by_id, {.market_ids = {"uuid-3"}, .action = UpdateAction::AddMarkets}, true, frames));
+
+	const Reaction both = registry.on_ok(
+		{5, 4, std::nullopt, R"({"market_tickers":["A","B"],"market_ids":["uuid-a","uuid-b"]})"});
+	ASSERT_TRUE(both.message.has_value());
+	EXPECT_EQ(std::get<kalshi::ws::Updated>(*both.message).market_ids,
+			  (std::vector<std::string>{"uuid-a", "uuid-b"})); // reported as sent
+	registry.on_ok({6, 5, std::nullopt, R"({"market_tickers":["X","Y"]})"});
+	registry.on_ok(
+		{7, 5, std::nullopt,
+		 R"({"market_tickers":["X","Y","Z"],"market_ids":["uuid-1","uuid-2","uuid-3"]})"});
+
+	frames.clear();
+	registry.on_disconnected();
+	registry.on_connected(frames);
+	EXPECT_EQ(
+		frames,
+		(std::vector<std::string>{
+			R"({"id":8,"cmd":"subscribe","params":{"channels":["ticker"],"market_tickers":["A","B"]}})",
+			R"({"id":9,"cmd":"subscribe","params":{"channels":["ticker"],"market_ids":["uuid-1","uuid-2","uuid-3"]}})"}));
+}

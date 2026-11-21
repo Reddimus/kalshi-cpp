@@ -21,6 +21,10 @@ struct Reaction {
 	std::optional<WsError> error;
 };
 
+/// How a subscription names its markets. Kalshi's subscribe takes exactly one
+/// of market_ticker, market_tickers, market_id, and market_ids.
+enum class MarketSelector : std::uint8_t { None, Tickers, Ids };
+
 /// Tracks subscriptions and in-flight commands across reconnects.
 ///
 /// A subscription keeps its handle while its server `sid` changes. Commands
@@ -30,13 +34,16 @@ struct Reaction {
 class SubscriptionRegistry {
 public:
 	/// Adds a subscription, rejecting invalid intervals, duplicate orderbook handles,
-	/// and market IDs outside the ticker channel. Frames to send are appended only
-	/// when connected.
+	/// market IDs outside the ticker channel, more than one market selector, empty
+	/// tickers or IDs, and shard parameters outside the spec's bounds. Frames to
+	/// send are appended only when connected.
 	Result<ws::Subscription> subscribe(ws::Channel channel, ws::SubscribeParams params,
 									   bool connected, std::vector<std::string>& frames);
 	Result<void> unsubscribe(ws::Subscription subscription, std::vector<std::string>& frames);
 	/// Changes a subscription. The change reaches the parameters used to
 	/// resubscribe once the server confirms it, so a rejected change is dropped.
+	/// Markets are named with the selector the subscription uses, so its
+	/// resubscribe names them one way.
 	Result<void> update(ws::Subscription subscription, const ws::UpdateSubscriptionParams& params,
 						bool connected, std::vector<std::string>& frames);
 	/// Returns the command's ID, which the reply's SubscriptionList carries.
@@ -81,6 +88,8 @@ private:
 		/// Has used a market filter. Once every market is removed, it is
 		/// not resubscribed, which would stream every market instead.
 		bool filtered{false};
+		/// Set by the subscribe, or by the first market change while unfiltered.
+		MarketSelector selector{MarketSelector::None};
 		/// Matches added with subscribe_matches. A subscribe carries none, so
 		/// they are sent again each time the server confirms the subscription.
 		std::vector<std::string> match_ids;

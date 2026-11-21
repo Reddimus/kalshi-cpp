@@ -13,8 +13,12 @@ pending; if the server rejects unsubscribe, retry the update on the same handle.
 Terminal channel errors 10 and 25 also remove the handle; subscribe again
 from `on_error` when ready to resume.
 `market_id` and `market_ids` select markets only on `Ticker`; other channels
-reject them. Matches added to an `EbattleScores` subscription are added again
-after a reconnect.
+reject them. A subscribe names markets with one of `market_ticker`,
+`market_tickers`, `market_id`, and `market_ids`, never an empty one, and its
+updates name markets the same way. `shard_key` needs a `shard_factor` from 1
+to 100 and must be below it.
+Matches added to an `EbattleScores` subscription are added again after a
+reconnect.
 Set `update_interval_ms` to `V0`, `V100`, or `V1000`, or omit it for zero milliseconds.
 
 | Channel | `ws::Channel` | Messages |
