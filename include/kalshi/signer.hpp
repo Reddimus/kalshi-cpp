@@ -44,7 +44,12 @@ public:
 
 	/// Reads a PEM private key from a file. See from_pem(). A file that cannot
 	/// be opened or read, or that is larger than 1 MiB, fails with
-	/// ErrorCode::InvalidKey.
+	/// ErrorCode::InvalidKey. On POSIX systems a FIFO is read like any file:
+	/// opening it waits for a writer, so this call blocks until one appears.
+	/// Running out of memory also fails with ErrorCode::InvalidKey, except that
+	/// std::bad_alloc can escape where building that error must allocate: MSVC
+	/// builds with a nonzero _ITERATOR_DEBUG_LEVEL (the Debug default), and
+	/// libstdc++'s old copy-on-write string ABI.
 	[[nodiscard]] static Result<Signer> from_pem_file(std::string_view api_key_id,
 													  std::string_view file_path);
 
