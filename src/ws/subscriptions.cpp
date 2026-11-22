@@ -645,7 +645,7 @@ Reaction SubscriptionRegistry::on_malformed(const MalformedFrame& frame, bool re
 		if (Entry* entry = find_by_sid(*frame.sid)) {
 			error.subscription = entry->handle;
 			if (frame.seq && (!entry->last_seq || *frame.seq > *entry->last_seq)) {
-				entry->last_seq = *frame.seq;
+				entry->last_seq = frame.seq;
 			}
 			if (resync) {
 				append_resync(*entry, reaction.frames);
