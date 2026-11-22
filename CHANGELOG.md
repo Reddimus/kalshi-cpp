@@ -6,6 +6,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.9.5] - 2026-11-22
+
 ### Fixed
 
 - Reject WebSocket data frames missing `sid`, carrying `sid < 1`, or missing a JSON object `msg`
