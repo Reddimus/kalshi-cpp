@@ -17,11 +17,50 @@
 namespace kalshi::detail {
 
 inline constexpr JsonReadOptions kWsReadOptions{{.error_on_unknown_keys = false}};
+inline constexpr JsonReadOptions kWsEnvelopeReadOptions{
+	{.error_on_unknown_keys = false, .error_on_missing_keys = true}};
+inline constexpr glz::opts kWsPartialOptions{.error_on_unknown_keys = false, .partial_read = true};
+
+struct DataEnvelope {
+	std::int64_t sid{0};
+	glz::raw_json_view msg;
+};
+
+struct PartialEnvelope {
+	std::optional<std::int64_t> sid;
+	std::optional<std::int64_t> seq;
+};
+
+/// Checks that a data frame carries a positive `sid` and a JSON object `msg`
+/// before lenient body parsing or null-member stripping runs.
+[[nodiscard]] inline bool has_valid_data_envelope(const std::string& json) {
+	DataEnvelope envelope;
+	if (glz::read<kWsEnvelopeReadOptions>(envelope, json) || envelope.sid < 1) {
+		return false;
+	}
+	const std::string_view raw = envelope.msg.str;
+	const std::size_t first = raw.find_first_not_of(" \t\n\r");
+	return first != std::string_view::npos && raw[first] == '{';
+}
+
+/// Best-effort extraction of `sid` (>= 1) and `seq` from a malformed data frame
+/// so the registry can attach the error and self-heal sequenced streams.
+[[nodiscard]] inline PartialEnvelope partial_envelope(const std::string& json) {
+	PartialEnvelope envelope;
+	(void)glz::read<kWsPartialOptions>(envelope, json);
+	if (envelope.sid && *envelope.sid < 1) {
+		envelope.sid.reset();
+	}
+	return envelope;
+}
 
 /// Reads a data frame into ws::Update<T>, retrying without null members when
 /// Kalshi sends null for a field its spec marks non-null.
 template <typename T>
 [[nodiscard]] std::optional<WsMessage> read_update(const std::string& json) {
+	if (!has_valid_data_envelope(json)) {
+		return std::nullopt;
+	}
 	ws::Update<T> update;
 	if (!glz::read<kWsReadOptions>(update, json)) {
 		return WsMessage{std::move(update)};
@@ -36,8 +75,6 @@ template <typename T>
 	}
 	return std::nullopt;
 }
-
-inline constexpr glz::opts kWsPartialOptions{.error_on_unknown_keys = false, .partial_read = true};
 
 struct TypeField {
 	std::string_view type;

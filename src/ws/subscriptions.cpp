@@ -455,11 +455,30 @@ Reaction SubscriptionRegistry::on_subscribed(const SubscribedFrame& frame) {
 	Entry* entry =
 		command && command->kind == Kind::Subscribe ? find(command->subscription) : nullptr;
 	if (entry == nullptr) {
+		// A replayed confirmation for a live subscription must not unsubscribe it.
+		if (find_by_sid(frame.sid) != nullptr) {
+			return reaction;
+		}
 		// Nothing here wants this subscription any more; end it.
 		const std::int64_t id = next_id();
 		commands_[id] = InFlight{Kind::Unsubscribe, 0};
 		reaction.frames.push_back(
 			render_command(Command<SidsWire>{id, "unsubscribe", {{frame.sid}}}));
+		return reaction;
+	}
+	if (const Entry* owner = find_by_sid(frame.sid); owner != nullptr && owner != entry) {
+		const ws::Subscription failed = entry->handle;
+		erase(failed.id);
+		reaction.error =
+			WsError{0,
+					"Server assigned sid " + std::to_string(frame.sid) + " to subscription " +
+						std::to_string(failed.id) + ", already owned by subscription " +
+						std::to_string(owner->handle.id),
+					frame.id,
+					frame.sid,
+					std::nullopt,
+					failed,
+					frame.sending_ts_ms};
 		return reaction;
 	}
 	entry->sid = frame.sid;
@@ -600,6 +619,7 @@ Reaction SubscriptionRegistry::on_data(WsMessage& message, bool resync) {
 				}
 				Entry* entry = find_by_sid(update.sid);
 				if (entry == nullptr) {
+					reaction.drop_data = true;
 					return;
 				}
 				update.subscription = entry->handle.id;
@@ -610,6 +630,29 @@ Reaction SubscriptionRegistry::on_data(WsMessage& message, bool resync) {
 			}
 		},
 		message);
+	return reaction;
+}
+
+Reaction SubscriptionRegistry::on_malformed(const MalformedFrame& frame, bool resync) {
+	Reaction reaction;
+	WsError error{0,
+				  "Could not parse a " + frame.type + " frame",
+				  std::nullopt,
+				  frame.sid,
+				  frame.seq,
+				  std::nullopt};
+	if (frame.sid) {
+		if (Entry* entry = find_by_sid(*frame.sid)) {
+			error.subscription = entry->handle;
+			if (frame.seq && (!entry->last_seq || *frame.seq > *entry->last_seq)) {
+				entry->last_seq = frame.seq;
+			}
+			if (resync) {
+				append_resync(*entry, reaction.frames);
+			}
+		}
+	}
+	reaction.error = std::move(error);
 	return reaction;
 }
 
@@ -649,7 +692,11 @@ void SubscriptionRegistry::erase(std::int64_t subscription) {
 		return;
 	}
 	if (found->second.sid != 0) {
-		by_sid_.erase(found->second.sid);
+		const std::unordered_map<std::int64_t, std::int64_t>::iterator sid_it =
+			by_sid_.find(found->second.sid);
+		if (sid_it != by_sid_.end() && sid_it->second == subscription) {
+			by_sid_.erase(sid_it);
+		}
 	}
 	entries_.erase(found);
 	std::erase_if(commands_, [subscription](const std::pair<const std::int64_t, InFlight>& item) {
@@ -662,32 +709,56 @@ SubscriptionRegistry::Entry* SubscriptionRegistry::find_by_sid(std::int64_t sid)
 	return found == by_sid_.end() ? nullptr : find(found->second);
 }
 
+void SubscriptionRegistry::append_resync(Entry& entry, std::vector<std::string>& frames) {
+	if (entry.handle.channel != ws::Channel::OrderbookDelta || entry.state != State::Active) {
+		return;
+	}
+	ws::UpdateSubscriptionParams snapshots;
+	snapshots.action = ws::UpdateAction::GetSnapshot;
+	snapshots.market_tickers = entry.params.market_tickers;
+	if (entry.params.market_ticker) {
+		snapshots.market_tickers.push_back(*entry.params.market_ticker);
+	}
+	if (!snapshots.market_tickers.empty()) {
+		frames.push_back(update_frame(entry, snapshots));
+	}
+}
+
 std::optional<WsError> SubscriptionRegistry::check_seq(Entry& entry, std::int64_t sid,
 													   std::int64_t seq, bool resync,
 													   std::vector<std::string>& frames) {
 	std::optional<WsError> gap;
 	constexpr std::int64_t kMaxSeq = std::numeric_limits<std::int64_t>::max();
-	if (entry.last_seq && (*entry.last_seq == kMaxSeq || seq != *entry.last_seq + 1)) {
-		gap = WsError{0,
-					  "Missed messages on subscription " + std::to_string(entry.handle.id) +
-						  ": expected seq " +
-						  (*entry.last_seq == kMaxSeq ? std::string{"beyond INT64_MAX"}
-													  : std::to_string(*entry.last_seq + 1)) +
-						  ", got " + std::to_string(seq),
-					  std::nullopt,
-					  sid,
-					  seq,
-					  entry.handle};
-		if (resync && entry.handle.channel == ws::Channel::OrderbookDelta &&
-			entry.state == State::Active) {
-			ws::UpdateSubscriptionParams snapshots;
-			snapshots.action = ws::UpdateAction::GetSnapshot;
-			snapshots.market_tickers = entry.params.market_tickers;
-			if (entry.params.market_ticker) {
-				snapshots.market_tickers.push_back(*entry.params.market_ticker);
+	if (entry.last_seq) {
+		if (*entry.last_seq == kMaxSeq) {
+			gap = WsError{0,
+						  "Missed messages on subscription " + std::to_string(entry.handle.id) +
+							  ": expected seq beyond INT64_MAX, got " + std::to_string(seq),
+						  std::nullopt,
+						  sid,
+						  seq,
+						  entry.handle};
+			if (resync) {
+				append_resync(entry, frames);
 			}
-			if (!snapshots.market_tickers.empty()) {
-				frames.push_back(update_frame(entry, snapshots));
+			entry.last_seq = seq;
+			return gap;
+		}
+		if (seq <= *entry.last_seq) {
+			// Replayed or out-of-order frame: nothing was missed; keep last_seq intact.
+			return std::nullopt;
+		}
+		if (seq > *entry.last_seq + 1) {
+			gap = WsError{0,
+						  "Missed messages on subscription " + std::to_string(entry.handle.id) +
+							  ": expected seq " + std::to_string(*entry.last_seq + 1) + ", got " +
+							  std::to_string(seq),
+						  std::nullopt,
+						  sid,
+						  seq,
+						  entry.handle};
+			if (resync) {
+				append_resync(entry, frames);
 			}
 		}
 	}

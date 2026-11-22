@@ -130,6 +130,12 @@ class Member:
     base_kind: str = ""  # "string", "enum", "struct", "vector", ...
     element: str = ""  # struct or enum name for validation
     read_only: bool = False
+    minimum: int | None = None
+    maximum: int | None = None
+    min_items: int | None = None
+    max_items: int | None = None
+    min_length: int | None = None
+    max_length: int | None = None
 
 
 @dataclass

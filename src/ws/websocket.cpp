@@ -819,7 +819,9 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 			const std::lock_guard lock(mutex);
 			if (WsMessage* message = std::get_if<WsMessage>(&frame)) {
 				reaction = registry.on_data(*message, config.resync_on_gap);
-				data = std::move(*message);
+				if (!reaction.drop_data) {
+					data = std::move(*message);
+				}
 			} else if (const detail::SubscribedFrame* subscribed =
 						   std::get_if<detail::SubscribedFrame>(&frame)) {
 				reaction = registry.on_subscribed(*subscribed);
@@ -832,12 +834,7 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 				reaction = registry.on_error(*error, config.resync_on_gap);
 			} else if (const detail::MalformedFrame* malformed =
 						   std::get_if<detail::MalformedFrame>(&frame)) {
-				reaction.error = WsError{0,
-										 "Could not parse a " + malformed->type + " frame",
-										 std::nullopt,
-										 std::nullopt,
-										 std::nullopt,
-										 std::nullopt};
+				reaction = registry.on_malformed(*malformed, config.resync_on_gap);
 			}
 			for (std::string& command : reaction.frames) {
 				outbox.push_back(std::move(command));

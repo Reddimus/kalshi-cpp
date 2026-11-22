@@ -19,6 +19,7 @@ struct Reaction {
 	std::vector<std::string> frames;
 	std::optional<WsMessage> message;
 	std::optional<WsError> error;
+	bool drop_data{false};
 };
 
 /// How a subscription names its markets. Kalshi's subscribe takes exactly one
@@ -76,7 +77,11 @@ public:
 	/// Fills in Update::subscription and reports sequence gaps, snapshots
 	/// included. On an orderbook_delta gap, `resync` requests fresh snapshots.
 	/// A reply carrying a command ID, such as a get_snapshot snapshot, completes it.
+	/// Sets Reaction::drop_data when `sid` does not belong to a live subscription.
 	Reaction on_data(WsMessage& message, bool resync);
+	/// Reports a malformed frame, attaching it to the subscription when `sid`
+	/// is live and requesting an orderbook snapshot resync when `resync` is set.
+	Reaction on_malformed(const MalformedFrame& frame, bool resync);
 
 	[[nodiscard]] std::vector<ws::Subscription> subscriptions() const;
 
@@ -124,6 +129,7 @@ private:
 	/// snapshot request an orderbook resync needs.
 	std::optional<WsError> check_seq(Entry& entry, std::int64_t sid, std::int64_t seq, bool resync,
 									 std::vector<std::string>& frames);
+	void append_resync(Entry& entry, std::vector<std::string>& frames);
 	/// Checks the sequence number that frames such as `ok` carry.
 	std::optional<WsError> check_frame_seq(std::optional<std::int64_t> sid,
 										   std::optional<std::int64_t> seq, bool resync,

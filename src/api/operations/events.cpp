@@ -25,6 +25,9 @@ KalshiClient::get_market_candlesticks_by_event(std::string_view series_ticker,
 }
 
 Result<GetEventsResponse> KalshiClient::get_events(const GetEventsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/events"});
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
@@ -41,6 +44,9 @@ Result<GetEventsResponse> KalshiClient::get_events(const GetEventsParams& params
 
 Result<GetMultivariateEventsResponse>
 KalshiClient::get_multivariate_events(const GetMultivariateEventsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/events/multivariate"});
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
@@ -54,6 +60,9 @@ KalshiClient::get_multivariate_events(const GetMultivariateEventsParams& params)
 
 Result<GetEventFeeChangesResponse>
 KalshiClient::get_event_fee_changes(const GetEventFeeChangesParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/events/fee_changes"});
 	query.add("event_ticker", params.event_ticker);
 	query.add("limit", params.limit);
@@ -88,6 +97,9 @@ Result<GetEventMetadataResponse> KalshiClient::get_event_metadata(std::string_vi
 Result<std::vector<ForecastPercentilesPoint>> KalshiClient::get_event_forecast_percentiles_history(
 	std::string_view series_ticker, std::string_view ticker,
 	const GetEventForecastPercentilesHistoryParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target =
 		detail::expand_path("/series/{series_ticker}/events/{ticker}/forecast_percentile_history",
 							{series_ticker, ticker});

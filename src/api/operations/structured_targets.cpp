@@ -8,6 +8,9 @@ namespace kalshi {
 
 Result<GetStructuredTargetsResponse>
 KalshiClient::get_structured_targets(const GetStructuredTargetsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/structured_targets"});
 	query.add("ids", params.ids);
 	query.add("type", params.type);

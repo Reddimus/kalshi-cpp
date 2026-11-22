@@ -41,6 +41,9 @@ KalshiClient::create_market_in_multivariate_event_collection(
 
 Result<GetMultivariateEventCollectionsResponse> KalshiClient::get_multivariate_event_collections(
 	const GetMultivariateEventCollectionsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/multivariate_event_collections"});
 	query.add("status", params.status);
 	query.add("associated_event_ticker", params.associated_event_ticker);

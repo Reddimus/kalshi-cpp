@@ -7,6 +7,9 @@
 namespace kalshi {
 
 Result<GetOrdersResponse> KalshiClient::get_orders(const GetOrdersParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/portfolio/orders"});
 	query.add("ticker", params.ticker);
 	query.add("event_ticker", params.event_ticker);
@@ -36,6 +39,9 @@ Result<Order> KalshiClient::get_order(std::string_view order_id) {
 
 Result<std::vector<OrderQueuePosition>>
 KalshiClient::get_order_queue_positions(const GetOrderQueuePositionsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/portfolio/orders/queue_positions"});
 	query.add("market_tickers", params.market_tickers);
 	query.add("event_ticker", params.event_ticker);
@@ -73,6 +79,9 @@ Result<CreateOrderV2Response> KalshiClient::create_order(const CreateOrderV2Requ
 }
 
 Result<void> KalshiClient::cancel_all_orders(const CancelAllOrdersParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/portfolio/events/orders"});
 	query.add("subaccount", params.subaccount);
 	return detail::expect_success(
@@ -119,6 +128,9 @@ KalshiClient::create_order_with_exit_trigger(const CreateOrderWithExitTriggerReq
 
 Result<CancelOrderV2Response> KalshiClient::cancel_order(std::string_view order_id,
 														 const CancelOrderParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target =
 		detail::expand_path("/portfolio/events/orders/{order_id}", {order_id});
 	if (!target) {
@@ -138,6 +150,9 @@ Result<AmendOrderV2Response> KalshiClient::amend_order(std::string_view order_id
 	if (Result<void> valid = detail::validate(body); !valid) {
 		return std::unexpected(std::move(valid.error()));
 	}
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target =
 		detail::expand_path("/portfolio/events/orders/{order_id}/amend", {order_id});
 	if (!target) {
@@ -154,6 +169,9 @@ Result<DecreaseOrderV2Response> KalshiClient::decrease_order(std::string_view or
 															 const DecreaseOrderV2Request& body,
 															 const DecreaseOrderParams& params) {
 	if (Result<void> valid = detail::validate(body); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
+	if (Result<void> valid = detail::validate(params); !valid) {
 		return std::unexpected(std::move(valid.error()));
 	}
 	Result<std::string> target =

@@ -1381,3 +1381,120 @@ TEST(WsSubscriptions, UpdateActionsBelongToTheirChannels) {
 	ASSERT_TRUE(registry.update(scores, matches, true, frames));
 	EXPECT_EQ(frames.size(), 4U);
 }
+
+TEST(WsSubscriptions, SidCollisionReportsErrorAndKeepsExistingOwner) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription a =
+		registry.subscribe(Channel::Ticker, {.market_ticker = "A"}, true, frames).value();
+	const kalshi::ws::Subscription b =
+		registry.subscribe(Channel::Ticker, {.market_ticker = "B"}, true, frames).value();
+	ASSERT_TRUE(registry.on_subscribed({2, "ticker", 4}).message.has_value());
+
+	const Reaction collision = registry.on_subscribed({4, "ticker", 4});
+	EXPECT_FALSE(collision.message.has_value());
+	ASSERT_TRUE(collision.error.has_value());
+	EXPECT_EQ(collision.error->subscription, b);
+	EXPECT_EQ(collision.error->sid, 4);
+	EXPECT_TRUE(collision.frames.empty());
+
+	kalshi::ws::Update<kalshi::ws::Ticker> update;
+	update.sid = 4;
+	kalshi::WsMessage message = update;
+	const Reaction data = registry.on_data(message, false);
+	EXPECT_FALSE(data.drop_data);
+	EXPECT_EQ(std::get<kalshi::ws::Update<kalshi::ws::Ticker>>(message).subscription, a.id);
+	EXPECT_EQ(registry.subscriptions(), (std::vector<kalshi::ws::Subscription>{a}));
+}
+
+TEST(WsSubscriptions, DuplicateSubscribedForLiveSidDoesNotUnsubscribe) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription a =
+		registry.subscribe(Channel::Ticker, {.market_ticker = "A"}, true, frames).value();
+	ASSERT_TRUE(registry.on_subscribed({2, "ticker", 4}).message.has_value());
+
+	const Reaction replay = registry.on_subscribed({2, "ticker", 4});
+	EXPECT_TRUE(replay.frames.empty());
+	EXPECT_FALSE(replay.message.has_value());
+	EXPECT_FALSE(replay.error.has_value());
+	EXPECT_EQ(registry.subscriptions(), (std::vector<kalshi::ws::Subscription>{a}));
+}
+
+TEST(WsSubscriptions, ReplayedAndOutOfOrderSeqsDoNotGapOrPoisonLastSeq) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	ASSERT_TRUE(registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames));
+	registry.on_subscribed({2, "orderbook_delta", 3});
+
+	kalshi::WsMessage s1 = delta(3, 1);
+	kalshi::WsMessage s2 = delta(3, 2);
+	kalshi::WsMessage s2_replay = delta(3, 2);
+	kalshi::WsMessage s1_old = delta(3, 1);
+	kalshi::WsMessage s3 = delta(3, 3);
+	EXPECT_FALSE(registry.on_data(s1, true).error.has_value());
+	EXPECT_FALSE(registry.on_data(s2, true).error.has_value());
+
+	const Reaction dup = registry.on_data(s2_replay, true);
+	EXPECT_FALSE(dup.error.has_value());
+	EXPECT_TRUE(dup.frames.empty());
+
+	const Reaction older = registry.on_data(s1_old, true);
+	EXPECT_FALSE(older.error.has_value());
+	EXPECT_TRUE(older.frames.empty());
+
+	// last_seq stayed at 2, so seq 3 is consecutive with no spurious gap.
+	const Reaction next = registry.on_data(s3, true);
+	EXPECT_FALSE(next.error.has_value());
+	EXPECT_TRUE(next.frames.empty());
+
+	// Sequenced ok frames with a duplicate seq behave the same way.
+	const Reaction ok_dup = registry.on_ok({std::nullopt, 3, 3}, true);
+	EXPECT_FALSE(ok_dup.error.has_value());
+	EXPECT_TRUE(ok_dup.frames.empty());
+}
+
+TEST(WsSubscriptions, UnknownSidDataFramesAreMarkedDropped) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription a =
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames).value();
+	registry.on_subscribed({2, "orderbook_delta", 5});
+
+	kalshi::WsMessage live = delta(5, 1);
+	const Reaction ok = registry.on_data(live, true);
+	EXPECT_FALSE(ok.drop_data);
+	EXPECT_EQ(std::get<kalshi::ws::Update<kalshi::ws::OrderbookDelta>>(live).subscription, a.id);
+
+	ASSERT_TRUE(registry.unsubscribe(a, frames));
+	registry.on_unsubscribed({3, 5});
+
+	kalshi::WsMessage ghost = delta(5, 2);
+	const Reaction dropped = registry.on_data(ghost, true);
+	EXPECT_TRUE(dropped.drop_data);
+	EXPECT_FALSE(dropped.error.has_value());
+	EXPECT_TRUE(dropped.frames.empty());
+}
+
+TEST(WsSubscriptions, MalformedOrderbookFrameReportsSubscriptionAndResyncs) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription book =
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames).value();
+	registry.on_subscribed({2, "orderbook_delta", 3});
+
+	const Reaction malformed =
+		registry.on_malformed(kalshi::detail::MalformedFrame{"orderbook_snapshot", 3, 1}, true);
+	ASSERT_TRUE(malformed.error.has_value());
+	EXPECT_EQ(malformed.error->subscription, book);
+	EXPECT_EQ(malformed.error->sid, 3);
+	EXPECT_EQ(malformed.error->seq, 1);
+	ASSERT_EQ(malformed.frames.size(), 1U);
+	EXPECT_NE(malformed.frames[0].find(R"("action":"get_snapshot")"), std::string::npos);
+
+	// The malformed snapshot's seq was recorded, so a jump to seq 3 is caught as a gap.
+	kalshi::WsMessage skipped = delta(3, 3);
+	const Reaction gap = registry.on_data(skipped, true);
+	ASSERT_TRUE(gap.error.has_value());
+	EXPECT_NE(gap.error->message.find("expected seq 2, got 3"), std::string::npos);
+}

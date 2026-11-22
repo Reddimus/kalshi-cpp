@@ -277,3 +277,38 @@ TEST(WsFrames, NumericSubscriptionIntervalsStayJsonNumbers) {
 	EXPECT_EQ(interval, kalshi::ws::UpdateIntervalMs::Unknown);
 	EXPECT_TRUE(glz::read_json(interval, "\"100\""));
 }
+
+TEST(WsFrames, DataFramesRequirePositiveSidAndObjectMsg) {
+	for (const std::string_view json : {
+			 std::string_view{R"({"type":"ticker"})"},
+			 std::string_view{R"({"type":"ticker","sid":5})"},
+			 std::string_view{R"({"type":"ticker","msg":{"market_ticker":"KXA"}})"},
+			 std::string_view{R"({"type":"ticker","sid":0,"msg":{"market_ticker":"KXA"}})"},
+			 std::string_view{R"({"type":"ticker","sid":-3,"msg":{"market_ticker":"KXA"}})"},
+			 std::string_view{R"({"type":"ticker","sid":5,"msg":null})"},
+			 std::string_view{R"({"type":"ticker","sid":5,"msg":[]})"},
+			 std::string_view{R"({"type":"trade","sid":11,"seq":2,"msg":null})"},
+			 std::string_view{R"({"type":"orderbook_snapshot","sid":2,"seq":1})"},
+		 }) {
+		const kalshi::detail::Frame frame = kalshi::detail::parse_frame(std::string{json});
+		EXPECT_TRUE(std::holds_alternative<kalshi::detail::MalformedFrame>(frame)) << json;
+	}
+}
+
+TEST(WsFrames, MalformedDataFramesPreserveEnvelopeSidAndSeq) {
+	const kalshi::detail::Frame snapshot = kalshi::detail::parse_frame(
+		R"({"type":"orderbook_snapshot","sid":3,"seq":1,"msg":{"market_ticker":"KXA","market_id":"m","yes_dollars_fp":[["0.4500",null]]}})");
+	const kalshi::detail::MalformedFrame* malformed =
+		std::get_if<kalshi::detail::MalformedFrame>(&snapshot);
+	ASSERT_NE(malformed, nullptr);
+	EXPECT_EQ(malformed->type, "orderbook_snapshot");
+	EXPECT_EQ(malformed->sid, 3);
+	EXPECT_EQ(malformed->seq, 1);
+
+	const kalshi::detail::Frame bad_sid =
+		kalshi::detail::parse_frame(R"({"type":"ticker","sid":0,"msg":{}})");
+	const kalshi::detail::MalformedFrame* zero_sid =
+		std::get_if<kalshi::detail::MalformedFrame>(&bad_sid);
+	ASSERT_NE(zero_sid, nullptr);
+	EXPECT_FALSE(zero_sid->sid.has_value());
+}

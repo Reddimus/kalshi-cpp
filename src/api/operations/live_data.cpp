@@ -42,6 +42,9 @@ Result<LiveData> KalshiClient::get_live_data(std::string_view type, std::string_
 }
 
 Result<std::vector<LiveData>> KalshiClient::get_live_datas(const GetLiveDatasParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/live_data/batch"});
 	query.add("milestone_ids", params.milestone_ids);
 	query.add("include_player_stats", params.include_player_stats);
@@ -86,6 +89,9 @@ Result<EventLiveData> KalshiClient::get_event_live_data(std::string_view event_t
 
 Result<GetWeatherIndexResponse>
 KalshiClient::get_weather_index(std::string_view city, const GetWeatherIndexParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target = detail::expand_path("/live_data/weather/{city}", {city});
 	if (!target) {
 		return std::unexpected(std::move(target.error()));

@@ -9,6 +9,9 @@ namespace kalshi {
 Result<GetEventContractExitTriggersResponse>
 KalshiClient::get_event_contract_exit_triggers(std::string_view ticker,
 											   const GetEventContractExitTriggersParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target =
 		detail::expand_path("/portfolio/positions/{ticker}/exit_trigger", {ticker});
 	if (!target) {
@@ -29,6 +32,9 @@ KalshiClient::set_event_contract_exit_trigger(std::string_view ticker,
 	if (Result<void> valid = detail::validate(body); !valid) {
 		return std::unexpected(std::move(valid.error()));
 	}
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target =
 		detail::expand_path("/portfolio/positions/{ticker}/exit_trigger", {ticker});
 	if (!target) {
@@ -43,6 +49,9 @@ KalshiClient::set_event_contract_exit_trigger(std::string_view ticker,
 
 Result<void> KalshiClient::delete_event_contract_exit_trigger(
 	std::string_view ticker, const DeleteEventContractExitTriggerParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target =
 		detail::expand_path("/portfolio/positions/{ticker}/exit_trigger", {ticker});
 	if (!target) {
@@ -56,6 +65,9 @@ Result<void> KalshiClient::delete_event_contract_exit_trigger(
 }
 
 Result<GetBalanceResponse> KalshiClient::get_balance(const GetBalanceParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/portfolio/balance"});
 	query.add("subaccount", params.subaccount);
 	query.add("exchange_index", params.exchange_index);
@@ -82,6 +94,9 @@ KalshiClient::intra_exchange_instance_transfer(const IntraExchangeInstanceTransf
 Result<GetIntraExchangeInstanceTransfersResponse>
 KalshiClient::get_intra_exchange_instance_transfers(
 	const GetIntraExchangeInstanceTransfersParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/portfolio/intra_exchange_instance_transfers"});
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
@@ -137,6 +152,9 @@ Result<std::vector<SubaccountBalance>> KalshiClient::get_subaccount_balances() {
 
 Result<GetSubaccountTransfersResponse>
 KalshiClient::get_subaccount_transfers(const GetSubaccountTransfersParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/portfolio/subaccounts/transfers"});
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
@@ -161,6 +179,9 @@ Result<void> KalshiClient::update_subaccount_netting(const UpdateSubaccountNetti
 }
 
 Result<GetPositionsResponse> KalshiClient::get_positions(const GetPositionsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/portfolio/positions"});
 	query.add("cursor", params.cursor);
 	query.add("limit", params.limit);
@@ -175,6 +196,9 @@ Result<GetPositionsResponse> KalshiClient::get_positions(const GetPositionsParam
 }
 
 Result<GetSettlementsResponse> KalshiClient::get_settlements(const GetSettlementsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/portfolio/settlements"});
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
@@ -189,6 +213,9 @@ Result<GetSettlementsResponse> KalshiClient::get_settlements(const GetSettlement
 
 Result<GetCreditHistoryResponse>
 KalshiClient::get_credit_history(const GetCreditHistoryParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/portfolio/credit_history"});
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
@@ -199,6 +226,9 @@ KalshiClient::get_credit_history(const GetCreditHistoryParams& params) {
 }
 
 Result<GetDepositsResponse> KalshiClient::get_deposits(const GetDepositsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/portfolio/deposits"});
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
@@ -207,6 +237,9 @@ Result<GetDepositsResponse> KalshiClient::get_deposits(const GetDepositsParams& 
 }
 
 Result<GetWithdrawalsResponse> KalshiClient::get_withdrawals(const GetWithdrawalsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/portfolio/withdrawals"});
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
@@ -222,6 +255,9 @@ KalshiClient::get_portfolio_resting_order_total_value() {
 }
 
 Result<GetFillsResponse> KalshiClient::get_fills(const GetFillsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/portfolio/fills"});
 	query.add("ticker", params.ticker);
 	query.add("order_id", params.order_id);
@@ -243,6 +279,9 @@ Result<GetTargetBalanceAllocationResponse> KalshiClient::get_target_balance_allo
 
 Result<void>
 KalshiClient::set_target_balance_allocation(const SetTargetBalanceAllocationRequest& body) {
+	if (Result<void> valid = detail::validate(body); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	return detail::expect_success(Impl::send(
 		impl_.get(), HttpMethod::POST, std::string{"/portfolio/target_balance_allocation"},
 		detail::encode(body), "set_target_balance_allocation"));

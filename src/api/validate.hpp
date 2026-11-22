@@ -4,6 +4,7 @@
 #include "kalshi/api.hpp"
 #include "kalshi/fixed_point.hpp"
 
+#include <cstddef>
 #include <string>
 #include <string_view>
 
@@ -15,9 +16,27 @@ inline Result<void> invalid(std::string_view type, std::string_view field, std::
 			  std::string(type) + "." + std::string(field) + " " + std::string(why)});
 }
 
+inline bool is_valid_client_order_id(std::string_view text) noexcept {
+	if (text.size() > 64) {
+		return false;
+	}
+	for (const char ch : text) {
+		const bool alpha = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+		const bool digit = ch >= '0' && ch <= '9';
+		const bool punct =
+			ch == '_' || ch == '-' || ch == ':' || ch == '+' || ch == '=' || ch == '/';
+		if (!alpha && !digit && !punct) {
+			return false;
+		}
+	}
+	return true;
+}
+
+inline Result<void> validate(const AcceptBlockTradeProposalRequest& value);
 inline Result<void> validate(const AcceptQuoteRequest& value);
 inline Result<void> validate(const RFQBatchAcceptLimit& value);
 inline Result<void> validate(const AcceptRFQBatchRequest& value);
+inline Result<void> validate(const AmendOrderParams& value);
 inline Result<void> validate(const AmendOrderV2Request& value);
 inline Result<void> validate(const ApplySubaccountTransferRequest& value);
 inline Result<void> validate(const EventContractExitSlippage& value);
@@ -26,6 +45,9 @@ inline Result<void> validate(const BatchCancelOrdersV2RequestOrdersItem& value);
 inline Result<void> validate(const BatchCancelOrdersV2Request& value);
 inline Result<void> validate(const CreateOrderV2Request& value);
 inline Result<void> validate(const BatchCreateOrdersV2Request& value);
+inline Result<void> validate(const BatchGetMarketCandlesticksParams& value);
+inline Result<void> validate(const CancelAllOrdersParams& value);
+inline Result<void> validate(const CancelOrderParams& value);
 inline Result<void> validate(const CreateApiKeyRequest& value);
 inline Result<void> validate(const CreateConcertCancellationMarketRequest& value);
 inline Result<void> validate(const CreateFCMPositionTransferRequest& value);
@@ -42,14 +64,75 @@ inline Result<void> validate(const CreateRFQBatchQuoteRequest& value);
 inline Result<void> validate(const CreateRFQBatchRequest& value);
 inline Result<void> validate(const CreateRFQRequest& value);
 inline Result<void> validate(const CreateWeatherPointMarketRequest& value);
+inline Result<void> validate(const DecreaseOrderParams& value);
 inline Result<void> validate(const DecreaseOrderV2Request& value);
+inline Result<void> validate(const DeleteEventContractExitTriggerParams& value);
+inline Result<void> validate(const DeleteFcmEventContractDailyCapParams& value);
+inline Result<void> validate(const DeleteOrderGroupParams& value);
 inline Result<void> validate(const GenerateApiKeyRequest& value);
+inline Result<void> validate(const GetBalanceParams& value);
+inline Result<void> validate(const GetBlockTradeProposalsParams& value);
+inline Result<void> validate(const GetConcertsParams& value);
+inline Result<void> validate(const GetCreditHistoryParams& value);
+inline Result<void> validate(const GetDepositsParams& value);
+inline Result<void> validate(const GetEventContractExitTriggersParams& value);
+inline Result<void> validate(const GetEventFeeChangesParams& value);
+inline Result<void> validate(const GetEventForecastPercentilesHistoryParams& value);
+inline Result<void> validate(const GetEventsParams& value);
+inline Result<void> validate(const GetFcmOrdersParams& value);
+inline Result<void> validate(const GetFcmPositionsParams& value);
+inline Result<void> validate(const GetFcmSubtraderBlockedCategoriesParams& value);
+inline Result<void> validate(const GetFillsHistoricalParams& value);
+inline Result<void> validate(const GetFillsParams& value);
+inline Result<void> validate(const GetFlightsParams& value);
+inline Result<void> validate(const GetHistoricalMarketsParams& value);
+inline Result<void> validate(const GetHistoricalOrdersParams& value);
+inline Result<void> validate(const GetHistoricalPositionsParams& value);
+inline Result<void> validate(const GetIncentiveProgramsParams& value);
+inline Result<void> validate(const GetIntraExchangeInstanceTransfersParams& value);
+inline Result<void> validate(const GetLiveDatasParams& value);
+inline Result<void> validate(const GetMarketOrderbookParams& value);
+inline Result<void> validate(const GetMarketOrderbooksParams& value);
+inline Result<void> validate(const GetMarketsParams& value);
+inline Result<void> validate(const GetMilestonesParams& value);
+inline Result<void> validate(const GetMultivariateEventCollectionsParams& value);
+inline Result<void> validate(const GetMultivariateEventsParams& value);
+inline Result<void> validate(const GetOrderGroupParams& value);
+inline Result<void> validate(const GetOrderGroupsParams& value);
+inline Result<void> validate(const GetOrderQueuePositionsParams& value);
+inline Result<void> validate(const GetOrdersParams& value);
+inline Result<void> validate(const GetPositionsParams& value);
+inline Result<void> validate(const GetQuotesParams& value);
+inline Result<void> validate(const GetRfqBatchesParams& value);
+inline Result<void> validate(const GetRfqsParams& value);
+inline Result<void> validate(const GetSettlementsParams& value);
+inline Result<void> validate(const GetStructuredTargetsParams& value);
+inline Result<void> validate(const GetSubaccountTransfersParams& value);
+inline Result<void> validate(const GetTradesHistoricalParams& value);
+inline Result<void> validate(const GetTradesParams& value);
+inline Result<void> validate(const GetWeatherIndexParams& value);
+inline Result<void> validate(const GetWithdrawalsParams& value);
 inline Result<void> validate(const IntraExchangeInstanceTransferRequest& value);
 inline Result<void> validate(const ProposeBlockTradeRequest& value);
+inline Result<void> validate(const ResetOrderGroupParams& value);
+inline Result<void> validate(const SearchConcertsParams& value);
+inline Result<void> validate(const SetEventContractExitTriggerParams& value);
 inline Result<void> validate(const SetEventContractExitTriggerRequest& value);
+inline Result<void> validate(const TargetBalanceAllocationInput& value);
+inline Result<void> validate(const SetTargetBalanceAllocationRequest& value);
+inline Result<void> validate(const TriggerOrderGroupParams& value);
 inline Result<void> validate(const UpdateFCMEventContractDailyCapRequest& value);
 inline Result<void> validate(const UpdateFCMSubtraderBlockedCategoriesRequest& value);
+inline Result<void> validate(const UpdateOrderGroupLimitParams& value);
 inline Result<void> validate(const UpdateOrderGroupLimitRequest& value);
+
+inline Result<void> validate(const AcceptBlockTradeProposalRequest& value) {
+	if (value.subaccount && (*value.subaccount < 0 || *value.subaccount > 63)) {
+		return invalid("AcceptBlockTradeProposalRequest", "subaccount",
+					   "is outside its allowed range");
+	}
+	return {};
+}
 
 inline Result<void> validate(const AcceptQuoteRequest& value) {
 	if (value.accepted_side == Side::Unknown) {
@@ -72,10 +155,20 @@ inline Result<void> validate(const AcceptRFQBatchRequest& value) {
 	if (value.accepted_side == Side::Unknown) {
 		return invalid("AcceptRFQBatchRequest", "accepted_side", "is required");
 	}
+	if (value.min_bids.size() < 2U || value.min_bids.size() > 57U) {
+		return invalid("AcceptRFQBatchRequest", "min_bids", "size is outside its allowed range");
+	}
 	for (const RFQBatchAcceptLimit& item : value.min_bids) {
 		if (Result<void> valid = validate(item); !valid) {
 			return valid;
 		}
+	}
+	return {};
+}
+
+inline Result<void> validate(const AmendOrderParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("AmendOrderParams", "subaccount", "is outside its allowed range");
 	}
 	return {};
 }
@@ -92,6 +185,9 @@ inline Result<void> validate(const AmendOrderV2Request& value) {
 	}
 	if (!FixedPoint::parse(value.count)) {
 		return invalid("AmendOrderV2Request", "count", "is not a fixed-point decimal");
+	}
+	if (value.expiration_time && (*value.expiration_time < 0)) {
+		return invalid("AmendOrderV2Request", "expiration_time", "is outside its allowed range");
 	}
 	return {};
 }
@@ -137,6 +233,10 @@ inline Result<void> validate(const BatchCancelOrdersV2RequestOrdersItem& value) 
 	if (value.order_id.empty()) {
 		return invalid("BatchCancelOrdersV2RequestOrdersItem", "order_id", "is required");
 	}
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("BatchCancelOrdersV2RequestOrdersItem", "subaccount",
+					   "is outside its allowed range");
+	}
 	return {};
 }
 
@@ -168,6 +268,22 @@ inline Result<void> validate(const CreateOrderV2Request& value) {
 	if (value.self_trade_prevention_type == SelfTradePreventionType::Unknown) {
 		return invalid("CreateOrderV2Request", "self_trade_prevention_type", "is required");
 	}
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("CreateOrderV2Request", "subaccount", "is outside its allowed range");
+	}
+	if (value.expiration_time && value.time_in_force == TimeInForce::ImmediateOrCancel) {
+		return invalid("CreateOrderV2Request", "expiration_time",
+					   "cannot be combined with immediate_or_cancel");
+	}
+	if (value.reduce_only.value_or(false) &&
+		value.time_in_force != TimeInForce::ImmediateOrCancel) {
+		return invalid("CreateOrderV2Request", "reduce_only",
+					   "requires time_in_force to be immediate_or_cancel");
+	}
+	if (value.client_order_id && !is_valid_client_order_id(*value.client_order_id)) {
+		return invalid("CreateOrderV2Request", "client_order_id",
+					   "must be at most 64 characters from letters, digits, and _ - : + = /");
+	}
 	return {};
 }
 
@@ -180,12 +296,40 @@ inline Result<void> validate(const BatchCreateOrdersV2Request& value) {
 	return {};
 }
 
+inline Result<void> validate(const BatchGetMarketCandlesticksParams& value) {
+	if (value.market_tickers.empty()) {
+		return invalid("BatchGetMarketCandlesticksParams", "market_tickers", "is required");
+	}
+	if (value.period_interval < 1) {
+		return invalid("BatchGetMarketCandlesticksParams", "period_interval",
+					   "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const CancelAllOrdersParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("CancelAllOrdersParams", "subaccount", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const CancelOrderParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("CancelOrderParams", "subaccount", "is outside its allowed range");
+	}
+	return {};
+}
+
 inline Result<void> validate(const CreateApiKeyRequest& value) {
 	if (value.name.empty()) {
 		return invalid("CreateApiKeyRequest", "name", "is required");
 	}
 	if (value.public_key.empty()) {
 		return invalid("CreateApiKeyRequest", "public_key", "is required");
+	}
+	if (value.subaccount && (*value.subaccount < 0 || *value.subaccount > 63)) {
+		return invalid("CreateApiKeyRequest", "subaccount", "is outside its allowed range");
 	}
 	return {};
 }
@@ -212,6 +356,10 @@ inline Result<void> validate(const CreateFCMPositionTransferRequest& value) {
 	}
 	if (value.market_ticker.empty()) {
 		return invalid("CreateFCMPositionTransferRequest", "market_ticker", "is required");
+	}
+	if (value.price_centicents < 0 || value.price_centicents > 10000) {
+		return invalid("CreateFCMPositionTransferRequest", "price_centicents",
+					   "is outside its allowed range");
 	}
 	return {};
 }
@@ -268,6 +416,13 @@ inline Result<void> validate(const CreateMarketInMultivariateEventCollectionRequ
 }
 
 inline Result<void> validate(const CreateOrderGroupRequest& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("CreateOrderGroupRequest", "subaccount", "is outside its allowed range");
+	}
+	if (value.contracts_limit && (*value.contracts_limit < 1)) {
+		return invalid("CreateOrderGroupRequest", "contracts_limit",
+					   "is outside its allowed range");
+	}
 	if ((value.contracts_limit_fp && !FixedPoint::parse(*value.contracts_limit_fp))) {
 		return invalid("CreateOrderGroupRequest", "contracts_limit_fp",
 					   "is not a fixed-point decimal");
@@ -297,8 +452,25 @@ inline Result<void> validate(const CreateOrderWithExitTriggerRequest& value) {
 		return invalid("CreateOrderWithExitTriggerRequest", "self_trade_prevention_type",
 					   "is required");
 	}
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("CreateOrderWithExitTriggerRequest", "subaccount",
+					   "is outside its allowed range");
+	}
 	if (Result<void> valid = validate(value.exit_trigger); !valid) {
 		return valid;
+	}
+	if (value.expiration_time && value.time_in_force == TimeInForce::ImmediateOrCancel) {
+		return invalid("CreateOrderWithExitTriggerRequest", "expiration_time",
+					   "cannot be combined with immediate_or_cancel");
+	}
+	if (value.reduce_only.value_or(false) &&
+		value.time_in_force != TimeInForce::ImmediateOrCancel) {
+		return invalid("CreateOrderWithExitTriggerRequest", "reduce_only",
+					   "requires time_in_force to be immediate_or_cancel");
+	}
+	if (value.client_order_id && !is_valid_client_order_id(*value.client_order_id)) {
+		return invalid("CreateOrderWithExitTriggerRequest", "client_order_id",
+					   "must be at most 64 characters from letters, digits, and _ - : + = /");
 	}
 	return {};
 }
@@ -317,6 +489,10 @@ inline Result<void> validate(const CreateQuoteRequest& value) {
 }
 
 inline Result<void> validate(const CreateRFQBatchChild& value) {
+	if (value.selected_markets && (value.selected_markets->size() > 6U)) {
+		return invalid("CreateRFQBatchChild", "selected_markets",
+					   "size is outside its allowed range");
+	}
 	if (value.selected_markets) {
 		for (const TickerPair& item : *value.selected_markets) {
 			if (Result<void> valid = validate(item); !valid) {
@@ -330,6 +506,16 @@ inline Result<void> validate(const CreateRFQBatchChild& value) {
 	if ((value.target_cost_dollars && !FixedPoint::parse(*value.target_cost_dollars))) {
 		return invalid("CreateRFQBatchChild", "target_cost_dollars",
 					   "is not a fixed-point decimal");
+	}
+	if (value.contracts_fp && value.target_cost_dollars) {
+		return invalid("CreateRFQBatchChild", "fields",
+					   "allows at most one of contracts_fp or target_cost_dollars");
+	}
+	const bool has_ticker = value.market_ticker && !value.market_ticker->empty();
+	const bool has_selected = value.selected_markets && !value.selected_markets->empty();
+	if (has_ticker == has_selected) {
+		return invalid("CreateRFQBatchChild", "fields",
+					   "requires exactly one of market_ticker or selected_markets");
 	}
 	return {};
 }
@@ -348,6 +534,9 @@ inline Result<void> validate(const RFQBatchQuoteEntry& value) {
 }
 
 inline Result<void> validate(const CreateRFQBatchQuoteRequest& value) {
+	if (value.quotes.size() < 2U || value.quotes.size() > 57U) {
+		return invalid("CreateRFQBatchQuoteRequest", "quotes", "size is outside its allowed range");
+	}
 	for (const RFQBatchQuoteEntry& item : value.quotes) {
 		if (Result<void> valid = validate(item); !valid) {
 			return valid;
@@ -357,6 +546,9 @@ inline Result<void> validate(const CreateRFQBatchQuoteRequest& value) {
 }
 
 inline Result<void> validate(const CreateRFQBatchRequest& value) {
+	if (value.children.size() < 2U || value.children.size() > 57U) {
+		return invalid("CreateRFQBatchRequest", "children", "size is outside its allowed range");
+	}
 	for (const CreateRFQBatchChild& item : value.children) {
 		if (Result<void> valid = validate(item); !valid) {
 			return valid;
@@ -368,6 +560,31 @@ inline Result<void> validate(const CreateRFQBatchRequest& value) {
 	if ((value.target_cost_dollars && !FixedPoint::parse(*value.target_cost_dollars))) {
 		return invalid("CreateRFQBatchRequest", "target_cost_dollars",
 					   "is not a fixed-point decimal");
+	}
+	if (value.client_batch_id && (value.client_batch_id->size() > 64U)) {
+		return invalid("CreateRFQBatchRequest", "client_batch_id",
+					   "length is outside its allowed range");
+	}
+	if (value.contracts_fp && value.target_cost_dollars) {
+		return invalid("CreateRFQBatchRequest", "fields",
+					   "allows at most one of contracts_fp or target_cost_dollars");
+	}
+	if (value.rest_remainder.value_or(false)) {
+		return invalid("CreateRFQBatchRequest", "rest_remainder", "must be false");
+	}
+	const bool has_batch_size =
+		value.contracts_fp.has_value() || value.target_cost_dollars.has_value();
+	for (const CreateRFQBatchChild& child : value.children) {
+		if (!has_batch_size && !child.contracts_fp && !child.target_cost_dollars) {
+			return invalid(
+				"CreateRFQBatchRequest", "fields",
+				"requires contracts_fp or target_cost_dollars unless every child sets its own");
+		}
+		if (child.selected_markets && !child.selected_markets->empty() &&
+			(!value.mve_collection_ticker || value.mve_collection_ticker->empty())) {
+			return invalid("CreateRFQBatchRequest", "mve_collection_ticker",
+						   "is required when any child uses selected_markets");
+		}
 	}
 	return {};
 }
@@ -395,8 +612,23 @@ inline Result<void> validate(const CreateWeatherPointMarketRequest& value) {
 	if (value.date.empty()) {
 		return invalid("CreateWeatherPointMarketRequest", "date", "is required");
 	}
+	if (value.start_hour < 0 || value.start_hour > 23) {
+		return invalid("CreateWeatherPointMarketRequest", "start_hour",
+					   "is outside its allowed range");
+	}
+	if (value.end_hour < 1 || value.end_hour > 24) {
+		return invalid("CreateWeatherPointMarketRequest", "end_hour",
+					   "is outside its allowed range");
+	}
 	if (value.timezone.empty()) {
 		return invalid("CreateWeatherPointMarketRequest", "timezone", "is required");
+	}
+	return {};
+}
+
+inline Result<void> validate(const DecreaseOrderParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("DecreaseOrderParams", "subaccount", "is outside its allowed range");
 	}
 	return {};
 }
@@ -408,12 +640,442 @@ inline Result<void> validate(const DecreaseOrderV2Request& value) {
 	if ((value.reduce_to && !FixedPoint::parse(*value.reduce_to))) {
 		return invalid("DecreaseOrderV2Request", "reduce_to", "is not a fixed-point decimal");
 	}
+	if (value.reduce_by.has_value() == value.reduce_to.has_value()) {
+		return invalid("DecreaseOrderV2Request", "fields",
+					   "requires exactly one of reduce_by or reduce_to");
+	}
+	return {};
+}
+
+inline Result<void> validate(const DeleteEventContractExitTriggerParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("DeleteEventContractExitTriggerParams", "subaccount",
+					   "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const DeleteFcmEventContractDailyCapParams& value) {
+	if (value.subtrader_id.empty()) {
+		return invalid("DeleteFcmEventContractDailyCapParams", "subtrader_id", "is required");
+	}
+	return {};
+}
+
+inline Result<void> validate(const DeleteOrderGroupParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("DeleteOrderGroupParams", "subaccount", "is outside its allowed range");
+	}
 	return {};
 }
 
 inline Result<void> validate(const GenerateApiKeyRequest& value) {
 	if (value.name.empty()) {
 		return invalid("GenerateApiKeyRequest", "name", "is required");
+	}
+	if (value.subaccount && (*value.subaccount < 0 || *value.subaccount > 63)) {
+		return invalid("GenerateApiKeyRequest", "subaccount", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetBalanceParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("GetBalanceParams", "subaccount", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetBlockTradeProposalsParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 100)) {
+		return invalid("GetBlockTradeProposalsParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetConcertsParams& value) {
+	if (value.metro_id.empty()) {
+		return invalid("GetConcertsParams", "metro_id", "is required");
+	}
+	if (value.page && (*value.page < 1 || *value.page > 20)) {
+		return invalid("GetConcertsParams", "page", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetCreditHistoryParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 1000)) {
+		return invalid("GetCreditHistoryParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetDepositsParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 500)) {
+		return invalid("GetDepositsParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetEventContractExitTriggersParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("GetEventContractExitTriggersParams", "subaccount",
+					   "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetEventFeeChangesParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 1000)) {
+		return invalid("GetEventFeeChangesParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetEventForecastPercentilesHistoryParams& value) {
+	if (value.percentiles.size() > 10U) {
+		return invalid("GetEventForecastPercentilesHistoryParams", "percentiles",
+					   "size is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetEventsParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 200)) {
+		return invalid("GetEventsParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetFcmOrdersParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 1000)) {
+		return invalid("GetFcmOrdersParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetFcmPositionsParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 1000)) {
+		return invalid("GetFcmPositionsParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetFcmSubtraderBlockedCategoriesParams& value) {
+	if (value.subtrader_id.empty()) {
+		return invalid("GetFcmSubtraderBlockedCategoriesParams", "subtrader_id", "is required");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetFillsHistoricalParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 1000)) {
+		return invalid("GetFillsHistoricalParams", "limit", "is outside its allowed range");
+	}
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("GetFillsHistoricalParams", "subaccount", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetFillsParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 1000)) {
+		return invalid("GetFillsParams", "limit", "is outside its allowed range");
+	}
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("GetFillsParams", "subaccount", "is outside its allowed range");
+	}
+	if (value.exchange_index && (*value.exchange_index < 0)) {
+		return invalid("GetFillsParams", "exchange_index", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetFlightsParams& value) {
+	if (value.carrier.empty()) {
+		return invalid("GetFlightsParams", "carrier", "is required");
+	}
+	if (value.carrier.size() < 2U || value.carrier.size() > 2U) {
+		return invalid("GetFlightsParams", "carrier", "length is outside its allowed range");
+	}
+	if (value.flight_number.empty()) {
+		return invalid("GetFlightsParams", "flight_number", "is required");
+	}
+	if (value.flight_number.size() > 4U) {
+		return invalid("GetFlightsParams", "flight_number", "length is outside its allowed range");
+	}
+	if (value.date.empty()) {
+		return invalid("GetFlightsParams", "date", "is required");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetHistoricalMarketsParams& value) {
+	if (value.limit && (*value.limit < 0 || *value.limit > 1000)) {
+		return invalid("GetHistoricalMarketsParams", "limit", "is outside its allowed range");
+	}
+	const int filters = static_cast<int>(value.tickers.has_value()) +
+						static_cast<int>(value.event_ticker.has_value()) +
+						static_cast<int>(value.series_ticker.has_value()) +
+						static_cast<int>(value.mve_filter.has_value());
+	if (filters > 1) {
+		return invalid("GetHistoricalMarketsParams", "fields", "filters are mutually exclusive");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetHistoricalOrdersParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 1000)) {
+		return invalid("GetHistoricalOrdersParams", "limit", "is outside its allowed range");
+	}
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("GetHistoricalOrdersParams", "subaccount", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetHistoricalPositionsParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("GetHistoricalPositionsParams", "subaccount",
+					   "is outside its allowed range");
+	}
+	if (value.limit && (*value.limit < 1 || *value.limit > 1000)) {
+		return invalid("GetHistoricalPositionsParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetIncentiveProgramsParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 10000)) {
+		return invalid("GetIncentiveProgramsParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetIntraExchangeInstanceTransfersParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 500)) {
+		return invalid("GetIntraExchangeInstanceTransfersParams", "limit",
+					   "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetLiveDatasParams& value) {
+	if (value.milestone_ids.size() > 100U) {
+		return invalid("GetLiveDatasParams", "milestone_ids", "size is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetMarketOrderbookParams& value) {
+	if (value.depth && (*value.depth < 0 || *value.depth > 100)) {
+		return invalid("GetMarketOrderbookParams", "depth", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetMarketOrderbooksParams& value) {
+	if (value.tickers.size() < 1U || value.tickers.size() > 100U) {
+		return invalid("GetMarketOrderbooksParams", "tickers", "size is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetMarketsParams& value) {
+	if (value.limit && (*value.limit < 0 || *value.limit > 1000)) {
+		return invalid("GetMarketsParams", "limit", "is outside its allowed range");
+	}
+	const bool created_ts = value.min_created_ts.has_value() || value.max_created_ts.has_value();
+	const bool close_ts = value.min_close_ts.has_value() || value.max_close_ts.has_value();
+	const bool settled_ts = value.min_settled_ts.has_value() || value.max_settled_ts.has_value();
+	const bool updated_ts = value.min_updated_ts.has_value() || value.max_updated_ts.has_value();
+	if (static_cast<int>(created_ts) + static_cast<int>(close_ts) + static_cast<int>(settled_ts) +
+			static_cast<int>(updated_ts) >
+		1) {
+		return invalid("GetMarketsParams", "fields",
+					   "timestamp filter groups are mutually exclusive");
+	}
+	if (created_ts && value.status && *value.status != GetMarketsStatus::Unopened &&
+		*value.status != GetMarketsStatus::Open) {
+		return invalid("GetMarketsParams", "status",
+					   "is incompatible with created timestamp filters");
+	}
+	if (close_ts && value.status && *value.status != GetMarketsStatus::Closed) {
+		return invalid("GetMarketsParams", "status",
+					   "is incompatible with close timestamp filters");
+	}
+	if (settled_ts && value.status && *value.status != GetMarketsStatus::Settled) {
+		return invalid("GetMarketsParams", "status",
+					   "is incompatible with settled timestamp filters");
+	}
+	if (updated_ts) {
+		if (value.status || value.event_ticker || value.tickers) {
+			return invalid("GetMarketsParams", "fields",
+						   "updated timestamp filters are incompatible with status, event_ticker, "
+						   "and tickers");
+		}
+		if (value.mve_filter && *value.mve_filter != GetMarketsMveFilter::Exclude) {
+			return invalid("GetMarketsParams", "mve_filter",
+						   "must be exclude when using updated timestamp filters");
+		}
+		if (value.series_ticker &&
+			(!value.mve_filter || *value.mve_filter != GetMarketsMveFilter::Exclude)) {
+			return invalid(
+				"GetMarketsParams", "mve_filter",
+				"must be exclude when combining series_ticker with updated timestamp filters");
+		}
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetMilestonesParams& value) {
+	if (value.limit < 1 || value.limit > 500) {
+		return invalid("GetMilestonesParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetMultivariateEventCollectionsParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 200)) {
+		return invalid("GetMultivariateEventCollectionsParams", "limit",
+					   "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetMultivariateEventsParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 200)) {
+		return invalid("GetMultivariateEventsParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetOrderGroupParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("GetOrderGroupParams", "subaccount", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetOrderGroupsParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("GetOrderGroupsParams", "subaccount", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetOrderQueuePositionsParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("GetOrderQueuePositionsParams", "subaccount",
+					   "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetOrdersParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 1000)) {
+		return invalid("GetOrdersParams", "limit", "is outside its allowed range");
+	}
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("GetOrdersParams", "subaccount", "is outside its allowed range");
+	}
+	if (value.exchange_index && (*value.exchange_index < 0)) {
+		return invalid("GetOrdersParams", "exchange_index", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetPositionsParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 1000)) {
+		return invalid("GetPositionsParams", "limit", "is outside its allowed range");
+	}
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("GetPositionsParams", "subaccount", "is outside its allowed range");
+	}
+	if (value.exchange_index && (*value.exchange_index < 0)) {
+		return invalid("GetPositionsParams", "exchange_index", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetQuotesParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 500)) {
+		return invalid("GetQuotesParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetRfqBatchesParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("GetRfqBatchesParams", "subaccount", "is outside its allowed range");
+	}
+	if (value.limit && (*value.limit < 1 || *value.limit > 20)) {
+		return invalid("GetRfqBatchesParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetRfqsParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("GetRfqsParams", "subaccount", "is outside its allowed range");
+	}
+	if (value.limit && (*value.limit < 1 || *value.limit > 100)) {
+		return invalid("GetRfqsParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetSettlementsParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 1000)) {
+		return invalid("GetSettlementsParams", "limit", "is outside its allowed range");
+	}
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("GetSettlementsParams", "subaccount", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetStructuredTargetsParams& value) {
+	if (value.ids.size() > 2000U) {
+		return invalid("GetStructuredTargetsParams", "ids", "size is outside its allowed range");
+	}
+	if (value.page_size && (*value.page_size < 1 || *value.page_size > 2000)) {
+		return invalid("GetStructuredTargetsParams", "page_size", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetSubaccountTransfersParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 1000)) {
+		return invalid("GetSubaccountTransfersParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetTradesHistoricalParams& value) {
+	if (value.limit && (*value.limit < 0 || *value.limit > 1000)) {
+		return invalid("GetTradesHistoricalParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetTradesParams& value) {
+	if (value.limit && (*value.limit < 0 || *value.limit > 1000)) {
+		return invalid("GetTradesParams", "limit", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetWeatherIndexParams& value) {
+	if (value.last_sec && (value.from || value.to)) {
+		return invalid("GetWeatherIndexParams", "last_sec", "cannot be combined with from or to");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetWithdrawalsParams& value) {
+	if (value.limit && (*value.limit < 1 || *value.limit > 500)) {
+		return invalid("GetWithdrawalsParams", "limit", "is outside its allowed range");
 	}
 	return {};
 }
@@ -425,6 +1087,16 @@ inline Result<void> validate(const IntraExchangeInstanceTransferRequest& value) 
 	if (value.destination == ExchangeInstance::Unknown) {
 		return invalid("IntraExchangeInstanceTransferRequest", "destination", "is required");
 	}
+	if (value.source_exchange_shard &&
+		(*value.source_exchange_shard < 0 || *value.source_exchange_shard > 100)) {
+		return invalid("IntraExchangeInstanceTransferRequest", "source_exchange_shard",
+					   "is outside its allowed range");
+	}
+	if (value.destination_exchange_shard &&
+		(*value.destination_exchange_shard < 0 || *value.destination_exchange_shard > 100)) {
+		return invalid("IntraExchangeInstanceTransferRequest", "destination_exchange_shard",
+					   "is outside its allowed range");
+	}
 	return {};
 }
 
@@ -432,17 +1104,66 @@ inline Result<void> validate(const ProposeBlockTradeRequest& value) {
 	if (value.buyer_user_id.empty()) {
 		return invalid("ProposeBlockTradeRequest", "buyer_user_id", "is required");
 	}
+	if (value.buyer_subaccount && (*value.buyer_subaccount < 0 || *value.buyer_subaccount > 63)) {
+		return invalid("ProposeBlockTradeRequest", "buyer_subaccount",
+					   "is outside its allowed range");
+	}
 	if (value.seller_user_id.empty()) {
 		return invalid("ProposeBlockTradeRequest", "seller_user_id", "is required");
 	}
+	if (value.seller_subaccount &&
+		(*value.seller_subaccount < 0 || *value.seller_subaccount > 63)) {
+		return invalid("ProposeBlockTradeRequest", "seller_subaccount",
+					   "is outside its allowed range");
+	}
 	if (value.market_ticker.empty()) {
 		return invalid("ProposeBlockTradeRequest", "market_ticker", "is required");
+	}
+	if (value.price_centi_cents < 1) {
+		return invalid("ProposeBlockTradeRequest", "price_centi_cents",
+					   "is outside its allowed range");
+	}
+	if (value.centicount < 1) {
+		return invalid("ProposeBlockTradeRequest", "centicount", "is outside its allowed range");
 	}
 	if (value.maker_side == Side::Unknown) {
 		return invalid("ProposeBlockTradeRequest", "maker_side", "is required");
 	}
 	if (value.expiration_ts.empty()) {
 		return invalid("ProposeBlockTradeRequest", "expiration_ts", "is required");
+	}
+	if (value.buyer_subtrader_id && value.buyer_subaccount) {
+		return invalid("ProposeBlockTradeRequest", "fields",
+					   "allows at most one of buyer_subtrader_id or buyer_subaccount");
+	}
+	if (value.seller_subtrader_id && value.seller_subaccount) {
+		return invalid("ProposeBlockTradeRequest", "fields",
+					   "allows at most one of seller_subtrader_id or seller_subaccount");
+	}
+	return {};
+}
+
+inline Result<void> validate(const ResetOrderGroupParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("ResetOrderGroupParams", "subaccount", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const SearchConcertsParams& value) {
+	if (value.q.empty()) {
+		return invalid("SearchConcertsParams", "q", "is required");
+	}
+	if (value.q.size() < 2U || value.q.size() > 80U) {
+		return invalid("SearchConcertsParams", "q", "length is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const SetEventContractExitTriggerParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("SetEventContractExitTriggerParams", "subaccount",
+					   "is outside its allowed range");
 	}
 	return {};
 }
@@ -468,6 +1189,37 @@ inline Result<void> validate(const SetEventContractExitTriggerRequest& value) {
 	return {};
 }
 
+inline Result<void> validate(const TargetBalanceAllocationInput& value) {
+	if (value.exchange_index < 0) {
+		return invalid("TargetBalanceAllocationInput", "exchange_index",
+					   "is outside its allowed range");
+	}
+	if (value.percent < 0 || value.percent > 100) {
+		return invalid("TargetBalanceAllocationInput", "percent", "is outside its allowed range");
+	}
+	return {};
+}
+
+inline Result<void> validate(const SetTargetBalanceAllocationRequest& value) {
+	if (value.allocations.size() > 101U) {
+		return invalid("SetTargetBalanceAllocationRequest", "allocations",
+					   "size is outside its allowed range");
+	}
+	for (const TargetBalanceAllocationInput& item : value.allocations) {
+		if (Result<void> valid = validate(item); !valid) {
+			return valid;
+		}
+	}
+	return {};
+}
+
+inline Result<void> validate(const TriggerOrderGroupParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("TriggerOrderGroupParams", "subaccount", "is outside its allowed range");
+	}
+	return {};
+}
+
 inline Result<void> validate(const UpdateFCMEventContractDailyCapRequest& value) {
 	if (value.subtrader_id.empty()) {
 		return invalid("UpdateFCMEventContractDailyCapRequest", "subtrader_id", "is required");
@@ -489,7 +1241,18 @@ inline Result<void> validate(const UpdateFCMSubtraderBlockedCategoriesRequest& v
 	return {};
 }
 
+inline Result<void> validate(const UpdateOrderGroupLimitParams& value) {
+	if (value.subaccount && (*value.subaccount < 0)) {
+		return invalid("UpdateOrderGroupLimitParams", "subaccount", "is outside its allowed range");
+	}
+	return {};
+}
+
 inline Result<void> validate(const UpdateOrderGroupLimitRequest& value) {
+	if (value.contracts_limit && (*value.contracts_limit < 1)) {
+		return invalid("UpdateOrderGroupLimitRequest", "contracts_limit",
+					   "is outside its allowed range");
+	}
 	if ((value.contracts_limit_fp && !FixedPoint::parse(*value.contracts_limit_fp))) {
 		return invalid("UpdateOrderGroupLimitRequest", "contracts_limit_fp",
 					   "is not a fixed-point decimal");
