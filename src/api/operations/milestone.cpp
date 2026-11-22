@@ -20,6 +20,9 @@ Result<Milestone> KalshiClient::get_milestone(std::string_view milestone_id) {
 }
 
 Result<GetMilestonesResponse> KalshiClient::get_milestones(const GetMilestonesParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/milestones"});
 	query.add("limit", params.limit);
 	query.add("minimum_start_date", params.minimum_start_date);

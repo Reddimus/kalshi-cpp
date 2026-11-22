@@ -18,6 +18,9 @@ Result<std::string> KalshiClient::get_communications_id() {
 
 Result<GetBlockTradeProposalsResponse>
 KalshiClient::get_block_trade_proposals(const GetBlockTradeProposalsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/communications/block-trade-proposals"});
 	query.add("cursor", params.cursor);
 	query.add("market_ticker", params.market_ticker);
@@ -55,6 +58,9 @@ Result<void> KalshiClient::cancel_block_trade_proposal(std::string_view block_tr
 Result<void>
 KalshiClient::accept_block_trade_proposal(std::string_view block_trade_proposal_id,
 										  const AcceptBlockTradeProposalRequest& body) {
+	if (Result<void> valid = detail::validate(body); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target = detail::expand_path(
 		"/communications/block-trade-proposals/{block_trade_proposal_id}/accept",
 		{block_trade_proposal_id});
@@ -77,6 +83,9 @@ Result<void> KalshiClient::reject_block_trade_proposal(std::string_view block_tr
 }
 
 Result<GetRFQsResponse> KalshiClient::get_rfqs(const GetRfqsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/communications/rfqs"});
 	query.add("cursor", params.cursor);
 	query.add("event_ticker", params.event_ticker);
@@ -174,6 +183,9 @@ Result<void> KalshiClient::confirm_rfq_quote(std::string_view rfq_id, std::strin
 }
 
 Result<GetRFQBatchesResponse> KalshiClient::get_rfq_batches(const GetRfqBatchesParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/communications/rfq_batches"});
 	query.add("cursor", params.cursor);
 	query.add("subaccount", params.subaccount);
@@ -308,6 +320,9 @@ Result<void> KalshiClient::confirm_rfq_batch_quote(std::string_view rfq_batch_id
 }
 
 Result<GetQuotesResponse> KalshiClient::get_quotes(const GetQuotesParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/communications/quotes"});
 	query.add("cursor", params.cursor);
 	query.add("min_ts", params.min_ts);

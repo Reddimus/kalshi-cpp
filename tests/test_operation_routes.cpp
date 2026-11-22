@@ -132,9 +132,9 @@ TEST(OperationRoutes, GetMarketOrderbooks) {
 	kalshi::KalshiClient client(transport);
 	const Result<std::vector<MarketOrderbookFp>> result =
 		client.get_market_orderbooks(GetMarketOrderbooksParams{});
-	EXPECT_TRUE(result.has_value());
-	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
-	EXPECT_EQ(route(transport->target), "/markets/orderbooks");
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, GetSeries) {
@@ -183,9 +183,9 @@ TEST(OperationRoutes, BatchGetMarketCandlesticks) {
 	kalshi::KalshiClient client(transport);
 	const Result<std::vector<MarketCandlesticksResponse>> result =
 		client.batch_get_market_candlesticks(BatchGetMarketCandlesticksParams{});
-	EXPECT_TRUE(result.has_value());
-	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
-	EXPECT_EQ(route(transport->target), "/markets/candlesticks");
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, GetMarketCandlesticksByEvent) {
@@ -384,9 +384,9 @@ TEST(OperationRoutes, DecreaseOrderV2) {
 	kalshi::KalshiClient client(transport);
 	const Result<DecreaseOrderV2Response> result =
 		client.decrease_order("p0", DecreaseOrderV2Request{}, DecreaseOrderParams{});
-	EXPECT_TRUE(result.has_value());
-	EXPECT_EQ(transport->method, kalshi::HttpMethod::POST);
-	EXPECT_EQ(route(transport->target), "/portfolio/events/orders/p0/decrease");
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, GetOrderGroups) {
@@ -796,9 +796,9 @@ TEST(OperationRoutes, CreateRFQBatch) {
 		std::make_shared<kalshi::test::RecordingTransport>();
 	kalshi::KalshiClient client(transport);
 	const Result<RFQBatch> result = client.create_rfq_batch(CreateRFQBatchRequest{});
-	EXPECT_TRUE(result.has_value());
-	EXPECT_EQ(transport->method, kalshi::HttpMethod::POST);
-	EXPECT_EQ(route(transport->target), "/communications/rfq_batches");
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, GetRFQBatch) {
@@ -858,9 +858,9 @@ TEST(OperationRoutes, CreateRFQBatchQuote) {
 	kalshi::KalshiClient client(transport);
 	const Result<std::string> result =
 		client.create_rfq_batch_quote("p0", CreateRFQBatchQuoteRequest{});
-	EXPECT_TRUE(result.has_value());
-	EXPECT_EQ(transport->method, kalshi::HttpMethod::POST);
-	EXPECT_EQ(route(transport->target), "/communications/rfq_batches/p0/quotes");
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, DeleteRFQBatchQuote) {
@@ -1154,9 +1154,9 @@ TEST(OperationRoutes, GetMilestones) {
 		std::make_shared<kalshi::test::RecordingTransport>();
 	kalshi::KalshiClient client(transport);
 	const Result<GetMilestonesResponse> result = client.get_milestones(GetMilestonesParams{});
-	EXPECT_TRUE(result.has_value());
-	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
-	EXPECT_EQ(route(transport->target), "/milestones");
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, CreateWeatherPointMarket) {
@@ -1208,9 +1208,9 @@ TEST(OperationRoutes, GetConcerts) {
 		std::make_shared<kalshi::test::RecordingTransport>();
 	kalshi::KalshiClient client(transport);
 	const Result<GetConcertsResponse> result = client.get_concerts(GetConcertsParams{});
-	EXPECT_TRUE(result.has_value());
-	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
-	EXPECT_EQ(route(transport->target), "/concert_cancellation_markets/concerts");
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, SearchConcerts) {
@@ -1218,9 +1218,9 @@ TEST(OperationRoutes, SearchConcerts) {
 		std::make_shared<kalshi::test::RecordingTransport>();
 	kalshi::KalshiClient client(transport);
 	const Result<std::vector<Concert>> result = client.search_concerts(SearchConcertsParams{});
-	EXPECT_TRUE(result.has_value());
-	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
-	EXPECT_EQ(route(transport->target), "/concert_cancellation_markets/concerts/search");
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, CreateFlightDisruptionMarket) {
@@ -1250,9 +1250,9 @@ TEST(OperationRoutes, GetFlights) {
 		std::make_shared<kalshi::test::RecordingTransport>();
 	kalshi::KalshiClient client(transport);
 	const Result<std::vector<Flight>> result = client.get_flights(GetFlightsParams{});
-	EXPECT_TRUE(result.has_value());
-	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
-	EXPECT_EQ(route(transport->target), "/flight_disruption_markets/flights");
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, GetMultivariateEventCollection) {
@@ -1378,9 +1378,9 @@ TEST(OperationRoutes, DeleteFCMEventContractDailyCap) {
 	kalshi::KalshiClient client(transport);
 	const Result<void> result =
 		client.delete_fcm_event_contract_daily_cap(DeleteFcmEventContractDailyCapParams{});
-	EXPECT_TRUE(result.has_value());
-	EXPECT_EQ(transport->method, kalshi::HttpMethod::DEL);
-	EXPECT_EQ(route(transport->target), "/fcm/subtraders/event_contract_daily_cap");
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, GetFCMSubtraderBlockedCategories) {
@@ -1389,9 +1389,9 @@ TEST(OperationRoutes, GetFCMSubtraderBlockedCategories) {
 	kalshi::KalshiClient client(transport);
 	const Result<std::vector<std::string>> result =
 		client.get_fcm_subtrader_blocked_categories(GetFcmSubtraderBlockedCategoriesParams{});
-	EXPECT_TRUE(result.has_value());
-	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
-	EXPECT_EQ(route(transport->target), "/fcm/subtraders/blocked_categories");
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, UpdateFCMSubtraderBlockedCategories) {

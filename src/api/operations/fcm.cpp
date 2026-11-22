@@ -16,6 +16,9 @@ Result<GetFcmFillsResponse> KalshiClient::get_fcm_fills(const GetFcmFillsParams&
 }
 
 Result<GetOrdersResponse> KalshiClient::get_fcm_orders(const GetFcmOrdersParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/fcm/orders"});
 	query.add("subtrader_id", params.subtrader_id);
 	query.add("client_order_ids", params.client_order_ids);
@@ -74,6 +77,9 @@ Result<void> KalshiClient::update_fcm_event_contract_daily_cap(
 
 Result<void> KalshiClient::delete_fcm_event_contract_daily_cap(
 	const DeleteFcmEventContractDailyCapParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/fcm/subtraders/event_contract_daily_cap"});
 	query.add("subtrader_id", params.subtrader_id);
 	return detail::expect_success(Impl::send(impl_.get(), HttpMethod::DEL, std::move(query).str(),
@@ -82,6 +88,9 @@ Result<void> KalshiClient::delete_fcm_event_contract_daily_cap(
 
 Result<std::vector<std::string>> KalshiClient::get_fcm_subtrader_blocked_categories(
 	const GetFcmSubtraderBlockedCategoriesParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/fcm/subtraders/blocked_categories"});
 	query.add("subtrader_id", params.subtrader_id);
 	Result<GetFCMSubtraderBlockedCategoriesResponse> response =
@@ -110,6 +119,9 @@ Result<std::vector<std::string>> KalshiClient::update_fcm_subtrader_blocked_cate
 }
 
 Result<GetPositionsResponse> KalshiClient::get_fcm_positions(const GetFcmPositionsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/fcm/positions"});
 	query.add("subtrader_id", params.subtrader_id);
 	query.add("ticker", params.ticker);

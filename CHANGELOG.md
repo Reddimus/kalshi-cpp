@@ -6,6 +6,36 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Reject WebSocket data frames missing `sid`, carrying `sid < 1`, or missing a JSON object `msg`
+  as malformed instead of delivering default-filled updates
+  ([#112](https://github.com/Reddimus/kalshi-cpp/issues/112)).
+- Reject `subscribed` frames whose `sid` collides with another live subscription without
+  corrupting routing, and ignore replayed `subscribed` confirmations for an already-live `sid`
+  instead of sending `unsubscribe`
+  ([#113](https://github.com/Reddimus/kalshi-cpp/issues/113)).
+- Ignore replayed and out-of-order WebSocket sequence numbers (`seq <= last_seq`) without
+  reporting a missed-message gap, requesting a snapshot resync, or rewinding `last_seq`
+  ([#114](https://github.com/Reddimus/kalshi-cpp/issues/114)).
+- Drop WebSocket data frames whose `sid` does not belong to a live subscription instead of
+  delivering unattributed updates after unsubscribe or reconnect
+  ([#118](https://github.com/Reddimus/kalshi-cpp/issues/118)).
+- Extract optional `sid` and `seq` from malformed WebSocket data frames so active
+  `orderbook_delta` subscriptions attach the error, record the sequence number, and request a
+  `get_snapshot` resync when `resync_on_gap` is enabled
+  ([#120](https://github.com/Reddimus/kalshi-cpp/issues/120)).
+- Enforce OpenAPI schema bounds (`minimum`, `maximum`, `minItems`, `maxItems`, `minLength`,
+  `maxLength`) and prose-only cross-field rules in client-side validation for request bodies
+  (`DecreaseOrderV2Request`, `CreateRFQBatchChild`, `CreateRFQBatchRequest`,
+  `CreateOrderV2Request`, `CreateOrderWithExitTriggerRequest`, `AmendOrderV2Request`,
+  `ProposeBlockTradeRequest`) and query-parameter structs (`GetMarketsParams`,
+  `GetWeatherIndexParams`, `GetHistoricalMarketsParams`, `GetEventsParams`, and others),
+  returning `InvalidRequest` before sending
+  ([#115](https://github.com/Reddimus/kalshi-cpp/issues/115),
+  [#117](https://github.com/Reddimus/kalshi-cpp/issues/117),
+  [#119](https://github.com/Reddimus/kalshi-cpp/issues/119)).
+
 ### Docs
 
 - `Signer::from_pem_file` documents two existing behaviours. Opening a FIFO waits for a

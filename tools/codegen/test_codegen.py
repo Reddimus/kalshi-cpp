@@ -303,6 +303,25 @@ class SupportedSpec(unittest.TestCase):
         self.assertNotIn("Empty", gen.models_header())
         self.assertTrue(next(op for op in gen.operations if op.operation_id == "ResetThing").empty_body)
 
+    def test_schema_bounds_and_query_params_are_validated(self) -> None:
+        spec = copy.deepcopy(BASE)
+        spec["paths"]["/things/{id}"]["get"]["parameters"][0]["schema"] = {
+            "type": "integer", "minimum": 1, "maximum": 200
+        }
+        spec["components"]["schemas"]["Thing"]["properties"]["count"] = {
+            "type": "integer", "minimum": 1
+        }
+        spec["components"]["schemas"]["Thing"]["required"].append("count")
+        gen = generate(spec)
+        header = gen.validate_header()
+        self.assertIn("validate(const GetThingParams& value)", header)
+        self.assertIn("*value.limit < 1 || *value.limit > 200", header)
+        self.assertIn("value.count < 1", header)
+        get_thing = next(op for op in gen.operations if op.operation_id == "GetThing")
+        self.assertIn("detail::validate(params)", gen.operations_source("things", [get_thing]))
+        self.assertTrue(gen.default_is_invalid("Thing"))
+        self.assertFalse(gen.default_is_invalid("GetThingParams"))
+
     def test_integer_enum_query_parameters_are_allowed(self) -> None:
         spec = copy.deepcopy(BASE)  # Kalshi's candlestick period_interval parameters
         spec["paths"]["/things/{id}"]["get"]["parameters"].extend([

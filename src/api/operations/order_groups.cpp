@@ -8,6 +8,9 @@ namespace kalshi {
 
 Result<std::optional<std::vector<OrderGroup>>>
 KalshiClient::get_order_groups(const GetOrderGroupsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/portfolio/order_groups"});
 	query.add("subaccount", params.subaccount);
 	Result<GetOrderGroupsResponse> response = detail::decode<GetOrderGroupsResponse>(
@@ -30,6 +33,9 @@ KalshiClient::create_order_group(const CreateOrderGroupRequest& body) {
 
 Result<GetOrderGroupResponse> KalshiClient::get_order_group(std::string_view order_group_id,
 															const GetOrderGroupParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target =
 		detail::expand_path("/portfolio/order_groups/{order_group_id}", {order_group_id});
 	if (!target) {
@@ -43,6 +49,9 @@ Result<GetOrderGroupResponse> KalshiClient::get_order_group(std::string_view ord
 
 Result<void> KalshiClient::delete_order_group(std::string_view order_group_id,
 											  const DeleteOrderGroupParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target =
 		detail::expand_path("/portfolio/order_groups/{order_group_id}", {order_group_id});
 	if (!target) {
@@ -57,6 +66,9 @@ Result<void> KalshiClient::delete_order_group(std::string_view order_group_id,
 
 Result<void> KalshiClient::reset_order_group(std::string_view order_group_id,
 											 const ResetOrderGroupParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target =
 		detail::expand_path("/portfolio/order_groups/{order_group_id}/reset", {order_group_id});
 	if (!target) {
@@ -71,6 +83,9 @@ Result<void> KalshiClient::reset_order_group(std::string_view order_group_id,
 
 Result<void> KalshiClient::trigger_order_group(std::string_view order_group_id,
 											   const TriggerOrderGroupParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target =
 		detail::expand_path("/portfolio/order_groups/{order_group_id}/trigger", {order_group_id});
 	if (!target) {
@@ -87,6 +102,9 @@ Result<void> KalshiClient::update_order_group_limit(std::string_view order_group
 													const UpdateOrderGroupLimitRequest& body,
 													const UpdateOrderGroupLimitParams& params) {
 	if (Result<void> valid = detail::validate(body); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
+	if (Result<void> valid = detail::validate(params); !valid) {
 		return std::unexpected(std::move(valid.error()));
 	}
 	Result<std::string> target =

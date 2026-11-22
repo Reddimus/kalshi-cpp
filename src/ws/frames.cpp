@@ -121,7 +121,8 @@ Frame parse_frame(const std::string& json) {
 		return std::move(*message);
 	}
 	if (is_data_type(type)) {
-		return MalformedFrame{std::string(type)};
+		const PartialEnvelope envelope = partial_envelope(json);
+		return MalformedFrame{std::string(type), envelope.sid, envelope.seq};
 	}
 	return {};
 }

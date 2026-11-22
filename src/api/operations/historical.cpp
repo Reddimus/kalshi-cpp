@@ -30,6 +30,9 @@ Result<GetMarketCandlesticksHistoricalResponse> KalshiClient::get_market_candles
 
 Result<GetFillsResponse>
 KalshiClient::get_fills_historical(const GetFillsHistoricalParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/historical/fills"});
 	query.add("ticker", params.ticker);
 	query.add("min_ts", params.min_ts);
@@ -43,6 +46,9 @@ KalshiClient::get_fills_historical(const GetFillsHistoricalParams& params) {
 
 Result<GetOrdersResponse>
 KalshiClient::get_historical_orders(const GetHistoricalOrdersParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/historical/orders"});
 	query.add("ticker", params.ticker);
 	query.add("min_ts", params.min_ts);
@@ -56,6 +62,9 @@ KalshiClient::get_historical_orders(const GetHistoricalOrdersParams& params) {
 
 Result<GetPositionsResponse>
 KalshiClient::get_historical_positions(const GetHistoricalPositionsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/historical/positions"});
 	query.add("ticker", params.ticker);
 	query.add("event_ticker", params.event_ticker);
@@ -68,6 +77,9 @@ KalshiClient::get_historical_positions(const GetHistoricalPositionsParams& param
 
 Result<GetTradesResponse>
 KalshiClient::get_trades_historical(const GetTradesHistoricalParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/historical/trades"});
 	query.add("ticker", params.ticker);
 	query.add("min_ts", params.min_ts);
@@ -81,6 +93,9 @@ KalshiClient::get_trades_historical(const GetTradesHistoricalParams& params) {
 
 Result<GetMarketsResponse>
 KalshiClient::get_historical_markets(const GetHistoricalMarketsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/historical/markets"});
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);

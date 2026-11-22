@@ -343,3 +343,160 @@ TEST(ApiSupport, AMovedFromClientFailsWithoutTouchingTheTransport) {
 	EXPECT_EQ(direct.error().code, kalshi::ErrorCode::NetworkError);
 	EXPECT_EQ(transport->calls, 1);
 }
+
+TEST(ApiSupport, ValidationEnforcesDecreaseAndRfqBatchProseRules) {
+	// DecreaseOrderV2Request: exactly one of reduce_by or reduce_to.
+	EXPECT_FALSE(kalshi::detail::validate(kalshi::DecreaseOrderV2Request{}));
+	EXPECT_FALSE(kalshi::detail::validate(
+		kalshi::DecreaseOrderV2Request{.reduce_by = "1.00", .reduce_to = "2.00"}));
+	EXPECT_TRUE(kalshi::detail::validate(kalshi::DecreaseOrderV2Request{.reduce_by = "1.00"}));
+	EXPECT_TRUE(kalshi::detail::validate(kalshi::DecreaseOrderV2Request{.reduce_to = "2.00"}));
+
+	// CreateRFQBatchChild: exactly one of market_ticker or selected_markets; at most one size.
+	EXPECT_FALSE(kalshi::detail::validate(kalshi::CreateRFQBatchChild{}));
+	kalshi::CreateRFQBatchChild both_markets;
+	both_markets.market_ticker = "KXA";
+	both_markets.selected_markets = {kalshi::TickerPair{.market_ticker = "M", .event_ticker = "E"}};
+	EXPECT_FALSE(kalshi::detail::validate(both_markets));
+	EXPECT_FALSE(kalshi::detail::validate(kalshi::CreateRFQBatchChild{
+		.market_ticker = "KXA", .contracts_fp = "1.00", .target_cost_dollars = "5.00"}));
+	kalshi::CreateRFQBatchChild too_many_legs;
+	too_many_legs.selected_markets =
+		std::vector<kalshi::TickerPair>(7, {.market_ticker = "M", .event_ticker = "E"});
+	EXPECT_FALSE(kalshi::detail::validate(too_many_legs));
+	EXPECT_TRUE(kalshi::detail::validate(kalshi::CreateRFQBatchChild{.market_ticker = "KXA"}));
+
+	// CreateRFQBatchRequest: min 2 children, at most one batch size, sized children, rest_remainder
+	// false, and mve_collection_ticker when selected_markets is used.
+	kalshi::CreateRFQBatchRequest batch;
+	EXPECT_FALSE(kalshi::detail::validate(batch)); // 0 children
+	batch.children = {{.market_ticker = "KXA"}};
+	EXPECT_FALSE(kalshi::detail::validate(batch)); // 1 child
+	batch.children = {{.market_ticker = "KXA"}, {.market_ticker = "KXB"}};
+	EXPECT_FALSE(kalshi::detail::validate(batch)); // unsized
+	batch.contracts_fp = "2.00";
+	EXPECT_TRUE(kalshi::detail::validate(batch));
+	batch.target_cost_dollars = "10.00";
+	EXPECT_FALSE(kalshi::detail::validate(batch)); // both batch sizes
+	batch.target_cost_dollars.reset();
+	batch.rest_remainder = true;
+	EXPECT_FALSE(kalshi::detail::validate(batch)); // rest_remainder must be false
+	batch.rest_remainder = false;
+	EXPECT_TRUE(kalshi::detail::validate(batch));
+
+	// Every child setting its own size works without a batch size.
+	kalshi::CreateRFQBatchRequest child_sized;
+	child_sized.children = {{.market_ticker = "KXA", .contracts_fp = "1.00"},
+							{.market_ticker = "KXB", .target_cost_dollars = "5.00"}};
+	EXPECT_TRUE(kalshi::detail::validate(child_sized));
+
+	// selected_markets requires mve_collection_ticker.
+	kalshi::CreateRFQBatchRequest with_legs;
+	with_legs.contracts_fp = "1.00";
+	kalshi::CreateRFQBatchChild leg_child;
+	leg_child.selected_markets = std::vector<kalshi::TickerPair>{
+		{.market_ticker = "M1", .event_ticker = "E", .side = kalshi::Side::Yes}};
+	with_legs.children = {leg_child, {.market_ticker = "KXB"}};
+	EXPECT_FALSE(kalshi::detail::validate(with_legs));
+	with_legs.mve_collection_ticker = "COLL-1";
+	EXPECT_TRUE(kalshi::detail::validate(with_legs));
+}
+
+TEST(ApiSupport, ValidationEnforcesOrderPlacementAndBlockTradeConstraints) {
+	kalshi::CreateOrderV2Request order;
+	order.ticker = "KXTEST";
+	order.side = kalshi::BookSide::Bid;
+	order.count = "1.00";
+	order.price = "0.5000";
+	order.time_in_force = kalshi::TimeInForce::GoodTillCanceled;
+	order.self_trade_prevention_type = kalshi::SelfTradePreventionType::TakerAtCross;
+	order.client_order_id = std::string(58, 'a') + "_-:=+/";
+	EXPECT_TRUE(kalshi::detail::validate(order));
+
+	// client_order_id length and charset
+	kalshi::CreateOrderV2Request bad_id = order;
+	bad_id.client_order_id = std::string(65, 'a');
+	EXPECT_FALSE(kalshi::detail::validate(bad_id));
+	bad_id.client_order_id = "abc!def";
+	EXPECT_FALSE(kalshi::detail::validate(bad_id));
+
+	// IOC + expiration_time
+	kalshi::CreateOrderV2Request ioc_exp = order;
+	ioc_exp.time_in_force = kalshi::TimeInForce::ImmediateOrCancel;
+	ioc_exp.expiration_time = 1800000000;
+	EXPECT_FALSE(kalshi::detail::validate(ioc_exp));
+
+	// reduce_only requires IOC
+	kalshi::CreateOrderV2Request reduce_gtc = order;
+	reduce_gtc.reduce_only = true;
+	EXPECT_FALSE(kalshi::detail::validate(reduce_gtc));
+	reduce_gtc.time_in_force = kalshi::TimeInForce::ImmediateOrCancel;
+	EXPECT_TRUE(kalshi::detail::validate(reduce_gtc));
+
+	// AmendOrderV2Request expiration_time >= 0
+	kalshi::AmendOrderV2Request amend;
+	amend.ticker = "KXTEST";
+	amend.side = kalshi::BookSide::Bid;
+	amend.price = "0.5000";
+	amend.count = "1.00";
+	amend.expiration_time = 0;
+	EXPECT_TRUE(kalshi::detail::validate(amend));
+	amend.expiration_time = -1;
+	EXPECT_FALSE(kalshi::detail::validate(amend));
+
+	// ProposeBlockTradeRequest positive price/count and mutual exclusion
+	kalshi::ProposeBlockTradeRequest block;
+	block.buyer_user_id = "u1";
+	block.seller_user_id = "u2";
+	block.market_ticker = "KXTEST";
+	block.price_centi_cents = 5600;
+	block.centicount = 1000;
+	block.maker_side = kalshi::Side::Yes;
+	block.expiration_ts = "2027-01-01T00:00:00Z";
+	EXPECT_TRUE(kalshi::detail::validate(block));
+
+	kalshi::ProposeBlockTradeRequest bad_block = block;
+	bad_block.price_centi_cents = 0;
+	EXPECT_FALSE(kalshi::detail::validate(bad_block));
+	bad_block = block;
+	bad_block.centicount = 0;
+	EXPECT_FALSE(kalshi::detail::validate(bad_block));
+	bad_block = block;
+	bad_block.buyer_subtrader_id = "sub1";
+	bad_block.buyer_subaccount = 1;
+	EXPECT_FALSE(kalshi::detail::validate(bad_block));
+}
+
+TEST(ApiSupport, ValidationEnforcesQueryParameterRules) {
+	// GetMarketsParams: timestamp groups, status compatibility, and limit bounds
+	EXPECT_TRUE(kalshi::detail::validate(kalshi::GetMarketsParams{
+		.min_created_ts = 1700000000, .status = kalshi::GetMarketsStatus::Open}));
+	EXPECT_FALSE(kalshi::detail::validate(kalshi::GetMarketsParams{
+		.min_created_ts = 1700000000, .status = kalshi::GetMarketsStatus::Closed}));
+	EXPECT_FALSE(kalshi::detail::validate(
+		kalshi::GetMarketsParams{.min_created_ts = 1700000000, .min_close_ts = 1700000000}));
+	EXPECT_FALSE(kalshi::detail::validate(kalshi::GetMarketsParams{
+		.min_updated_ts = 1700000000, .status = kalshi::GetMarketsStatus::Open}));
+	EXPECT_FALSE(kalshi::detail::validate(
+		kalshi::GetMarketsParams{.series_ticker = "KX", .min_updated_ts = 1700000000}));
+	EXPECT_TRUE(kalshi::detail::validate(
+		kalshi::GetMarketsParams{.series_ticker = "KX",
+								 .min_updated_ts = 1700000000,
+								 .mve_filter = kalshi::GetMarketsMveFilter::Exclude}));
+	EXPECT_FALSE(kalshi::detail::validate(kalshi::GetMarketsParams{.limit = 1001}));
+
+	// GetEventsParams: limit [1, 200]
+	EXPECT_TRUE(kalshi::detail::validate(kalshi::GetEventsParams{.limit = 200}));
+	EXPECT_FALSE(kalshi::detail::validate(kalshi::GetEventsParams{.limit = 0}));
+	EXPECT_FALSE(kalshi::detail::validate(kalshi::GetEventsParams{.limit = 500}));
+
+	// GetWeatherIndexParams: last_sec mutually exclusive with from/to
+	EXPECT_TRUE(kalshi::detail::validate(kalshi::GetWeatherIndexParams{.last_sec = 3600}));
+	EXPECT_FALSE(kalshi::detail::validate(
+		kalshi::GetWeatherIndexParams{.from = 1700000000000, .last_sec = 3600}));
+
+	// GetHistoricalMarketsParams: mutually exclusive filters
+	EXPECT_TRUE(kalshi::detail::validate(kalshi::GetHistoricalMarketsParams{.tickers = "KXA"}));
+	EXPECT_FALSE(kalshi::detail::validate(
+		kalshi::GetHistoricalMarketsParams{.tickers = "KXA", .event_ticker = "EVT-1"}));
+}

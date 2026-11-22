@@ -44,6 +44,9 @@ KalshiClient::get_concert_cancellation_availability(
 }
 
 Result<GetConcertsResponse> KalshiClient::get_concerts(const GetConcertsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/concert_cancellation_markets/concerts"});
 	query.add("metro_id", params.metro_id);
 	query.add("date_from", params.date_from);
@@ -54,6 +57,9 @@ Result<GetConcertsResponse> KalshiClient::get_concerts(const GetConcertsParams& 
 }
 
 Result<std::vector<Concert>> KalshiClient::search_concerts(const SearchConcertsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/concert_cancellation_markets/concerts/search"});
 	query.add("q", params.q);
 	Result<SearchConcertsResponse> response = detail::decode<SearchConcertsResponse>(
@@ -81,6 +87,9 @@ Result<GetFlightDisruptionAvailabilityResponse> KalshiClient::get_flight_disrupt
 }
 
 Result<std::vector<Flight>> KalshiClient::get_flights(const GetFlightsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/flight_disruption_markets/flights"});
 	query.add("carrier", params.carrier);
 	query.add("flight_number", params.flight_number);

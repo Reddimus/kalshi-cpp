@@ -258,7 +258,7 @@ TEST(Operations, AcceptRfqBatchPreservesPriceProtectionAndQuotes) {
 		R"({"accepted_side":"yes","quotes":[{"id":"q-1","rfq_id":"r-1","market_ticker":"KXTEST","contracts_fp":"2.00","yes_bid_dollars":"0.4000","no_bid_dollars":"0.5000","status":"accepted"}]})";
 	kalshi::AcceptRFQBatchRequest request;
 	request.accepted_side = kalshi::Side::Yes;
-	request.min_bids = {{"r-1", "0.3900"}};
+	request.min_bids = {{"r-1", "0.3900"}, {"r-2", "0.4900"}};
 	request.client_order_id = "client-1";
 	const kalshi::Result<kalshi::AcceptRFQBatchResponse> result =
 		f.client.accept_rfq_batch("batch/1", request);
@@ -267,7 +267,7 @@ TEST(Operations, AcceptRfqBatchPreservesPriceProtectionAndQuotes) {
 	EXPECT_EQ(f.transport->target, "/communications/rfq_batches/batch%2F1/accept");
 	EXPECT_EQ(
 		f.transport->body,
-		R"({"accepted_side":"yes","min_bids":[{"rfq_id":"r-1","bid_dollars":"0.3900"}],"client_order_id":"client-1"})");
+		R"({"accepted_side":"yes","min_bids":[{"rfq_id":"r-1","bid_dollars":"0.3900"},{"rfq_id":"r-2","bid_dollars":"0.4900"}],"client_order_id":"client-1"})");
 	EXPECT_EQ(result->accepted_side, kalshi::Side::Yes);
 	ASSERT_EQ(result->quotes.size(), 1U);
 	EXPECT_EQ(result->quotes[0].id, "q-1");
@@ -334,4 +334,23 @@ TEST(Operations, RfqBatchQuoteCreationSendsPricesAndReturnsId) {
 		f.transport->body,
 		R"({"quotes":[{"rfq_id":"r-1","yes_bid":"0.4000","no_bid":"0.5000"},{"rfq_id":"r-2","yes_bid":"0.3000","no_bid":"0.6000"}],"rest_remainder":false,"post_only":true,"subaccount":2})");
 	EXPECT_EQ(*result, "batch-quote-1");
+}
+
+TEST(Operations, InvalidQueryParamsNeverReachTheTransport) {
+	Fixture f;
+	const kalshi::Result<kalshi::GetMarketsResponse> markets = f.client.get_markets(
+		{.min_created_ts = 1700000000, .status = kalshi::GetMarketsStatus::Closed});
+	ASSERT_FALSE(markets.has_value());
+	EXPECT_EQ(markets.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(f.transport->calls, 0);
+
+	const kalshi::Result<kalshi::GetEventsResponse> events = f.client.get_events({.limit = 500});
+	ASSERT_FALSE(events.has_value());
+	EXPECT_EQ(events.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(f.transport->calls, 0);
+
+	// Bound-subtrader keys may omit both subtrader_id and client_order_ids on get_fcm_orders.
+	const kalshi::Result<kalshi::GetOrdersResponse> fcm = f.client.get_fcm_orders({});
+	ASSERT_TRUE(fcm.has_value()) << fcm.error().message;
+	EXPECT_EQ(f.transport->calls, 1);
 }

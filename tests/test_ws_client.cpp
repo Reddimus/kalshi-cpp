@@ -695,3 +695,49 @@ TEST_F(WsClient, ThrowingUserCallbacksAreContainedWithoutInterruptingTheSession)
 	ws.disconnect();
 	EXPECT_EQ(ws.state(), kalshi::WsState::Disconnected);
 }
+
+TEST_F(WsClient, DataFramesForUnknownOrUnsubscribedSidsAreDropped) {
+	Recorder recorder;
+	kalshi::WebSocketClient ws(kalshi::test::make_signer(), local(server));
+	recorder.attach(ws);
+	ASSERT_TRUE(ws.connect().has_value());
+
+	const kalshi::ws::Subscription ticker = subscribe_acked(
+		ws, server, recorder, kalshi::ws::Channel::Ticker, {.market_ticker = "KXA"}, 5);
+	ASSERT_TRUE(ws.unsubscribe(ticker).has_value());
+	const std::optional<std::string> unsub = server.next_command();
+	ASSERT_TRUE(unsub.has_value());
+	server.send(R"({"id":)" + std::to_string(id_of(*unsub)) +
+				R"(,"sid":5,"seq":1,"type":"unsubscribed"})");
+	ASSERT_TRUE(recorder.next<kalshi::ws::Unsubscribed>().has_value());
+
+	// Both the unsubscribed sid 5 and a never-subscribed sid 99 must be dropped.
+	server.send(
+		R"({"type":"ticker","sid":5,"msg":{"market_ticker":"KXA","price_dollars":"0.5000"}})");
+	server.send(
+		R"({"type":"ticker","sid":99,"msg":{"market_ticker":"KXB","price_dollars":"0.6000"}})");
+	EXPECT_FALSE(recorder.next<kalshi::ws::Update<kalshi::ws::Ticker>>(200ms).has_value());
+}
+
+TEST_F(WsClient, MalformedOrderbookSnapshotResyncsAutomatically) {
+	Recorder recorder;
+	kalshi::WebSocketClient ws(kalshi::test::make_signer(), local(server));
+	recorder.attach(ws);
+	ASSERT_TRUE(ws.connect().has_value());
+
+	const kalshi::ws::Subscription book = subscribe_acked(
+		ws, server, recorder, kalshi::ws::Channel::OrderbookDelta, {.market_tickers = {"KXA"}}, 3);
+	server.send(
+		R"({"type":"orderbook_snapshot","sid":3,"seq":1,"msg":{"market_ticker":"KXA","market_id":"m","yes_dollars_fp":[["0.4500",null]]}})");
+
+	const std::optional<kalshi::WsError> error = recorder.next_error();
+	ASSERT_TRUE(error.has_value());
+	EXPECT_EQ(error->subscription, book);
+	EXPECT_EQ(error->sid, 3);
+	EXPECT_EQ(error->seq, 1);
+
+	const std::optional<std::string> resync = server.next_command();
+	ASSERT_TRUE(resync.has_value());
+	EXPECT_TRUE(has(*resync, R"("sid":3,"market_tickers":["KXA"],"action":"get_snapshot")"))
+		<< *resync;
+}

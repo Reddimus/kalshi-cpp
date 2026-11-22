@@ -47,9 +47,12 @@ struct ErrorFrame {
 };
 
 /// A frame of a known type that did not match its schema, including a control
-/// frame without a member its schema requires.
+/// frame without a member its schema requires or a data frame without a valid
+/// `sid` or object `msg`.
 struct MalformedFrame {
 	std::string type;
+	std::optional<std::int64_t> sid;
+	std::optional<std::int64_t> seq;
 };
 
 using Frame = std::variant<std::monostate, WsMessage, SubscribedFrame, UnsubscribedFrame, OkFrame,

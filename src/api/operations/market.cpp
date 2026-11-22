@@ -24,6 +24,9 @@ KalshiClient::get_market_candlesticks(std::string_view series_ticker, std::strin
 }
 
 Result<GetTradesResponse> KalshiClient::get_trades(const GetTradesParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/markets/trades"});
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
@@ -38,6 +41,9 @@ Result<GetTradesResponse> KalshiClient::get_trades(const GetTradesParams& params
 Result<OrderbookCountFp>
 KalshiClient::get_market_orderbook(std::string_view ticker,
 								   const GetMarketOrderbookParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target = detail::expand_path("/markets/{ticker}/orderbook", {ticker});
 	if (!target) {
 		return std::unexpected(std::move(target.error()));
@@ -55,6 +61,9 @@ KalshiClient::get_market_orderbook(std::string_view ticker,
 
 Result<std::vector<MarketOrderbookFp>>
 KalshiClient::get_market_orderbooks(const GetMarketOrderbooksParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/markets/orderbooks"});
 	query.add("tickers", params.tickers);
 	Result<GetMarketOrderbooksResponse> response =
@@ -98,6 +107,9 @@ Result<std::vector<Series>> KalshiClient::get_series_list(const GetSeriesListPar
 }
 
 Result<GetMarketsResponse> KalshiClient::get_markets(const GetMarketsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/markets"});
 	query.add("limit", params.limit);
 	query.add("cursor", params.cursor);
@@ -133,6 +145,9 @@ Result<Market> KalshiClient::get_market(std::string_view ticker) {
 
 Result<std::vector<MarketCandlesticksResponse>>
 KalshiClient::batch_get_market_candlesticks(const BatchGetMarketCandlesticksParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/markets/candlesticks"});
 	query.add("market_tickers", params.market_tickers);
 	query.add("start_ts", params.start_ts);

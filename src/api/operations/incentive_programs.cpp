@@ -8,6 +8,9 @@ namespace kalshi {
 
 Result<GetIncentiveProgramsResponse>
 KalshiClient::get_incentive_programs(const GetIncentiveProgramsParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/incentive_programs"});
 	query.add("status", params.status);
 	query.add("type", params.type);
