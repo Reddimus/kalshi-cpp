@@ -6,6 +6,13 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Charge one item in `RateLimitedTransport::cost()` for batch bodies that hold empty array slots
+  (such as trailing commas) or content after the top-level object, instead of counting each empty
+  slot as an order and ignoring the trailing content
+  ([#123](https://github.com/Reddimus/kalshi-cpp/issues/123)).
+
 ## [0.9.5] - 2026-11-22
 
 ### Fixed

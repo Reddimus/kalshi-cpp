@@ -25,8 +25,11 @@ std::size_t batch_items(std::string_view path, std::string_view body) {
 		return 1;
 	}
 	http_detail::BatchBody batch;
-	// `body` is a view, so no terminator is guaranteed after it.
-	constexpr glz::opts options{.null_terminated = false, .error_on_unknown_keys = false};
+	// `body` is a view, so no terminator is guaranteed after it. The strict read
+	// rejects empty array slots and content after the object, so a malformed body
+	// takes the fallback instead of being charged for orders it does not hold.
+	constexpr detail::JsonReadOptions options{
+		{.null_terminated = false, .error_on_unknown_keys = false}};
 	if (glz::read<options>(batch, body) || batch.orders.empty()) {
 		return 1;
 	}
