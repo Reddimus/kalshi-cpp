@@ -302,6 +302,33 @@ TEST(RateLimitedTransport, CountsBatchItemsWhateverTheyContain) {
 		transport.cost(kalshi::HttpMethod::POST, "/portfolio/events/orders/batched", body), 30.0);
 }
 
+TEST(RateLimitedTransport, MalformedBatchBodiesCostOneItem) {
+	// Empty array slots must not count as orders, and nothing but whitespace may
+	// follow the object, so these bodies take the one-item fallback.
+	const kalshi::RateLimitedTransport transport(std::make_shared<ScriptedTransport>(),
+												 kalshi::RateLimitConfig{});
+	const std::string_view path = "/portfolio/events/orders/batched";
+	std::string trailing_nul = R"({"orders":[1,2,3]})";
+	trailing_nul.push_back('\0');
+	const std::vector<std::string> malformed = {
+		R"({"orders":[1,]})",
+		R"({"orders":[1,2,]})",
+		R"({"orders":[,]})",
+		R"({"orders":[,,]})",
+		R"({"orders":[1,,2]})",
+		R"({"orders":[1,2,3]} garbage)",
+		R"({"orders":[1,2,3]}{"orders":[1]})",
+		trailing_nul,
+	};
+
+	for (const std::string& body : malformed) {
+		EXPECT_DOUBLE_EQ(transport.cost(kalshi::HttpMethod::POST, path, body), 10.0) << body;
+	}
+	EXPECT_DOUBLE_EQ(transport.cost(kalshi::HttpMethod::POST, path, R"({"orders":[1,2]})"), 20.0);
+	EXPECT_DOUBLE_EQ(transport.cost(kalshi::HttpMethod::POST, path, " {\"orders\":[1,2]} \r\n\t"),
+					 20.0);
+}
+
 TEST(RateLimitedTransport, CountsOnlyTheBodyItIsGiven) {
 	// The view stops before the closing brace, so it is truncated JSON and
 	// costs one unit. Reading past the view would find the brace and count two.
