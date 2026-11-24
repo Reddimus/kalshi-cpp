@@ -1489,6 +1489,7 @@ TEST(WsSubscriptions, MalformedOrderbookFrameReportsSubscriptionAndResyncs) {
 	EXPECT_EQ(malformed.error->subscription, book);
 	EXPECT_EQ(malformed.error->sid, 3);
 	EXPECT_EQ(malformed.error->seq, 1);
+	EXPECT_FALSE(malformed.gap.has_value());
 	ASSERT_EQ(malformed.frames.size(), 1U);
 	EXPECT_NE(malformed.frames[0].find(R"("action":"get_snapshot")"), std::string::npos);
 
@@ -1497,4 +1498,104 @@ TEST(WsSubscriptions, MalformedOrderbookFrameReportsSubscriptionAndResyncs) {
 	const Reaction gap = registry.on_data(skipped, true);
 	ASSERT_TRUE(gap.error.has_value());
 	EXPECT_NE(gap.error->message.find("expected seq 2, got 3"), std::string::npos);
+}
+
+// A malformed frame can skip a seq too. Without a resync, its gap report is the
+// only sign that the skipped message is lost.
+TEST(WsSubscriptions, MalformedFrameThatSkipsASeqReportsTheGap) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription book =
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames).value();
+	registry.on_subscribed({2, "orderbook_delta", 3});
+	kalshi::WsMessage five = delta(3, 5);
+	ASSERT_FALSE(registry.on_data(five, false).error.has_value());
+
+	const Reaction malformed =
+		registry.on_malformed(kalshi::detail::MalformedFrame{"orderbook_delta", 3, 7}, false);
+	ASSERT_TRUE(malformed.gap.has_value());
+	EXPECT_NE(malformed.gap->message.find("expected seq 6, got 7"), std::string::npos)
+		<< malformed.gap->message;
+	EXPECT_EQ(malformed.gap->subscription, book);
+	EXPECT_EQ(malformed.gap->sid, 3);
+	EXPECT_EQ(malformed.gap->seq, 7);
+	ASSERT_TRUE(malformed.error.has_value());
+	EXPECT_EQ(malformed.error->message, "Could not parse a orderbook_delta frame");
+	EXPECT_EQ(malformed.error->seq, 7);
+	EXPECT_TRUE(malformed.frames.empty());
+
+	// A replayed malformed frame skips nothing and leaves seq 7 recorded.
+	const Reaction replay =
+		registry.on_malformed(kalshi::detail::MalformedFrame{"orderbook_delta", 3, 6}, false);
+	EXPECT_FALSE(replay.gap.has_value());
+	EXPECT_TRUE(replay.error.has_value());
+	kalshi::WsMessage eight = delta(3, 8);
+	EXPECT_FALSE(registry.on_data(eight, false).error.has_value());
+}
+
+TEST(WsSubscriptions, MalformedFrameGapRequestsOneResync) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	ASSERT_TRUE(registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames));
+	registry.on_subscribed({2, "orderbook_delta", 3});
+	kalshi::WsMessage five = delta(3, 5);
+	ASSERT_FALSE(registry.on_data(five, true).error.has_value());
+
+	const Reaction malformed =
+		registry.on_malformed(kalshi::detail::MalformedFrame{"orderbook_delta", 3, 7}, true);
+	ASSERT_TRUE(malformed.gap.has_value());
+	EXPECT_NE(malformed.gap->message.find("expected seq 6, got 7"), std::string::npos)
+		<< malformed.gap->message;
+	EXPECT_TRUE(malformed.error.has_value());
+	ASSERT_EQ(malformed.frames.size(), 1U);
+	EXPECT_NE(malformed.frames[0].find(R"("action":"get_snapshot")"), std::string::npos);
+}
+
+// Trades have no snapshot to resync from, so only the gap report tells the
+// caller a trade was missed.
+TEST(WsSubscriptions, MalformedTradeFrameThatSkipsASeqReportsTheGap) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription trades =
+		registry.subscribe(Channel::Trade, {.market_ticker = "A"}, true, frames).value();
+	registry.on_subscribed({2, "trade", 4});
+	kalshi::ws::Update<kalshi::ws::Trade> trade;
+	trade.sid = 4;
+	trade.seq = 5;
+	kalshi::WsMessage five = trade;
+	ASSERT_FALSE(registry.on_data(five, true).error.has_value());
+
+	const Reaction malformed =
+		registry.on_malformed(kalshi::detail::MalformedFrame{"trade", 4, 7}, true);
+	ASSERT_TRUE(malformed.gap.has_value());
+	EXPECT_NE(malformed.gap->message.find("expected seq 6, got 7"), std::string::npos)
+		<< malformed.gap->message;
+	EXPECT_EQ(malformed.gap->subscription, trades);
+	EXPECT_TRUE(malformed.error.has_value());
+	EXPECT_TRUE(malformed.frames.empty());
+}
+
+// An `error` frame on a sequenced channel shares the data's seq, so a skip it
+// reveals is reported alongside the server's error.
+TEST(WsSubscriptions, SequencedErrorFrameThatSkipsASeqReportsTheGap) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription book =
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames).value();
+	registry.on_subscribed({2, "orderbook_delta", 3});
+	kalshi::WsMessage five = delta(3, 5);
+	ASSERT_FALSE(registry.on_data(five, false).error.has_value());
+
+	const Reaction failed = registry.on_error({std::nullopt, 3, 7, 17, "Internal error"}, false);
+	ASSERT_TRUE(failed.gap.has_value());
+	EXPECT_NE(failed.gap->message.find("expected seq 6, got 7"), std::string::npos)
+		<< failed.gap->message;
+	EXPECT_EQ(failed.gap->subscription, book);
+	ASSERT_TRUE(failed.error.has_value());
+	EXPECT_EQ(failed.error->code, 17);
+	EXPECT_EQ(failed.error->message, "Internal error");
+	EXPECT_TRUE(failed.frames.empty());
+
+	kalshi::WsMessage eight = delta(3, 8);
+	EXPECT_FALSE(registry.on_data(eight, false).error.has_value());
 }

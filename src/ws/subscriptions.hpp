@@ -18,6 +18,9 @@ namespace kalshi::detail {
 struct Reaction {
 	std::vector<std::string> frames;
 	std::optional<WsMessage> message;
+	/// A sequence gap revealed by a frame that has its own error, such as a
+	/// malformed frame or a server `error`. It is reported before `error`.
+	std::optional<WsError> gap;
 	std::optional<WsError> error;
 	bool drop_data{false};
 };
@@ -71,7 +74,8 @@ public:
 	Reaction on_subscribed(const SubscribedFrame& frame);
 	Reaction on_unsubscribed(const UnsubscribedFrame& frame);
 	/// `ok` and `error` frames on sequenced channels share the data's `seq`,
-	/// so they are checked for gaps like data.
+	/// so they are checked for gaps like data. An `error` frame's gap goes in
+	/// Reaction::gap.
 	Reaction on_ok(const OkFrame& frame, bool resync = false);
 	Reaction on_error(const ErrorFrame& frame, bool resync = false);
 	/// Fills in Update::subscription and reports sequence gaps, snapshots
@@ -81,6 +85,7 @@ public:
 	Reaction on_data(WsMessage& message, bool resync);
 	/// Reports a malformed frame, attaching it to the subscription when `sid`
 	/// is live and requesting an orderbook snapshot resync when `resync` is set.
+	/// A seq the frame skips is reported in Reaction::gap.
 	Reaction on_malformed(const MalformedFrame& frame, bool resync);
 
 	[[nodiscard]] std::vector<ws::Subscription> subscriptions() const;

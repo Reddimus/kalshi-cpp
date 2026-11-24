@@ -12,6 +12,11 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   (such as trailing commas) or content after the top-level object, instead of counting each empty
   slot as an order and ignoring the trailing content
   ([#123](https://github.com/Reddimus/kalshi-cpp/issues/123)).
+- Report a missed-message gap to `on_error` when a malformed WebSocket frame or a sequenced
+  `error` frame skips a sequence number, before that frame's own error. The skip used to move
+  `last_seq` forward silently, so with `resync_on_gap` off, or on channels without snapshots such
+  as `trade`, the missed message went unreported
+  ([#125](https://github.com/Reddimus/kalshi-cpp/issues/125)).
 
 ## [0.9.5] - 2026-11-22
 

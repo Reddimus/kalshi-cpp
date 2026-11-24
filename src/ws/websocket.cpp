@@ -844,6 +844,9 @@ struct WebSocketClient::Impl : std::enable_shared_from_this<Impl> {
 			lws_callback_on_writable(connection);
 		}
 		// A gap is reported before the frame that reveals it.
+		if (reaction.gap) {
+			deliver(*reaction.gap);
+		}
 		if (reaction.error) {
 			deliver(*reaction.error);
 		}
