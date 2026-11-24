@@ -573,8 +573,8 @@ Reaction SubscriptionRegistry::on_ok(const OkFrame& frame, bool resync) {
 
 Reaction SubscriptionRegistry::on_error(const ErrorFrame& frame, bool resync) {
 	Reaction reaction;
-	// The server's error is reported; a gap it reveals still requests snapshots.
-	(void)check_frame_seq(frame.sid, frame.seq, resync, reaction.frames);
+	// A gap the error reveals is reported before it and still requests snapshots.
+	reaction.gap = check_frame_seq(frame.sid, frame.seq, resync, reaction.frames);
 	WsError error{frame.code, frame.message, frame.id,			 frame.sid,
 				  frame.seq,  std::nullopt,	 frame.sending_ts_ms};
 	if (error.message.empty()) {
@@ -644,8 +644,10 @@ Reaction SubscriptionRegistry::on_malformed(const MalformedFrame& frame, bool re
 	if (frame.sid) {
 		if (Entry* entry = find_by_sid(*frame.sid)) {
 			error.subscription = entry->handle;
-			if (frame.seq && (!entry->last_seq || *frame.seq > *entry->last_seq)) {
-				entry->last_seq = frame.seq;
+			if (frame.seq) {
+				// A seq the frame skipped is lost like one a valid frame skips. The
+				// resync below covers both, so the check requests none of its own.
+				reaction.gap = check_seq(*entry, *frame.sid, *frame.seq, false, reaction.frames);
 			}
 			if (resync) {
 				append_resync(*entry, reaction.frames);

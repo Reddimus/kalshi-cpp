@@ -741,3 +741,32 @@ TEST_F(WsClient, MalformedOrderbookSnapshotResyncsAutomatically) {
 	EXPECT_TRUE(has(*resync, R"("sid":3,"market_tickers":["KXA"],"action":"get_snapshot")"))
 		<< *resync;
 }
+
+TEST_F(WsClient, MalformedFrameThatSkipsASeqReportsTheGapFirst) {
+	Recorder recorder;
+	kalshi::WebSocketClient ws(kalshi::test::make_signer(), local(server));
+	recorder.attach(ws);
+	ASSERT_TRUE(ws.connect().has_value());
+	const kalshi::ws::Subscription book = subscribe_acked(
+		ws, server, recorder, kalshi::ws::Channel::OrderbookDelta, {.market_tickers = {"KXA"}}, 3);
+
+	server.send(delta(3, 1));
+	ASSERT_TRUE(recorder.next<kalshi::ws::Update<kalshi::ws::OrderbookDelta>>().has_value());
+	// Seq 2 never arrives, and seq 3 has a wrong-typed member.
+	server.send(R"({"type":"orderbook_delta","sid":3,"seq":3,"msg":{"market_ticker":123}})");
+
+	const std::optional<kalshi::WsError> gap = recorder.next_error();
+	ASSERT_TRUE(gap.has_value());
+	EXPECT_TRUE(has(gap->message, "expected seq 2, got 3")) << gap->message;
+	EXPECT_EQ(gap->subscription, book);
+	const std::optional<kalshi::WsError> malformed = recorder.next_error();
+	ASSERT_TRUE(malformed.has_value());
+	EXPECT_TRUE(has(malformed->message, "Could not parse a orderbook_delta frame"))
+		<< malformed->message;
+	EXPECT_EQ(malformed->seq, 3);
+
+	const std::optional<std::string> resync = server.next_command();
+	ASSERT_TRUE(resync.has_value());
+	EXPECT_TRUE(has(*resync, R"("action":"get_snapshot")")) << *resync;
+	EXPECT_FALSE(server.next_command(200ms).has_value());
+}
