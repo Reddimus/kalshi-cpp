@@ -525,12 +525,16 @@ class Generator:
                     member.float_minimum = float(src["minimum"])
                 if type(src.get("maximum")) in (int, float):
                     member.float_maximum = float(src["maximum"])
+        # Only plain string items get per-item checks, which loop with `const std::string&`.
+        item_type = self.aliases.get(cpp, cpp).removeprefix("std::vector<").removesuffix(">")
+        string_items = kind == "vector" and not element and self.aliases.get(item_type, item_type) == "std::string"
         if kind == "vector":
-            items = self.unwrap(schema_u.get("items", {}))
-            if GO_TAG in items:
+            raw_items = schema_u.get("items", {})
+            items = self.unwrap(raw_items)
+            if GO_TAG in raw_items or GO_TAG in items:
                 raise SystemExit(f"{owner}.{json_name}: {GO_TAG} on array items is not supported; "
                                  "put `dive` in the array's own tag")
-            if self.unwrap(items).get("type") == "string":
+            if string_items:
                 member.item_min_length = items.get("minLength") if type(items.get("minLength")) is int else None
                 member.item_max_length = items.get("maxLength") if type(items.get("maxLength")) is int else None
         tags = [src[GO_TAG] for src in ((schema,) if schema_u is schema else (schema, schema_u)) if GO_TAG in src]
@@ -539,11 +543,12 @@ class Generator:
         if tags:
             skip_pointer = bool(schema.get("x-go-type-skip-optional-pointer") or
                                 schema_u.get("x-go-type-skip-optional-pointer"))
-            self.apply_go_tag(member, tags[0], f"{owner}.{json_name}", is_int_scalar, is_double, skip_pointer)
+            self.apply_go_tag(member, tags[0], f"{owner}.{json_name}", is_int_scalar, is_double, skip_pointer,
+                              string_items)
         return member
 
     def apply_go_tag(self, m: Member, tag: object, where: str, is_int: bool, is_double: bool,
-                     skip_pointer: bool) -> None:
+                     skip_pointer: bool, string_items: bool) -> None:
         """Adds go-validator rules to a member's checks, keeping the stricter of each bound."""
         if not isinstance(tag, dict) or set(tag) != {"validate"} or not isinstance(tag["validate"], str):
             raise SystemExit(f"{where}: {GO_TAG} must hold only a `validate` string; found {tag!r}")
@@ -578,18 +583,21 @@ class Generator:
                     raise SystemExit(f"{where}: `required` in {GO_TAG} on an optional string is not supported")
                 continue
             if index > dive:  # rules for each array item
-                if m.element or name not in ("min", "max", "len"):
+                if not string_items or name not in ("min", "max", "len"):
                     raise SystemExit(f"{where}: go-validator rule `{name}` after `dive` is not supported here")
                 if name in ("min", "len"):
                     m.item_min_length = lower(m.item_min_length, number(arg))
                 if name in ("max", "len"):
                     m.item_max_length = upper(m.item_max_length, number(arg))
-            elif is_int:
+            elif is_int and name in ("ne", "oneof", "gt", "gte", "lte", "min", "max", "len"):
                 if name == "ne":
                     m.not_equal.append(number(arg))
                 elif name == "oneof":
                     values = [number(v) for v in arg.split()]
                     m.one_of = [v for v in m.one_of if v in values] if m.one_of else values
+                    # An empty list means "no rule" to validate_header(), so it must not mean "no value".
+                    if not m.one_of:
+                        raise SystemExit(f"{where}: `oneof` rules leave no allowed value")
                 else:
                     if name in ("gt", "gte", "min", "len"):
                         m.minimum = lower(m.minimum, number(arg) + (1 if name == "gt" else 0))

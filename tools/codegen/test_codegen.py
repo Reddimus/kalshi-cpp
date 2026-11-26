@@ -433,6 +433,26 @@ class Rejected(unittest.TestCase):
         self.tag(self.schemas["Thing"]["properties"]["tags"]["items"], "max=3")
         self.stops("on array items is not supported")
 
+    def test_go_validator_item_rule_on_integer_items(self) -> None:
+        self.schemas["Thing"]["properties"]["counts"] = {"type": "array", "items": {"type": "integer"}}
+        self.tag(self.schemas["Thing"]["properties"]["counts"], "omitempty,dive,min=1")
+        self.stops("go-validator rule `min` after `dive` is not supported here")
+
+    def test_go_validator_string_rule_on_an_integer(self) -> None:
+        self.schemas["Thing"]["properties"]["count"] = {"type": "integer"}
+        self.tag(self.schemas["Thing"]["properties"]["count"], "omitempty,alpha")
+        self.stops("go-validator rule `alpha` is not supported on std::optional<std::int64_t>")
+
+    def test_go_validator_tag_on_wrapped_array_items(self) -> None:
+        self.schemas["Thing"]["properties"]["tags"] = {"type": "array", "items": {"allOf": [{"type": "string"}]}}
+        self.tag(self.schemas["Thing"]["properties"]["tags"]["items"], "max=3")
+        self.stops("on array items is not supported")
+
+    def test_go_validator_oneof_rules_with_no_common_value(self) -> None:
+        self.schemas["Thing"]["properties"]["count"] = {"type": "integer"}
+        self.tag(self.schemas["Thing"]["properties"]["count"], "omitempty,oneof=1 2,oneof=3 4")
+        self.stops("`oneof` rules leave no allowed value")
+
     def test_go_validator_tag_with_other_keys(self) -> None:
         self.schemas["Thing"]["properties"]["name"]["x-oapi-codegen-extra-tags"] = {"validate": "required", "db": "x"}
         self.stops("must hold only a `validate` string")

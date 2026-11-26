@@ -655,3 +655,30 @@ TEST(ApiSupport, CreateSubaccountValidatesItsExchangeIndex) {
 	EXPECT_EQ(rejected.error().code, kalshi::ErrorCode::InvalidRequest);
 	EXPECT_EQ(transport->calls, 0);
 }
+
+// The route tests send default params, which now fail on period_interval 0, so
+// these send valid ones through all three candlestick operations.
+TEST(ApiSupport, CandlestickOperationsSendAValidPeriodInterval) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client{transport};
+
+	EXPECT_TRUE(client.get_market_candlesticks(
+		"KXS", "KXM", {.start_ts = 1, .end_ts = 2, .period_interval = 60}));
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(transport->target,
+			  "/series/KXS/markets/KXM/candlesticks?start_ts=1&end_ts=2&period_interval=60");
+
+	EXPECT_TRUE(client.get_market_candlesticks_by_event(
+		"KXS", "KXE", {.start_ts = 1, .end_ts = 2, .period_interval = 1440}));
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(transport->target,
+			  "/series/KXS/events/KXE/candlesticks?start_ts=1&end_ts=2&period_interval=1440");
+
+	EXPECT_TRUE(client.get_market_candlesticks_historical(
+		"KXM", {.start_ts = 1, .end_ts = 2, .period_interval = 1}));
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(transport->target,
+			  "/historical/markets/KXM/candlesticks?start_ts=1&end_ts=2&period_interval=1");
+	EXPECT_EQ(transport->calls, 3);
+}
