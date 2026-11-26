@@ -333,6 +333,53 @@ class SupportedSpec(unittest.TestCase):
         self.assertEqual(members["period_interval"].cpp_type, "std::optional<std::int64_t>")
         self.assertEqual(members["periods"].cpp_type, "std::vector<std::int64_t>")
 
+    def test_go_validator_tags_are_validated(self) -> None:
+        spec = copy.deepcopy(BASE)  # Kalshi's create-market requests and query parameters (#131)
+        tag = "x-oapi-codegen-extra-tags"
+        spec["paths"]["/things/{id}"]["get"]["parameters"].extend([
+            {"name": "day", "in": "query", "schema": {"type": "string"}, tag: {"validate": "omitempty,datetime=2006-01-02"}},
+            {"name": "period", "in": "query", "required": True, "schema": {"type": "integer", "enum": [1, 60]},
+             tag: {"validate": "required,oneof=1 60"}},
+        ])
+        spec["paths"]["/things/{id}"]["get"]["parameters"][1][tag] = {"validate": "omitempty,max=4,dive,max=200"}
+        thing = spec["components"]["schemas"]["Thing"]
+        thing["properties"].update({
+            "latitude": {"type": "number", tag: {"validate": "required,gte=-90,lte=90"}},
+            "code": {"type": "string", tag: {"validate": "required,alpha,len=3"}},
+            "number": {"type": "string", tag: {"validate": "required,number,max=4"}},
+            "delta": {"type": "integer", tag: {"validate": "required,ne=0"}},
+            "minutes": {"type": "integer", tag: {"validate": "omitempty,min=1"}},
+            "size": {"type": "string", "enum": ["small", "large"], tag: {"validate": "omitempty,oneof=large small"}},
+            "shard": {"allOf": [{"type": "integer", "minimum": -1}], "x-go-type-skip-optional-pointer": True,
+                      tag: {"validate": "gte=0"}},
+        })
+        thing["required"].extend(["latitude", "code", "number", "delta"])
+        gen = generate(spec)
+        header = gen.validate_header()
+        self.assertIn("!(value.latitude >= -90.0 && value.latitude <= 90.0)", header)
+        self.assertIn("value.code.size() < 3U || value.code.size() > 3U", header)
+        self.assertIn("!is_in_charset(value.code, Charset::Letters)", header)
+        self.assertIn("!is_in_charset(value.number, Charset::Digits)", header)
+        self.assertIn("value.number.size() > 4U", header)
+        self.assertIn("value.delta == 0", header)
+        self.assertIn("value.minutes && (*value.minutes < 1)", header)
+        self.assertIn("value.shard && (*value.shard < 0)", header)
+        self.assertIn("value.day && !is_valid_date(*value.day)", header)
+        self.assertIn("value.period != 1 && value.period != 60", header)
+        self.assertIn("value.ids.size() > 4U", header)
+        self.assertIn("item.size() > 200U", header)
+        self.assertTrue(gen.default_is_invalid("GetThingParams"))  # period 0 is not 1 or 60
+
+    def test_go_validator_tag_alone_makes_a_body_validated(self) -> None:
+        spec = copy.deepcopy(BASE)  # CreateSubaccountRequest had no validate() at all
+        spec["components"]["schemas"]["Thing"] = {"type": "object", "properties": {
+            "index": {"type": "integer", "x-oapi-codegen-extra-tags": {"validate": "gte=0"}}}}
+        gen = generate(spec)
+        self.assertIn("validate(const Thing& value)", gen.validate_header())
+        create = next(op for op in gen.operations if op.operation_id == "CreateThing")
+        self.assertIn("detail::validate(body)", gen.operations_source("things", [create]))
+        self.assertFalse(gen.default_is_invalid("Thing"))
+
 
 class Rejected(unittest.TestCase):
     def setUp(self) -> None:
@@ -345,6 +392,96 @@ class Rejected(unittest.TestCase):
         with self.assertRaises(SystemExit) as caught:
             generate(self.spec)
         self.assertIn(message, str(caught.exception.code))
+
+    # ----- go-validator tags -----------------------------------------------
+
+    def tag(self, prop: dict, rule: str) -> None:
+        prop["x-oapi-codegen-extra-tags"] = {"validate": rule}
+
+    def test_unknown_go_validator_rule(self) -> None:
+        self.tag(self.schemas["Thing"]["properties"]["name"], "required,email")
+        self.stops("go-validator rule `email` is not supported")
+
+    def test_go_validator_rule_on_the_wrong_type(self) -> None:
+        self.tag(self.schemas["Thing"]["properties"]["name"], "required,ne=0")
+        self.stops("go-validator rule `ne` is not supported on std::string")
+
+    def test_go_validator_datetime_layout(self) -> None:
+        self.tag(self.schemas["Thing"]["properties"]["name"], "required,datetime=15:04")
+        self.stops("only the datetime layout 2006-01-02 is supported")
+
+    def test_go_validator_oneof_narrower_than_the_enum(self) -> None:
+        self.tag(self.schemas["Thing"]["properties"]["size"], "omitempty,oneof=small")
+        self.stops("`oneof=small` differs from the values of")
+
+    def test_go_validator_dive_on_a_scalar(self) -> None:
+        self.tag(self.schemas["Thing"]["properties"]["name"], "required,dive,max=2")
+        self.stops("`dive` is supported once, on an array")
+
+    def test_go_validator_required_on_an_optional_string(self) -> None:
+        self.schemas["Thing"]["properties"]["note"] = {"type": "string"}
+        self.tag(self.schemas["Thing"]["properties"]["note"], "required")
+        self.stops("`required` in x-oapi-codegen-extra-tags on an optional member")
+
+    def test_go_validator_required_on_an_optional_array(self) -> None:
+        self.schemas["Thing"]["properties"]["tags"] = {"type": "array", "items": {"type": "string"}}
+        self.tag(self.schemas["Thing"]["properties"]["tags"], "required,dive")
+        self.stops("`required` in x-oapi-codegen-extra-tags on an optional member")
+
+    def test_go_validator_required_after_dive(self) -> None:
+        self.schemas["Thing"]["properties"]["tags"] = {"type": "array", "items": {"type": "string"}}
+        self.tag(self.schemas["Thing"]["properties"]["tags"], "omitempty,dive,required")
+        self.stops("go-validator rule `required` after `dive` is not supported here")
+
+    def test_go_validator_omitempty_after_dive(self) -> None:
+        self.schemas["Thing"]["properties"]["tags"] = {"type": "array", "items": {"type": "string"}}
+        self.tag(self.schemas["Thing"]["properties"]["tags"], "omitempty,dive,omitempty,min=1")
+        self.stops("go-validator rule `omitempty` after `dive` is not supported here")
+
+    def test_go_validator_omitempty_zero_on_a_required_member(self) -> None:
+        self.schemas["Thing"]["properties"]["count"] = {"type": "integer"}
+        self.schemas["Thing"]["required"].append("count")
+        self.tag(self.schemas["Thing"]["properties"]["count"], "omitempty,min=1")
+        self.stops("an omitempty rule that rejects the zero value needs an optional pointer")
+
+    def test_go_validator_omitempty_zero_without_a_pointer(self) -> None:
+        self.schemas["Thing"]["properties"]["count"] = {"type": "integer", "x-go-type-skip-optional-pointer": True}
+        self.tag(self.schemas["Thing"]["properties"]["count"], "omitempty,min=1")
+        self.stops("an omitempty rule that rejects the zero value needs an optional pointer")
+
+    def test_go_validator_tag_on_array_items(self) -> None:
+        self.schemas["Thing"]["properties"]["tags"] = {"type": "array", "items": {"type": "string"}}
+        self.tag(self.schemas["Thing"]["properties"]["tags"]["items"], "max=3")
+        self.stops("on array items is not supported")
+
+    def test_go_validator_item_rule_on_integer_items(self) -> None:
+        self.schemas["Thing"]["properties"]["counts"] = {"type": "array", "items": {"type": "integer"}}
+        self.tag(self.schemas["Thing"]["properties"]["counts"], "omitempty,dive,min=1")
+        self.stops("go-validator rule `min` after `dive` is not supported here")
+
+    def test_go_validator_string_rule_on_an_integer(self) -> None:
+        self.schemas["Thing"]["properties"]["count"] = {"type": "integer"}
+        self.tag(self.schemas["Thing"]["properties"]["count"], "omitempty,alpha")
+        self.stops("go-validator rule `alpha` is not supported on std::optional<std::int64_t>")
+
+    def test_go_validator_tag_on_wrapped_array_items(self) -> None:
+        self.schemas["Thing"]["properties"]["tags"] = {"type": "array", "items": {"allOf": [{"type": "string"}]}}
+        self.tag(self.schemas["Thing"]["properties"]["tags"]["items"], "max=3")
+        self.stops("on array items is not supported")
+
+    def test_go_validator_oneof_rules_with_no_common_value(self) -> None:
+        self.schemas["Thing"]["properties"]["count"] = {"type": "integer"}
+        self.tag(self.schemas["Thing"]["properties"]["count"], "omitempty,oneof=1 2,oneof=3 4")
+        self.stops("`oneof` rules leave no allowed value")
+
+    def test_go_validator_tag_with_other_keys(self) -> None:
+        self.schemas["Thing"]["properties"]["name"]["x-oapi-codegen-extra-tags"] = {"validate": "required", "db": "x"}
+        self.stops("must hold only a `validate` string")
+
+    def test_go_validator_tag_on_a_parameter_and_its_schema(self) -> None:
+        self.get["parameters"][0]["x-oapi-codegen-extra-tags"] = {"validate": "omitempty,min=1"}
+        self.get["parameters"][0]["schema"]["x-oapi-codegen-extra-tags"] = {"validate": "omitempty,min=1"}
+        self.stops("on both the parameter and its schema")
 
     # ----- operations ------------------------------------------------------
 

@@ -10,6 +10,9 @@ Result<GetEventCandlesticksResponse>
 KalshiClient::get_market_candlesticks_by_event(std::string_view series_ticker,
 											   std::string_view ticker,
 											   const GetMarketCandlesticksByEventParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target = detail::expand_path(
 		"/series/{series_ticker}/events/{ticker}/candlesticks", {series_ticker, ticker});
 	if (!target) {

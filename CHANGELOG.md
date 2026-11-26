@@ -11,6 +11,20 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 - Send a string literal or `const char*` passed to the internal query builder as text. It bound
   to the `bool` overload and went out as `key=true`. No shipped operation passed one
   ([#130](https://github.com/Reddimus/kalshi-cpp/issues/130)).
+- Enforce the limits the spec gives only as go-validator tags (`x-oapi-codegen-extra-tags`).
+  Requests that break them now fail with `InvalidRequest` before they are sent, instead of
+  getting a 400 from the server. Covered:
+  - latitude and longitude ranges;
+  - `YYYY-MM-DD` dates on the weather, flight and concert market requests and on the concert and
+    flight queries;
+  - letter and digit rules, and lengths, for flight carriers, flight numbers and airport codes;
+  - `delay_minutes >= 1` and a non-zero `position_centicount`;
+  - non-negative exchange and subaccount indexes;
+  - candlestick `period_interval` of 1, 60 or 1440;
+  - `get_market_orderbooks` tickers of at most 200 characters.
+
+  `create_subaccount` now validates its body
+  ([#131](https://github.com/Reddimus/kalshi-cpp/issues/131)).
 
 ## [0.9.6] - 2026-11-24
 

@@ -122,6 +122,9 @@ KalshiClient::get_intra_exchange_instance_transfer(std::string_view transfer_id)
 }
 
 Result<std::int64_t> KalshiClient::create_subaccount(const CreateSubaccountRequest& body) {
+	if (Result<void> valid = detail::validate(body); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<CreateSubaccountResponse> response = detail::decode<CreateSubaccountResponse>(
 		Impl::send(impl_.get(), HttpMethod::POST, std::string{"/portfolio/subaccounts"},
 				   detail::encode(body), "create_subaccount"));

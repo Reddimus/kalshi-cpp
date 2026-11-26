@@ -100,9 +100,9 @@ TEST(OperationRoutes, GetMarketCandlesticks) {
 	kalshi::KalshiClient client(transport);
 	const Result<GetMarketCandlesticksResponse> result =
 		client.get_market_candlesticks("p0", "p1", GetMarketCandlesticksParams{});
-	EXPECT_TRUE(result.has_value());
-	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
-	EXPECT_EQ(route(transport->target), "/series/p0/markets/p1/candlesticks");
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, GetTrades) {
@@ -194,9 +194,9 @@ TEST(OperationRoutes, GetMarketCandlesticksByEvent) {
 	kalshi::KalshiClient client(transport);
 	const Result<GetEventCandlesticksResponse> result =
 		client.get_market_candlesticks_by_event("p0", "p1", GetMarketCandlesticksByEventParams{});
-	EXPECT_TRUE(result.has_value());
-	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
-	EXPECT_EQ(route(transport->target), "/series/p0/events/p1/candlesticks");
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, GetEvents) {
@@ -1464,9 +1464,9 @@ TEST(OperationRoutes, GetMarketCandlesticksHistorical) {
 	kalshi::KalshiClient client(transport);
 	const Result<GetMarketCandlesticksHistoricalResponse> result =
 		client.get_market_candlesticks_historical("p0", GetMarketCandlesticksHistoricalParams{});
-	EXPECT_TRUE(result.has_value());
-	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
-	EXPECT_EQ(route(transport->target), "/historical/markets/p0/candlesticks");
+	ASSERT_FALSE(result.has_value());
+	EXPECT_EQ(result.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
 }
 
 TEST(OperationRoutes, GetFillsHistorical) {

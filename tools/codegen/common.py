@@ -136,6 +136,15 @@ class Member:
     max_items: int | None = None
     min_length: int | None = None
     max_length: int | None = None
+    # Rules from the spec's go-validator tags (x-oapi-codegen-extra-tags) and number bounds.
+    float_minimum: float | None = None
+    float_maximum: float | None = None
+    not_equal: list[int] = field(default_factory=list)
+    one_of: list[int] = field(default_factory=list)  # allowed integer values
+    charset: str = ""  # a key of GO_CHARSETS in generate.py
+    date: bool = False  # a calendar date in YYYY-MM-DD form
+    item_min_length: int | None = None  # for arrays of strings
+    item_max_length: int | None = None
 
 
 @dataclass

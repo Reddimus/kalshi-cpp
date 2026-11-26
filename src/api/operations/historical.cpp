@@ -14,6 +14,9 @@ Result<GetHistoricalCutoffResponse> KalshiClient::get_historical_cutoff() {
 
 Result<GetMarketCandlesticksHistoricalResponse> KalshiClient::get_market_candlesticks_historical(
 	std::string_view ticker, const GetMarketCandlesticksHistoricalParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target =
 		detail::expand_path("/historical/markets/{ticker}/candlesticks", {ticker});
 	if (!target) {

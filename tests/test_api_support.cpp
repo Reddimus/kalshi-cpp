@@ -3,9 +3,12 @@
 
 #include "kalshi/api.hpp"
 
+#include <cmath>
 #include <cstddef>
+#include <cstdint>
 #include <gtest/gtest.h>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -522,4 +525,160 @@ TEST(ApiSupport, ValidationEnforcesQueryParameterRules) {
 	EXPECT_TRUE(kalshi::detail::validate(kalshi::GetHistoricalMarketsParams{.tickers = "KXA"}));
 	EXPECT_FALSE(kalshi::detail::validate(
 		kalshi::GetHistoricalMarketsParams{.tickers = "KXA", .event_ticker = "EVT-1"}));
+}
+
+using Weather = kalshi::CreateWeatherPointMarketRequest;
+using Flight = kalshi::CreateFlightDisruptionMarketRequest;
+
+// Whether `request` passes validation after `change` edits a copy of it.
+template <class Request, class Change>
+bool valid_with(Request request, Change change) {
+	change(request);
+	return kalshi::detail::validate(request).has_value();
+}
+
+// Rules the spec gives only as go-validator tags in x-oapi-codegen-extra-tags,
+// with no JSON Schema keyword beside them (#131).
+TEST(ApiSupport, ValidationEnforcesSpecValidatorTags) {
+	const Weather weather{.latitude = 90,
+						  .longitude = -180,
+						  .variable = kalshi::WeatherPointVariable::MaxTemp,
+						  .strike_type = kalshi::WeatherPointStrikeType::Greater,
+						  .floor_value = 80,
+						  .date = "2028-02-29",
+						  .end_date = "2028-03-01",
+						  .start_hour = 0,
+						  .end_hour = 24,
+						  .timezone = "America/New_York"};
+	EXPECT_TRUE(kalshi::detail::validate(weather));
+	EXPECT_FALSE(valid_with(weather, [](Weather& r) { r.latitude = 91; }));
+	EXPECT_FALSE(valid_with(weather, [](Weather& r) { r.latitude = -91; }));
+	EXPECT_FALSE(valid_with(weather, [](Weather& r) { r.longitude = 181; }));
+	EXPECT_FALSE(valid_with(weather, [](Weather& r) { r.longitude = -181; }));
+	EXPECT_FALSE(valid_with(weather, [](Weather& r) { r.latitude = std::nan(""); }));
+	EXPECT_FALSE(valid_with(weather, [](Weather& r) { r.date = "not-a-date"; }));
+	EXPECT_FALSE(valid_with(weather, [](Weather& r) { r.date = "12/01/2026"; }));
+	EXPECT_FALSE(valid_with(weather, [](Weather& r) { r.date = "2026-02-29"; }));
+	EXPECT_FALSE(valid_with(weather, [](Weather& r) { r.date = "2026-13-01"; }));
+	EXPECT_FALSE(valid_with(weather, [](Weather& r) { r.date = "2026-04-31"; }));
+	EXPECT_FALSE(valid_with(weather, [](Weather& r) { r.date = "2026-1-01"; }));
+	EXPECT_FALSE(valid_with(weather, [](Weather& r) { r.end_date = "tomorrow"; }));
+	EXPECT_FALSE(valid_with(weather, [](Weather& r) { r.end_date = ""; }));
+
+	const Flight flight{.carrier = "B6",
+						.flight_number = "1234",
+						.departure_airport = "JFK",
+						.arrival_airport = "LAX",
+						.scheduled_date = "2026-12-01",
+						.cover = kalshi::FlightCover::Either,
+						.delay_minutes = 30};
+	EXPECT_TRUE(kalshi::detail::validate(flight));
+	EXPECT_FALSE(valid_with(flight, [](Flight& r) { r.scheduled_date = "tomorrow"; }));
+	EXPECT_FALSE(valid_with(flight, [](Flight& r) { r.carrier = "A"; }));
+	EXPECT_FALSE(valid_with(flight, [](Flight& r) { r.carrier = "!!"; }));
+	EXPECT_FALSE(valid_with(flight, [](Flight& r) { r.flight_number = "12345"; }));
+	EXPECT_FALSE(valid_with(flight, [](Flight& r) { r.flight_number = "ABCD"; }));
+	EXPECT_FALSE(valid_with(flight, [](Flight& r) { r.departure_airport = "AB"; }));
+	EXPECT_FALSE(valid_with(flight, [](Flight& r) { r.departure_airport = "ABCD"; }));
+	EXPECT_FALSE(valid_with(flight, [](Flight& r) { r.departure_airport = "123"; }));
+	EXPECT_FALSE(valid_with(flight, [](Flight& r) { r.arrival_airport = "L0N"; }));
+	EXPECT_FALSE(valid_with(flight, [](Flight& r) { r.delay_minutes = 0; }));
+	EXPECT_FALSE(valid_with(flight, [](Flight& r) { r.delay_minutes = -5; }));
+	EXPECT_TRUE(valid_with(flight, [](Flight& r) { r.delay_minutes = std::nullopt; }));
+
+	EXPECT_TRUE(kalshi::detail::validate(
+		kalshi::CreateConcertCancellationMarketRequest{.jambase_event_id = "1",
+													   .scheduled_date = "2026-12-01",
+													   .cover = kalshi::ConcertCover::Either}));
+	EXPECT_FALSE(kalshi::detail::validate(
+		kalshi::CreateConcertCancellationMarketRequest{.jambase_event_id = "1",
+													   .scheduled_date = "Dec 1",
+													   .cover = kalshi::ConcertCover::Either}));
+
+	const kalshi::CreateFCMPositionTransferRequest fcm{.source_subtrader_id = "a",
+													   .target_subtrader_id = "b",
+													   .market_ticker = "M",
+													   .position_centicount = -100,
+													   .price_centicents = 5000};
+	EXPECT_TRUE(kalshi::detail::validate(fcm));
+	kalshi::CreateFCMPositionTransferRequest no_position = fcm;
+	no_position.position_centicount = 0;
+	EXPECT_FALSE(kalshi::detail::validate(no_position));
+
+	EXPECT_TRUE(kalshi::detail::validate(kalshi::ApplySubaccountTransferRequest{
+		.client_transfer_id = "id", .amount_cents = 1, .exchange_index = 0}));
+	EXPECT_FALSE(kalshi::detail::validate(kalshi::ApplySubaccountTransferRequest{
+		.client_transfer_id = "id", .amount_cents = 1, .exchange_index = -1}));
+	const kalshi::IntraExchangeInstanceTransferRequest intra{
+		.source = kalshi::ExchangeInstance::EventContract,
+		.destination = kalshi::ExchangeInstance::Margined,
+		.amount = 1,
+		.source_subaccount = 0,
+		.destination_subaccount = 1};
+	EXPECT_TRUE(kalshi::detail::validate(intra));
+	kalshi::IntraExchangeInstanceTransferRequest bad_source = intra;
+	bad_source.source_subaccount = -1;
+	EXPECT_FALSE(kalshi::detail::validate(bad_source));
+	kalshi::IntraExchangeInstanceTransferRequest bad_destination = intra;
+	bad_destination.destination_subaccount = -1;
+	EXPECT_FALSE(kalshi::detail::validate(bad_destination));
+
+	// Query parameters carry the same tags.
+	EXPECT_TRUE(kalshi::detail::validate(
+		kalshi::GetFlightsParams{.carrier = "B6", .flight_number = "12", .date = "2026-12-01"}));
+	EXPECT_FALSE(kalshi::detail::validate(
+		kalshi::GetFlightsParams{.carrier = "!!", .flight_number = "12", .date = "2026-12-01"}));
+	EXPECT_FALSE(kalshi::detail::validate(
+		kalshi::GetFlightsParams{.carrier = "B6", .flight_number = "1A", .date = "2026-12-01"}));
+	EXPECT_FALSE(kalshi::detail::validate(
+		kalshi::GetFlightsParams{.carrier = "B6", .flight_number = "12", .date = "20261201"}));
+	EXPECT_FALSE(
+		kalshi::detail::validate(kalshi::GetConcertsParams{.metro_id = "1", .date_to = "soon"}));
+	EXPECT_FALSE(kalshi::detail::validate(
+		kalshi::GetConcertCancellationAvailabilityParams{.date_from = "x"}));
+	EXPECT_TRUE(kalshi::detail::validate(
+		kalshi::GetMarketCandlesticksParams{.start_ts = 1, .end_ts = 2, .period_interval = 60}));
+	EXPECT_FALSE(kalshi::detail::validate(
+		kalshi::GetMarketCandlesticksParams{.start_ts = 1, .end_ts = 2, .period_interval = 5}));
+	EXPECT_TRUE(kalshi::detail::validate(
+		kalshi::GetMarketOrderbooksParams{.tickers = {std::string(200, 'A')}}));
+	EXPECT_FALSE(kalshi::detail::validate(
+		kalshi::GetMarketOrderbooksParams{.tickers = {std::string(201, 'A')}}));
+}
+
+TEST(ApiSupport, CreateSubaccountValidatesItsExchangeIndex) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client{transport};
+	const kalshi::Result<std::int64_t> rejected = client.create_subaccount({.exchange_index = -1});
+	ASSERT_FALSE(rejected.has_value());
+	EXPECT_EQ(rejected.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
+}
+
+// The route tests send default params, which now fail on period_interval 0, so
+// these send valid ones through all three candlestick operations.
+TEST(ApiSupport, CandlestickOperationsSendAValidPeriodInterval) {
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client{transport};
+
+	EXPECT_TRUE(client.get_market_candlesticks(
+		"KXS", "KXM", {.start_ts = 1, .end_ts = 2, .period_interval = 60}));
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(transport->target,
+			  "/series/KXS/markets/KXM/candlesticks?start_ts=1&end_ts=2&period_interval=60");
+
+	EXPECT_TRUE(client.get_market_candlesticks_by_event(
+		"KXS", "KXE", {.start_ts = 1, .end_ts = 2, .period_interval = 1440}));
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(transport->target,
+			  "/series/KXS/events/KXE/candlesticks?start_ts=1&end_ts=2&period_interval=1440");
+
+	EXPECT_TRUE(client.get_market_candlesticks_historical(
+		"KXM", {.start_ts = 1, .end_ts = 2, .period_interval = 1}));
+	EXPECT_EQ(transport->method, kalshi::HttpMethod::GET);
+	EXPECT_EQ(transport->target,
+			  "/historical/markets/KXM/candlesticks?start_ts=1&end_ts=2&period_interval=1");
+	EXPECT_EQ(transport->calls, 3);
 }
