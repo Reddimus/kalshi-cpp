@@ -31,7 +31,7 @@ jobs:
             libwebsockets-dev
       - name: Lint
         run: make lint CLANG_FORMAT=clang-format-18
-      - uses: hendrikmuhs/ccache-action@dbeefd73e8e2ffc1bbc412570072735eb4db3607 # v1.2.25
+      - uses: hendrikmuhs/ccache-action@e91f31892a1d1b8c44424b1a94c0b7f52d337168 # v1.2.26
         with:
           key: linux-release
       - name: Build
@@ -64,7 +64,7 @@ jobs:
           test -n "$openssl" || { echo "libwebsockets does not depend on an openssl@ formula"; exit 1; }
           echo "PKG_CONFIG_PATH=$(brew --prefix "$openssl")/lib/pkgconfig:$(brew --prefix libwebsockets)/lib/pkgconfig" >> "$GITHUB_ENV"
           echo "CMAKE_PREFIX_PATH=$(brew --prefix "$openssl")" >> "$GITHUB_ENV"
-      - uses: hendrikmuhs/ccache-action@dbeefd73e8e2ffc1bbc412570072735eb4db3607 # v1.2.25
+      - uses: hendrikmuhs/ccache-action@e91f31892a1d1b8c44424b1a94c0b7f52d337168 # v1.2.26
         with:
           key: macos-release
       # 13.3 is the documented minimum; std::to_chars(double) needs it.
@@ -126,7 +126,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential ninja-build \
             pkg-config libcurl4-openssl-dev libssl-dev libwebsockets-dev
-      - uses: hendrikmuhs/ccache-action@dbeefd73e8e2ffc1bbc412570072735eb4db3607 # v1.2.25
+      - uses: hendrikmuhs/ccache-action@e91f31892a1d1b8c44424b1a94c0b7f52d337168 # v1.2.26
         with:
           key: linux-asan
       - name: ASan and UBSan
@@ -142,7 +142,7 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y --no-install-recommends build-essential ninja-build \
             pkg-config libcurl4-openssl-dev libssl-dev libwebsockets-dev
-      - uses: hendrikmuhs/ccache-action@dbeefd73e8e2ffc1bbc412570072735eb4db3607 # v1.2.25
+      - uses: hendrikmuhs/ccache-action@e91f31892a1d1b8c44424b1a94c0b7f52d337168 # v1.2.26
         with:
           key: linux-tsan
       # TSan cannot map its shadow memory with the runner kernel's default ASLR entropy.
@@ -185,4 +185,4 @@ jobs:
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: DavidAnson/markdownlint-cli2-action@696eb3f2509270d7b882d2aa68347bc676e7af34 # v25.0.0
+      - uses: DavidAnson/markdownlint-cli2-action@3ce8f712b5d8f31acd8e201be6d97e3d2bb23eb7 # v25.1.0
