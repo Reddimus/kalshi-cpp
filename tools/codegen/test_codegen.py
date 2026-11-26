@@ -421,7 +421,28 @@ class Rejected(unittest.TestCase):
     def test_go_validator_required_on_an_optional_string(self) -> None:
         self.schemas["Thing"]["properties"]["note"] = {"type": "string"}
         self.tag(self.schemas["Thing"]["properties"]["note"], "required")
-        self.stops("`required` in x-oapi-codegen-extra-tags on an optional string")
+        self.stops("`required` in x-oapi-codegen-extra-tags on an optional member")
+
+    def test_go_validator_required_on_an_optional_array(self) -> None:
+        self.schemas["Thing"]["properties"]["tags"] = {"type": "array", "items": {"type": "string"}}
+        self.tag(self.schemas["Thing"]["properties"]["tags"], "required,dive")
+        self.stops("`required` in x-oapi-codegen-extra-tags on an optional member")
+
+    def test_go_validator_required_after_dive(self) -> None:
+        self.schemas["Thing"]["properties"]["tags"] = {"type": "array", "items": {"type": "string"}}
+        self.tag(self.schemas["Thing"]["properties"]["tags"], "omitempty,dive,required")
+        self.stops("go-validator rule `required` after `dive` is not supported here")
+
+    def test_go_validator_omitempty_after_dive(self) -> None:
+        self.schemas["Thing"]["properties"]["tags"] = {"type": "array", "items": {"type": "string"}}
+        self.tag(self.schemas["Thing"]["properties"]["tags"], "omitempty,dive,omitempty,min=1")
+        self.stops("go-validator rule `omitempty` after `dive` is not supported here")
+
+    def test_go_validator_omitempty_zero_on_a_required_member(self) -> None:
+        self.schemas["Thing"]["properties"]["count"] = {"type": "integer"}
+        self.schemas["Thing"]["required"].append("count")
+        self.tag(self.schemas["Thing"]["properties"]["count"], "omitempty,min=1")
+        self.stops("an omitempty rule that rejects the zero value needs an optional pointer")
 
     def test_go_validator_omitempty_zero_without_a_pointer(self) -> None:
         self.schemas["Thing"]["properties"]["count"] = {"type": "integer", "x-go-type-skip-optional-pointer": True}

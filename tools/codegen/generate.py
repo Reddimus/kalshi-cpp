@@ -574,17 +574,21 @@ class Generator:
             return value if current is None else min(current, value)
 
         for index, (name, _, arg) in enumerate(rules):
-            if name in ("omitempty", "dive"):
+            if name == "dive":
                 continue
-            if name == "required":
-                # Required strings are already non-empty. For numbers Go's `required` also
-                # rejects 0, which would rule out valid values such as shard 0, so it is not copied.
-                if m.base_kind == "string" and not m.required:
-                    raise SystemExit(f"{where}: `required` in {GO_TAG} on an optional string is not supported")
-                continue
-            if index > dive:  # rules for each array item
+            if index > dive:  # rules for each array item; `required` and `omitempty` there are not modelled
                 if not string_items or name not in ("min", "max", "len"):
                     raise SystemExit(f"{where}: go-validator rule `{name}` after `dive` is not supported here")
+            elif name == "omitempty":
+                continue
+            elif name == "required":
+                # Go's `required` on an optional pointer means "must be set", which validate() does not
+                # check. Required strings are already non-empty. For numbers Go's `required` also
+                # rejects 0, which would rule out valid values such as shard 0, so it is not copied.
+                if not m.required:
+                    raise SystemExit(f"{where}: `required` in {GO_TAG} on an optional member is not supported")
+                continue
+            if index > dive:
                 if name in ("min", "len"):
                     m.item_min_length = lower(m.item_min_length, number(arg))
                 if name in ("max", "len"):
@@ -633,9 +637,10 @@ class Generator:
                     raise SystemExit(f"{where}: `oneof={arg}` differs from the values of {m.element}")
             else:
                 raise SystemExit(f"{where}: go-validator rule `{name}` is not supported on {m.cpp_type}")
-        # With no optional pointer, Go skips an omitempty field's zero value, which validate()
-        # would still check once the member is set.
-        if skip_pointer and "omitempty" in names and not before and Generator.zero_fails(m):
+        # Go skips an omitempty field's zero value unless the field is an optional pointer, while
+        # validate() checks every value it is given, so such a rule must not newly reject zero.
+        non_pointer = skip_pointer or m.required
+        if non_pointer and "omitempty" in names[:dive] and not before and Generator.zero_fails(m):
             raise SystemExit(f"{where}: an omitempty rule that rejects the zero value needs an optional pointer")
 
     @staticmethod
