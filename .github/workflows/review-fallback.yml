@@ -46,7 +46,9 @@ jobs:
     permissions:
       contents: read
       issues: write
-      pull-requests: read
+      # Commenting on a pull request needs pull-requests: write, even
+      # through the issues API; with read only, GitHub answers 403.
+      pull-requests: write
     steps:
       # Execute only the trusted default branch, including for fork PRs.
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
