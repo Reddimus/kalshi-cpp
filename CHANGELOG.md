@@ -6,6 +6,12 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Send a string literal or `const char*` passed to the internal query builder as text. It bound
+  to the `bool` overload and went out as `key=true`. No shipped operation passed one
+  ([#130](https://github.com/Reddimus/kalshi-cpp/issues/130)).
+
 ## [0.9.6] - 2026-11-24
 
 ### Fixed

@@ -49,7 +49,13 @@ public:
 
 	void add(std::string_view key, std::string_view value) { append(key, percent_encode(value)); }
 	void add(std::string_view key, std::int64_t value) { append(key, std::to_string(value)); }
-	void add(std::string_view key, bool value) { append(key, value ? "true" : "false"); }
+	/// Takes only a real bool. A plain bool parameter would also take any
+	/// pointer, and a string literal would pick it over std::string_view.
+	template <class Bool>
+		requires std::same_as<Bool, bool>
+	void add(std::string_view key, Bool value) {
+		append(key, value ? "true" : "false");
+	}
 	void add(std::string_view key, double value);
 	/// Repeats the key for each value (`?tickers=A&tickers=B`).
 	template <class T>

@@ -3,6 +3,7 @@
 
 #include "kalshi/api.hpp"
 
+#include <cstddef>
 #include <gtest/gtest.h>
 #include <memory>
 #include <string>
@@ -19,6 +20,9 @@ kalshi::HttpResponse response(int status, std::string body) {
 	return kalshi::HttpResponse{status, std::move(body), {}};
 }
 
+template <class T>
+concept QueryAccepts = requires(kalshi::detail::Query& query, T value) { query.add("k", value); };
+
 } // namespace
 
 TEST(ApiSupport, QueryEncodesValuesAndSkipsUnsetOnes) {
@@ -33,6 +37,25 @@ TEST(ApiSupport, QueryEncodesValuesAndSkipsUnsetOnes) {
 
 	EXPECT_EQ(std::move(query).str(), "/markets?limit=100&cursor=a%20b%2Bc%2F%3D%26&status=open"
 									  "&with_nested_markets=true&tickers=A&tickers=B%20C");
+}
+
+// A pointer converts to bool by a standard conversion, which beats the
+// user-defined conversion to std::string_view, so a string literal once sent
+// `key=true` (#130).
+TEST(ApiSupport, QuerySendsStringLiteralsAndCharPointersAsText) {
+	const char* pointer = "a b&c=d";
+	kalshi::detail::Query query("/markets");
+	query.add("literal", "a b&c=d");
+	query.add("pointer", pointer);
+	query.add("flag", true);
+	query.add("off", false);
+
+	EXPECT_EQ(std::move(query).str(),
+			  "/markets?literal=a%20b%26c%3Dd&pointer=a%20b%26c%3Dd&flag=true&off=false");
+	// Only a real bool reaches the bool overload; other pointers do not compile.
+	static_assert(QueryAccepts<bool>);
+	static_assert(!QueryAccepts<const int*>);
+	static_assert(!QueryAccepts<std::nullptr_t>);
 }
 
 TEST(ApiSupport, PathParametersArePercentEncodedAndMustBeNonEmpty) {
