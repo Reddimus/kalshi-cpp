@@ -5,6 +5,7 @@
 #include "kalshi/fixed_point.hpp"
 
 #include <cstddef>
+#include <cstdint>
 #include <string>
 #include <string_view>
 
@@ -30,6 +31,57 @@ inline bool is_valid_client_order_id(std::string_view text) noexcept {
 		}
 	}
 	return true;
+}
+
+/// The go-validator charsets the spec names: alpha, alphanum, and number.
+enum class Charset : std::uint8_t { Letters, LettersAndDigits, Digits };
+
+/// Whether `text` is non-empty and holds only ASCII characters from `charset`.
+inline bool is_in_charset(std::string_view text, Charset charset) noexcept {
+	if (text.empty()) {
+		return false;
+	}
+	for (const char ch : text) {
+		const bool letter = (ch >= 'a' && ch <= 'z') || (ch >= 'A' && ch <= 'Z');
+		const bool digit = ch >= '0' && ch <= '9';
+		const bool allowed = charset == Charset::Letters  ? letter
+							 : charset == Charset::Digits ? digit
+														  : letter || digit;
+		if (!allowed) {
+			return false;
+		}
+	}
+	return true;
+}
+
+/// Whether `text` is a real calendar date in YYYY-MM-DD form, as Go's
+/// `2006-01-02` layout reads it.
+inline bool is_valid_date(std::string_view text) noexcept {
+	if (text.size() != 10 || text[4] != '-' || text[7] != '-') {
+		return false;
+	}
+	int year = 0;
+	int month = 0;
+	int day = 0;
+	for (std::size_t index = 0; index < text.size(); ++index) {
+		if (index == 4 || index == 7) {
+			continue;
+		}
+		const char ch = text[index];
+		if (ch < '0' || ch > '9') {
+			return false;
+		}
+		int& part = index < 4 ? year : index < 7 ? month : day;
+		part = part * 10 + (ch - '0');
+	}
+	const bool leap = (year % 4 == 0 && year % 100 != 0) || year % 400 == 0;
+	int last = 31;
+	if (month == 2) {
+		last = leap ? 29 : 28;
+	} else if (month == 4 || month == 6 || month == 9 || month == 11) {
+		last = 30;
+	}
+	return month >= 1 && month <= 12 && day >= 1 && day <= last;
 }
 
 inline Result<void> validate(const AcceptBlockTradeProposalRequest& value);
@@ -63,6 +115,7 @@ inline Result<void> validate(const RFQBatchQuoteEntry& value);
 inline Result<void> validate(const CreateRFQBatchQuoteRequest& value);
 inline Result<void> validate(const CreateRFQBatchRequest& value);
 inline Result<void> validate(const CreateRFQRequest& value);
+inline Result<void> validate(const CreateSubaccountRequest& value);
 inline Result<void> validate(const CreateWeatherPointMarketRequest& value);
 inline Result<void> validate(const DecreaseOrderParams& value);
 inline Result<void> validate(const DecreaseOrderV2Request& value);
@@ -72,6 +125,7 @@ inline Result<void> validate(const DeleteOrderGroupParams& value);
 inline Result<void> validate(const GenerateApiKeyRequest& value);
 inline Result<void> validate(const GetBalanceParams& value);
 inline Result<void> validate(const GetBlockTradeProposalsParams& value);
+inline Result<void> validate(const GetConcertCancellationAvailabilityParams& value);
 inline Result<void> validate(const GetConcertsParams& value);
 inline Result<void> validate(const GetCreditHistoryParams& value);
 inline Result<void> validate(const GetDepositsParams& value);
@@ -91,6 +145,9 @@ inline Result<void> validate(const GetHistoricalPositionsParams& value);
 inline Result<void> validate(const GetIncentiveProgramsParams& value);
 inline Result<void> validate(const GetIntraExchangeInstanceTransfersParams& value);
 inline Result<void> validate(const GetLiveDatasParams& value);
+inline Result<void> validate(const GetMarketCandlesticksByEventParams& value);
+inline Result<void> validate(const GetMarketCandlesticksHistoricalParams& value);
+inline Result<void> validate(const GetMarketCandlesticksParams& value);
 inline Result<void> validate(const GetMarketOrderbookParams& value);
 inline Result<void> validate(const GetMarketOrderbooksParams& value);
 inline Result<void> validate(const GetMarketsParams& value);
@@ -195,6 +252,10 @@ inline Result<void> validate(const AmendOrderV2Request& value) {
 inline Result<void> validate(const ApplySubaccountTransferRequest& value) {
 	if (value.client_transfer_id.empty()) {
 		return invalid("ApplySubaccountTransferRequest", "client_transfer_id", "is required");
+	}
+	if (value.exchange_index && (*value.exchange_index < 0)) {
+		return invalid("ApplySubaccountTransferRequest", "exchange_index",
+					   "is outside its allowed range");
 	}
 	return {};
 }
@@ -341,6 +402,10 @@ inline Result<void> validate(const CreateConcertCancellationMarketRequest& value
 	if (value.scheduled_date.empty()) {
 		return invalid("CreateConcertCancellationMarketRequest", "scheduled_date", "is required");
 	}
+	if (!is_valid_date(value.scheduled_date)) {
+		return invalid("CreateConcertCancellationMarketRequest", "scheduled_date",
+					   "must be a date in YYYY-MM-DD form");
+	}
 	if (value.cover == ConcertCover::Unknown) {
 		return invalid("CreateConcertCancellationMarketRequest", "cover", "is required");
 	}
@@ -356,6 +421,9 @@ inline Result<void> validate(const CreateFCMPositionTransferRequest& value) {
 	}
 	if (value.market_ticker.empty()) {
 		return invalid("CreateFCMPositionTransferRequest", "market_ticker", "is required");
+	}
+	if (value.position_centicount == 0) {
+		return invalid("CreateFCMPositionTransferRequest", "position_centicount", "must not be 0");
 	}
 	if (value.price_centicents < 0 || value.price_centicents > 10000) {
 		return invalid("CreateFCMPositionTransferRequest", "price_centicents",
@@ -375,20 +443,60 @@ inline Result<void> validate(const CreateFlightDisruptionMarketRequest& value) {
 	if (value.carrier.empty()) {
 		return invalid("CreateFlightDisruptionMarketRequest", "carrier", "is required");
 	}
+	if (value.carrier.size() < 2U || value.carrier.size() > 2U) {
+		return invalid("CreateFlightDisruptionMarketRequest", "carrier",
+					   "length is outside its allowed range");
+	}
+	if (!is_in_charset(value.carrier, Charset::LettersAndDigits)) {
+		return invalid("CreateFlightDisruptionMarketRequest", "carrier",
+					   "must contain only letters and digits");
+	}
 	if (value.flight_number.empty()) {
 		return invalid("CreateFlightDisruptionMarketRequest", "flight_number", "is required");
+	}
+	if (value.flight_number.size() > 4U) {
+		return invalid("CreateFlightDisruptionMarketRequest", "flight_number",
+					   "length is outside its allowed range");
+	}
+	if (!is_in_charset(value.flight_number, Charset::Digits)) {
+		return invalid("CreateFlightDisruptionMarketRequest", "flight_number",
+					   "must contain only digits");
 	}
 	if (value.departure_airport.empty()) {
 		return invalid("CreateFlightDisruptionMarketRequest", "departure_airport", "is required");
 	}
+	if (value.departure_airport.size() < 3U || value.departure_airport.size() > 3U) {
+		return invalid("CreateFlightDisruptionMarketRequest", "departure_airport",
+					   "length is outside its allowed range");
+	}
+	if (!is_in_charset(value.departure_airport, Charset::Letters)) {
+		return invalid("CreateFlightDisruptionMarketRequest", "departure_airport",
+					   "must contain only letters");
+	}
 	if (value.arrival_airport.empty()) {
 		return invalid("CreateFlightDisruptionMarketRequest", "arrival_airport", "is required");
+	}
+	if (value.arrival_airport.size() < 3U || value.arrival_airport.size() > 3U) {
+		return invalid("CreateFlightDisruptionMarketRequest", "arrival_airport",
+					   "length is outside its allowed range");
+	}
+	if (!is_in_charset(value.arrival_airport, Charset::Letters)) {
+		return invalid("CreateFlightDisruptionMarketRequest", "arrival_airport",
+					   "must contain only letters");
 	}
 	if (value.scheduled_date.empty()) {
 		return invalid("CreateFlightDisruptionMarketRequest", "scheduled_date", "is required");
 	}
+	if (!is_valid_date(value.scheduled_date)) {
+		return invalid("CreateFlightDisruptionMarketRequest", "scheduled_date",
+					   "must be a date in YYYY-MM-DD form");
+	}
 	if (value.cover == FlightCover::Unknown) {
 		return invalid("CreateFlightDisruptionMarketRequest", "cover", "is required");
+	}
+	if (value.delay_minutes && (*value.delay_minutes < 1)) {
+		return invalid("CreateFlightDisruptionMarketRequest", "delay_minutes",
+					   "is outside its allowed range");
 	}
 	return {};
 }
@@ -602,7 +710,22 @@ inline Result<void> validate(const CreateRFQRequest& value) {
 	return {};
 }
 
+inline Result<void> validate(const CreateSubaccountRequest& value) {
+	if (value.exchange_index && (*value.exchange_index < 0)) {
+		return invalid("CreateSubaccountRequest", "exchange_index", "is outside its allowed range");
+	}
+	return {};
+}
+
 inline Result<void> validate(const CreateWeatherPointMarketRequest& value) {
+	if (!(value.latitude >= -90.0 && value.latitude <= 90.0)) {
+		return invalid("CreateWeatherPointMarketRequest", "latitude",
+					   "is outside its allowed range");
+	}
+	if (!(value.longitude >= -180.0 && value.longitude <= 180.0)) {
+		return invalid("CreateWeatherPointMarketRequest", "longitude",
+					   "is outside its allowed range");
+	}
 	if (value.variable == WeatherPointVariable::Unknown) {
 		return invalid("CreateWeatherPointMarketRequest", "variable", "is required");
 	}
@@ -611,6 +734,14 @@ inline Result<void> validate(const CreateWeatherPointMarketRequest& value) {
 	}
 	if (value.date.empty()) {
 		return invalid("CreateWeatherPointMarketRequest", "date", "is required");
+	}
+	if (!is_valid_date(value.date)) {
+		return invalid("CreateWeatherPointMarketRequest", "date",
+					   "must be a date in YYYY-MM-DD form");
+	}
+	if (value.end_date && !is_valid_date(*value.end_date)) {
+		return invalid("CreateWeatherPointMarketRequest", "end_date",
+					   "must be a date in YYYY-MM-DD form");
 	}
 	if (value.start_hour < 0 || value.start_hour > 23) {
 		return invalid("CreateWeatherPointMarketRequest", "start_hour",
@@ -693,9 +824,27 @@ inline Result<void> validate(const GetBlockTradeProposalsParams& value) {
 	return {};
 }
 
+inline Result<void> validate(const GetConcertCancellationAvailabilityParams& value) {
+	if (value.date_from && !is_valid_date(*value.date_from)) {
+		return invalid("GetConcertCancellationAvailabilityParams", "date_from",
+					   "must be a date in YYYY-MM-DD form");
+	}
+	if (value.date_to && !is_valid_date(*value.date_to)) {
+		return invalid("GetConcertCancellationAvailabilityParams", "date_to",
+					   "must be a date in YYYY-MM-DD form");
+	}
+	return {};
+}
+
 inline Result<void> validate(const GetConcertsParams& value) {
 	if (value.metro_id.empty()) {
 		return invalid("GetConcertsParams", "metro_id", "is required");
+	}
+	if (value.date_from && !is_valid_date(*value.date_from)) {
+		return invalid("GetConcertsParams", "date_from", "must be a date in YYYY-MM-DD form");
+	}
+	if (value.date_to && !is_valid_date(*value.date_to)) {
+		return invalid("GetConcertsParams", "date_to", "must be a date in YYYY-MM-DD form");
 	}
 	if (value.page && (*value.page < 1 || *value.page > 20)) {
 		return invalid("GetConcertsParams", "page", "is outside its allowed range");
@@ -798,14 +947,23 @@ inline Result<void> validate(const GetFlightsParams& value) {
 	if (value.carrier.size() < 2U || value.carrier.size() > 2U) {
 		return invalid("GetFlightsParams", "carrier", "length is outside its allowed range");
 	}
+	if (!is_in_charset(value.carrier, Charset::LettersAndDigits)) {
+		return invalid("GetFlightsParams", "carrier", "must contain only letters and digits");
+	}
 	if (value.flight_number.empty()) {
 		return invalid("GetFlightsParams", "flight_number", "is required");
 	}
 	if (value.flight_number.size() > 4U) {
 		return invalid("GetFlightsParams", "flight_number", "length is outside its allowed range");
 	}
+	if (!is_in_charset(value.flight_number, Charset::Digits)) {
+		return invalid("GetFlightsParams", "flight_number", "must contain only digits");
+	}
 	if (value.date.empty()) {
 		return invalid("GetFlightsParams", "date", "is required");
+	}
+	if (!is_valid_date(value.date)) {
+		return invalid("GetFlightsParams", "date", "must be a date in YYYY-MM-DD form");
 	}
 	return {};
 }
@@ -867,6 +1025,33 @@ inline Result<void> validate(const GetLiveDatasParams& value) {
 	return {};
 }
 
+inline Result<void> validate(const GetMarketCandlesticksByEventParams& value) {
+	if (value.period_interval != 1 && value.period_interval != 60 &&
+		value.period_interval != 1440) {
+		return invalid("GetMarketCandlesticksByEventParams", "period_interval",
+					   "must be one of 1, 60, 1440");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetMarketCandlesticksHistoricalParams& value) {
+	if (value.period_interval != 1 && value.period_interval != 60 &&
+		value.period_interval != 1440) {
+		return invalid("GetMarketCandlesticksHistoricalParams", "period_interval",
+					   "must be one of 1, 60, 1440");
+	}
+	return {};
+}
+
+inline Result<void> validate(const GetMarketCandlesticksParams& value) {
+	if (value.period_interval != 1 && value.period_interval != 60 &&
+		value.period_interval != 1440) {
+		return invalid("GetMarketCandlesticksParams", "period_interval",
+					   "must be one of 1, 60, 1440");
+	}
+	return {};
+}
+
 inline Result<void> validate(const GetMarketOrderbookParams& value) {
 	if (value.depth && (*value.depth < 0 || *value.depth > 100)) {
 		return invalid("GetMarketOrderbookParams", "depth", "is outside its allowed range");
@@ -875,6 +1060,12 @@ inline Result<void> validate(const GetMarketOrderbookParams& value) {
 }
 
 inline Result<void> validate(const GetMarketOrderbooksParams& value) {
+	for (const std::string& item : value.tickers) {
+		if (item.size() > 200U) {
+			return invalid("GetMarketOrderbooksParams", "tickers",
+						   "has an item whose length is outside its allowed range");
+		}
+	}
 	if (value.tickers.size() < 1U || value.tickers.size() > 100U) {
 		return invalid("GetMarketOrderbooksParams", "tickers", "size is outside its allowed range");
 	}
@@ -1095,6 +1286,14 @@ inline Result<void> validate(const IntraExchangeInstanceTransferRequest& value) 
 	if (value.destination_exchange_shard &&
 		(*value.destination_exchange_shard < 0 || *value.destination_exchange_shard > 100)) {
 		return invalid("IntraExchangeInstanceTransferRequest", "destination_exchange_shard",
+					   "is outside its allowed range");
+	}
+	if (value.source_subaccount && (*value.source_subaccount < 0)) {
+		return invalid("IntraExchangeInstanceTransferRequest", "source_subaccount",
+					   "is outside its allowed range");
+	}
+	if (value.destination_subaccount && (*value.destination_subaccount < 0)) {
+		return invalid("IntraExchangeInstanceTransferRequest", "destination_subaccount",
 					   "is outside its allowed range");
 	}
 	return {};

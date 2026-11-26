@@ -9,6 +9,9 @@ namespace kalshi {
 Result<GetMarketCandlesticksResponse>
 KalshiClient::get_market_candlesticks(std::string_view series_ticker, std::string_view ticker,
 									  const GetMarketCandlesticksParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	Result<std::string> target = detail::expand_path(
 		"/series/{series_ticker}/markets/{ticker}/candlesticks", {series_ticker, ticker});
 	if (!target) {

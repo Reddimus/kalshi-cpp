@@ -35,6 +35,9 @@ Result<CreateConcertCancellationMarketResponse> KalshiClient::create_concert_can
 Result<GetConcertCancellationAvailabilityResponse>
 KalshiClient::get_concert_cancellation_availability(
 	const GetConcertCancellationAvailabilityParams& params) {
+	if (Result<void> valid = detail::validate(params); !valid) {
+		return std::unexpected(std::move(valid.error()));
+	}
 	detail::Query query(std::string{"/concert_cancellation_markets/availability"});
 	query.add("date_from", params.date_from);
 	query.add("date_to", params.date_to);
