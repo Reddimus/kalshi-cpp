@@ -6,6 +6,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.9.7] - 2026-11-26
+
 ### Fixed
 
 - Send a string literal or `const char*` passed to the internal query builder as text. It bound
@@ -1141,7 +1143,7 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.6...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.7...HEAD
 [0.7.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.0...v0.6.1
@@ -1183,3 +1185,4 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 [0.9.4]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.3...v0.9.4
 [0.9.5]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.4...v0.9.5
 [0.9.6]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.5...v0.9.6
+[0.9.7]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.6...v0.9.7
