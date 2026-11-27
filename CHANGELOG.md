@@ -6,6 +6,14 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Charge `POST /fcm/positions/transfers` to its own `RateLimitConfig::fcm_transfer` bucket, as
+  Kalshi meters it, instead of the Read bucket. FCM transfers no longer use up Read tokens, and
+  bursts of them are paced. Kalshi publishes no size for this bucket, so it defaults to the
+  intra-account transfer bucket's 600 tokens, refilling at 10 per second
+  ([#137](https://github.com/Reddimus/kalshi-cpp/issues/137)).
+
 ## [0.9.7] - 2026-11-26
 
 ### Fixed

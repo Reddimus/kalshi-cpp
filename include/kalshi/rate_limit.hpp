@@ -82,6 +82,11 @@ struct RateLimitConfig {
 	/// same on every tier: 600 tokens per minute, holding 600.
 	TokenBucket::Config transfer{
 		.capacity = 600.0, .refill_per_second = 10.0, .initial_tokens = {}};
+	/// POST /fcm/positions/transfers has its own bucket too. Kalshi publishes no
+	/// size for it, so this default is the intra-account transfer bucket's. The
+	/// X-RateLimit-Limit header on a transfer's response gives the real capacity.
+	TokenBucket::Config fcm_transfer{
+		.capacity = 600.0, .refill_per_second = 10.0, .initial_tokens = {}};
 };
 
 /// Transport decorator that paces requests to Kalshi's Read and Write budgets
@@ -91,8 +96,9 @@ struct RateLimitConfig {
 /// and quote mutations, block-trade accepts, weather-point and concert
 /// market creation, target balance allocation, and API usage upgrades. Other
 /// requests use the Read budget, except GET /portfolio/balance, which has its
-/// own one-token-per-call bucket, and intra-account transfers, which use
-/// `transfer`. Batch requests cost their per-item cost
+/// own one-token-per-call bucket, intra-account transfers, which use
+/// `transfer`, and FCM position transfers, which use `fcm_transfer`. Batch
+/// requests cost their per-item cost
 /// times the number of items. Per-shard Write buckets are not modeled
 /// separately, so pacing is conservative when orders target several shards.
 ///
@@ -119,6 +125,7 @@ private:
 	mutable TokenBucket write_;
 	mutable TokenBucket balance_;
 	mutable TokenBucket transfer_;
+	mutable TokenBucket fcm_transfer_;
 };
 
 } // namespace kalshi

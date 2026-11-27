@@ -81,7 +81,8 @@ bool path_matches(std::string_view rule, std::string_view path) noexcept {
 RateLimitedTransport::RateLimitedTransport(std::shared_ptr<const HttpTransport> inner,
 										   RateLimitConfig config)
 	: inner_(std::move(inner)), config_(std::move(config)), read_(config_.read),
-	  write_(config_.write), balance_(config_.balance), transfer_(config_.transfer) {}
+	  write_(config_.write), balance_(config_.balance), transfer_(config_.transfer),
+	  fcm_transfer_(config_.fcm_transfer) {}
 
 bool RateLimitedTransport::is_write(HttpMethod method, std::string_view path) noexcept {
 	if (method == HttpMethod::GET) {
@@ -134,10 +135,13 @@ Result<HttpResponse> RateLimitedTransport::request(HttpMethod method, std::strin
 		return std::unexpected(Error::network("RateLimitedTransport has no inner transport"));
 	}
 	const std::string_view route = strip_query(path);
+	// Kalshi meters these three operations in dedicated buckets, not Read or Write.
 	TokenBucket& bucket =
 		method == HttpMethod::GET && route == "/portfolio/balance" ? balance_
 		: method == HttpMethod::POST && route == "/portfolio/intra_exchange_instance_transfer"
 			? transfer_
+		: method == HttpMethod::POST && route == "/fcm/positions/transfers"
+			? fcm_transfer_
 			: (is_write(method, path) ? write_ : read_);
 	const double tokens = cost(method, path, body);
 	if (!std::isfinite(tokens) || tokens < 0.0) {

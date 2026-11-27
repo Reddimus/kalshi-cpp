@@ -102,10 +102,11 @@ sequenceDiagram
   `RetryPolicy::retry_writes` is set, because the first attempt may already
   have placed or canceled an order.
 - **Rate limits.** `RateLimitedTransport` keeps token buckets for Kalshi's
-  Read and Write budgets, plus the dedicated balance and intra-account
-  transfer buckets. Each operation is charged to the bucket Kalshi assigns it,
-  at its endpoint cost times the number of items in a batch.
-  `rate_limit_config()` builds the buckets from the account's own limits.
+  Read and Write budgets, plus the dedicated balance, intra-account transfer
+  and FCM position transfer buckets. Each operation is charged to the bucket
+  Kalshi assigns it, at its endpoint cost times the number of items in a batch.
+  `rate_limit_config()` sizes the Read, Write and balance buckets from the
+  account's own limits; the transfer buckets keep their defaults.
 
 ## WebSocket streaming
 
