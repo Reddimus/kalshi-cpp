@@ -8,6 +8,21 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Validate `get_event_forecast_percentiles_history`'s `period_interval` (0, 1, 60 or 1440) and
+  its `percentiles` (each 0 to 9999). The code generator dropped integer `enum` values and bounds
+  on array items. It now checks both, and it stops when a request uses a schema keyword that
+  `validate()` cannot check, such as `pattern`
+  ([#135](https://github.com/Reddimus/kalshi-cpp/issues/135)).
+- Enforce the prose rules that Kalshi rejects with 400 `invalid_parameters`:
+  - `contracts` and `contracts_fp` on `create_rfq` must match;
+  - `contracts_limit` and `contracts_limit_fp` on `create_order_group` and
+    `update_order_group_limit` must match;
+  - `target_cost_excludes_fees` needs a target cost on `create_rfq`, and children sized by target
+    cost on `create_rfq_batch`;
+  - every child of `create_rfq_batch` must be sized the same way, by contracts or by target cost.
+
+  A zero `contracts` still counts as unset, as Kalshi reads it
+  ([#136](https://github.com/Reddimus/kalshi-cpp/issues/136)).
 - Charge `POST /fcm/positions/transfers` to its own `RateLimitConfig::fcm_transfer` bucket, as
   Kalshi meters it, instead of the Read bucket. FCM transfers no longer use up Read tokens, and
   bursts of them are paced. Kalshi publishes no size for this bucket, so it defaults to the
