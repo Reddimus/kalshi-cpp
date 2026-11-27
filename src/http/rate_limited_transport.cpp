@@ -20,8 +20,8 @@ struct BatchBody {
 namespace {
 
 /// Items in a batch request body, or 1 for any other body.
-std::size_t batch_items(std::string_view path, std::string_view body) {
-	if (!path.ends_with("/batched") || body.empty()) {
+std::size_t batch_items(std::string_view route, std::string_view body) {
+	if (!route.ends_with("/batched") || body.empty()) {
 		return 1;
 	}
 	http_detail::BatchBody batch;
@@ -42,38 +42,45 @@ std::string_view until(std::string_view text, char delimiter) noexcept {
 	return end == std::string_view::npos ? text : std::string_view{text.data(), end};
 }
 
-std::string_view strip_query(std::string_view path) noexcept {
+/// The operation `path` names, without its query, a `trade-api/v2` prefix, or
+/// its leading slash. HttpClient adds a missing leading slash, so
+/// `portfolio/balance` and `/portfolio/balance` are the same operation.
+std::string_view route_of(std::string_view path) noexcept {
 	path = until(path, '?');
-	constexpr std::string_view prefix = "/trade-api/v2";
+	if (path.starts_with('/')) {
+		path.remove_prefix(1);
+	}
+	constexpr std::string_view prefix = "trade-api/v2";
 	if (path.starts_with(prefix) && (path.size() == prefix.size() || path[prefix.size()] == '/')) {
 		path.remove_prefix(prefix.size());
+		if (path.starts_with('/')) {
+			path.remove_prefix(1);
+		}
 	}
 	return path;
 }
 
-/// Matches `/a/{id}/b` against `/a/123/b`; a leading `/trade-api/v2` on the
-/// rule is ignored.
-bool path_matches(std::string_view rule, std::string_view path) noexcept {
-	constexpr std::string_view prefix = "/trade-api/v2";
-	if (rule.starts_with(prefix)) {
-		rule.remove_prefix(prefix.size());
-	}
-	while (!rule.empty() || !path.empty()) {
-		if (rule.empty() || path.empty() || rule.front() != '/' || path.front() != '/') {
-			return false;
-		}
-		rule.remove_prefix(1);
-		path.remove_prefix(1);
+/// Matches a rule such as `/a/{id}/b` against a route_of() result such as
+/// `a/123/b`. The rule is read with route_of() too, so its leading slash or
+/// `/trade-api/v2` prefix is ignored.
+bool route_matches(std::string_view rule, std::string_view route) noexcept {
+	rule = route_of(rule);
+	while (true) {
 		const std::string_view rule_segment = until(rule, '/');
-		const std::string_view path_segment = until(path, '/');
+		const std::string_view route_segment = until(route, '/');
 		const bool wildcard = rule_segment.starts_with('{') && rule_segment.ends_with('}');
-		if (!wildcard && rule_segment != path_segment) {
+		if (!wildcard && rule_segment != route_segment) {
 			return false;
 		}
 		rule.remove_prefix(rule_segment.size());
-		path.remove_prefix(path_segment.size());
+		route.remove_prefix(route_segment.size());
+		if (rule.empty() || route.empty()) {
+			return rule.empty() && route.empty();
+		}
+		// Both now start with the '/' before their next segment.
+		rule.remove_prefix(1);
+		route.remove_prefix(1);
 	}
-	return true;
 }
 
 } // namespace
@@ -81,22 +88,23 @@ bool path_matches(std::string_view rule, std::string_view path) noexcept {
 RateLimitedTransport::RateLimitedTransport(std::shared_ptr<const HttpTransport> inner,
 										   RateLimitConfig config)
 	: inner_(std::move(inner)), config_(std::move(config)), read_(config_.read),
-	  write_(config_.write), balance_(config_.balance), transfer_(config_.transfer) {}
+	  write_(config_.write), balance_(config_.balance), transfer_(config_.transfer),
+	  fcm_transfer_(config_.fcm_transfer) {}
 
 bool RateLimitedTransport::is_write(HttpMethod method, std::string_view path) noexcept {
 	if (method == HttpMethod::GET) {
 		return false;
 	}
-	path = strip_query(path);
+	const std::string_view route = route_of(path);
 	// Kalshi assigns buckets per operation; see its rate limits guide. Proposing,
 	// rejecting, and canceling a block trade use Read.
 	constexpr std::array<std::string_view, 6> write_prefixes{
-		"/portfolio/events/orders", "/portfolio/orders",		   "/portfolio/order_groups",
-		"/communications/rfqs",		"/communications/rfq_batches", "/communications/quotes",
+		"portfolio/events/orders", "portfolio/orders",			 "portfolio/order_groups",
+		"communications/rfqs",	   "communications/rfq_batches", "communications/quotes",
 	};
 	for (const std::string_view prefix : write_prefixes) {
-		if (path.starts_with(prefix) &&
-			(path.size() == prefix.size() || path[prefix.size()] == '/')) {
+		if (route.starts_with(prefix) &&
+			(route.size() == prefix.size() || route[prefix.size()] == '/')) {
 			return true;
 		}
 	}
@@ -109,18 +117,18 @@ bool RateLimitedTransport::is_write(HttpMethod method, std::string_view path) no
 		"/account/api_usage_level/upgrade",
 	};
 	return std::any_of(write_routes.begin(), write_routes.end(),
-					   [path](std::string_view route) { return path_matches(route, path); });
+					   [route](std::string_view rule) { return route_matches(rule, route); });
 }
 
 double RateLimitedTransport::cost(HttpMethod method, std::string_view path,
 								  std::string_view body) const {
-	const std::string_view route = strip_query(path);
-	if (method == HttpMethod::GET && route == "/portfolio/balance") {
+	const std::string_view route = route_of(path);
+	if (method == HttpMethod::GET && route == "portfolio/balance") {
 		return 1.0;
 	}
 	double unit_cost = config_.default_cost;
 	for (const EndpointCostRule& rule : config_.costs) {
-		if (rule.method == method && path_matches(rule.path, route)) {
+		if (rule.method == method && route_matches(rule.path, route)) {
 			unit_cost = rule.cost;
 			break;
 		}
@@ -133,11 +141,14 @@ Result<HttpResponse> RateLimitedTransport::request(HttpMethod method, std::strin
 	if (!inner_) {
 		return std::unexpected(Error::network("RateLimitedTransport has no inner transport"));
 	}
-	const std::string_view route = strip_query(path);
+	const std::string_view route = route_of(path);
+	// Kalshi meters these three operations in dedicated buckets, not Read or Write.
 	TokenBucket& bucket =
-		method == HttpMethod::GET && route == "/portfolio/balance" ? balance_
-		: method == HttpMethod::POST && route == "/portfolio/intra_exchange_instance_transfer"
+		method == HttpMethod::GET && route == "portfolio/balance" ? balance_
+		: method == HttpMethod::POST && route == "portfolio/intra_exchange_instance_transfer"
 			? transfer_
+		: method == HttpMethod::POST && route == "fcm/positions/transfers"
+			? fcm_transfer_
 			: (is_write(method, path) ? write_ : read_);
 	const double tokens = cost(method, path, body);
 	if (!std::isfinite(tokens) || tokens < 0.0) {
