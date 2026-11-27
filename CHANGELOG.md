@@ -6,6 +6,8 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+## [0.9.8] - 2026-11-27
+
 ### Fixed
 
 - Validate `get_event_forecast_percentiles_history`'s `period_interval` (0, 1, 60 or 1440) and
@@ -1169,7 +1171,7 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 
 ## [0.0.2] — initial public release
 
-[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.7...HEAD
+[Unreleased]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.8...HEAD
 [0.7.0]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.2...v0.7.0
 [0.6.2]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/Reddimus/kalshi-cpp/compare/v0.6.0...v0.6.1
@@ -1212,3 +1214,4 @@ the 0.5 API; "Migrating from 0.5" below lists what changed.
 [0.9.5]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.4...v0.9.5
 [0.9.6]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.5...v0.9.6
 [0.9.7]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.6...v0.9.7
+[0.9.8]: https://github.com/Reddimus/kalshi-cpp/compare/v0.9.7...v0.9.8
