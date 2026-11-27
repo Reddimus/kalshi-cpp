@@ -364,12 +364,31 @@ class SupportedSpec(unittest.TestCase):
         self.assertIn("has an item outside its allowed range", header)
         self.assertFalse(gen.default_is_invalid("GetThingParams"))  # no items to check
 
+    def test_wrapped_bounds_keep_the_strictest_value(self) -> None:
+        spec = copy.deepcopy(BASE)  # a bound beside allOf must not weaken the one inside it
+        spec["paths"]["/things/{id}"]["get"]["parameters"].append(
+            {"name": "levels", "in": "query", "schema": {"type": "array", "items": {
+                "allOf": [{"type": "integer", "minimum": 5, "maximum": 10}], "minimum": 0, "maximum": 20}}})
+        spec["components"]["schemas"]["Thing"]["properties"].update({
+            "count": {"allOf": [{"type": "integer", "minimum": 5}], "minimum": 0, "maximum": 20},
+            "ratio": {"allOf": [{"type": "number", "maximum": 1}], "minimum": 0, "maximum": 2},
+            "codes": {"type": "array", "items": {"allOf": [{"type": "string", "maxLength": 4}], "maxLength": 8,
+                                                 "minLength": 2}},
+        })
+        header = generate(spec).validate_header()
+        self.assertIn("if (item < 5 || item > 10)", header)
+        self.assertIn("*value.count < 5 || *value.count > 20", header)
+        self.assertIn("!(*value.ratio >= 0.0 && *value.ratio <= 1.0)", header)
+        self.assertIn("item.size() < 2U || item.size() > 4U", header)
+
     def test_unchecked_keywords_outside_requests_are_allowed(self) -> None:
         spec = copy.deepcopy(BASE)  # validate() only checks requests, so responses may use any keyword
         spec["components"]["schemas"]["GetThingResponse"]["properties"].update({
             "code": {"type": "string", "pattern": "^[A-Z]+$"},
             "scores": {"type": "array", "items": {"type": "number", "minimum": 0}},
+            "label": ref("Label"),
         })
+        spec["components"]["schemas"]["Label"] = {"type": "string", "pattern": "^[A-Z]+$"}
         generate(spec).validate_header()
 
     def test_go_validator_tags_are_validated(self) -> None:
@@ -868,6 +887,26 @@ class Rejected(unittest.TestCase):
                     counts={"type": "array", "items": {"type": "integer", "minLength": 1}}),
             "GetThingParams.ids: validate() cannot check `pattern` on array items":
                 lambda: self.get["parameters"][1]["schema"]["items"].update(pattern="^[a-z]+$"),
+            # Rules member() does not read: inside a referenced component, on nested array
+            # items or map values, and on the request object itself.
+            "Thing.label: validate() cannot check `pattern` in Label":
+                lambda: (self.schemas.update(Label={"type": "string", "pattern": "^[A-Z]+$"}),
+                         self.schemas["Thing"]["properties"].update(label=ref("Label"))),
+            "Thing.levels: validate() cannot check `minimum` in Level":
+                lambda: (self.schemas.update(Level={"type": "integer", "minimum": 1}),
+                         self.schemas["Thing"]["properties"].update(
+                             levels={"type": "array", "items": ref("Level")})),
+            "Thing.grid: validate() cannot check `minimum` on nested array items":
+                lambda: self.schemas["Thing"]["properties"].update(grid={"type": "array", "items": {
+                    "type": "array", "items": {"type": "integer", "minimum": 0}}}),
+            "Thing.limits: validate() cannot check `maximum` on map values":
+                lambda: self.schemas["Thing"]["properties"].update(limits={
+                    "type": "object", "additionalProperties": {"type": "integer", "maximum": 5}}),
+            "Thing: validate() cannot check `minProperties`":
+                lambda: self.schemas["Thing"].update(minProperties=1),
+            "GetThingParams.label: validate() cannot check `maxLength` in Label":
+                lambda: (self.schemas.update(Label={"type": "string", "maxLength": 3}),
+                         self.get["parameters"].append({"name": "label", "in": "query", "schema": ref("Label")})),
         }
         for message, mutate in cases.items():
             with self.subTest(message=message):
