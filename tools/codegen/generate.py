@@ -824,6 +824,14 @@ class Generator:
             raise SystemExit(f"{op_id}: a parameter is declared twice; operation-level overrides "
                              "of path-level parameters are not supported")
         path_params = [p["name"] for p in params if p["in"] == "path"]
+        for p in params:
+            # Path parameters are plain std::string_view values; expand_path() checks only that
+            # they are not empty, so any other rule on one would be dropped.
+            schema = p.get("schema", {})
+            rules = (["`enum`"] if "enum" in schema else []) + self.unread_rules(schema)
+            if p["in"] == "path" and rules:
+                raise SystemExit(f"{op_id} parameter {p['name']}: validate() cannot check {rules[0]} "
+                                 "on a path parameter; extend tools/codegen first")
         in_path = re.findall(r"{([^}]+)}", path)
         if sorted(path_params) != sorted(in_path):
             raise SystemExit(f"{op_id}: path parameters {path_params} do not match {path}")

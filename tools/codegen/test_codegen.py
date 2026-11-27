@@ -914,6 +914,24 @@ class Rejected(unittest.TestCase):
                 mutate()
                 self.stops(message)
 
+    def test_rules_on_path_parameters(self) -> None:
+        path_id = self.spec["paths"]["/things/{id}"]["parameters"][0]
+        cases = {
+            "parameter id: validate() cannot check `maxLength` on a path parameter":
+                lambda: path_id["schema"].update(maxLength=8),
+            "parameter id: validate() cannot check `enum` on a path parameter":
+                lambda: path_id["schema"].update(enum=["a", "b"]),
+            "parameter id: validate() cannot check `pattern` in Label on a path parameter":
+                lambda: (self.schemas.update(Label={"type": "string", "pattern": "^[A-Z]+$"}),
+                         path_id.update(schema=ref("Label"))),
+        }
+        for message, mutate in cases.items():
+            with self.subTest(message=message):
+                self.setUp()
+                path_id = self.spec["paths"]["/things/{id}"]["parameters"][0]
+                mutate()
+                self.stops(message)
+
     def test_inline_object_named_like_a_component(self) -> None:
         self.schemas["ThingDetail"] = {"type": "object", "properties": {"other": {"type": "integer"}}}
         self.stops("ThingDetail: an inline object has the same name as another schema")
