@@ -13,6 +13,9 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   bursts of them are paced. Kalshi publishes no size for this bucket, so it defaults to the
   intra-account transfer bucket's 600 tokens, refilling at 10 per second
   ([#137](https://github.com/Reddimus/kalshi-cpp/issues/137)).
+- Choose the same `RateLimitedTransport` bucket and cost for a path without its leading slash,
+  which `HttpClient` accepts. Such a path fell through to Read for balance, transfers and every
+  Write operation, and endpoint cost rules did not match it.
 
 ## [0.9.7] - 2026-11-26
 

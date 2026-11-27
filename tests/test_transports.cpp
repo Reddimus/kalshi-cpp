@@ -524,6 +524,38 @@ TEST(RateLimitedTransport, FcmPositionTransfersArePacedByTheirOwnBucket) {
 	EXPECT_DOUBLE_EQ(defaults.fcm_transfer.refill_per_second, 10.0);
 }
 
+// HttpClient adds a missing leading slash, so a relative path is the same
+// operation and must reach the same bucket at the same cost.
+TEST(RateLimitedTransport, RelativePathsUseTheSameBucketsAndCosts) {
+	using kalshi::HttpMethod;
+	using kalshi::RateLimitedTransport;
+	EXPECT_TRUE(RateLimitedTransport::is_write(HttpMethod::POST, "portfolio/orders"));
+	EXPECT_TRUE(RateLimitedTransport::is_write(HttpMethod::POST, "trade-api/v2/portfolio/orders"));
+	EXPECT_TRUE(
+		RateLimitedTransport::is_write(HttpMethod::PUT, "portfolio/positions/KX-1/exit_trigger"));
+	EXPECT_FALSE(RateLimitedTransport::is_write(HttpMethod::POST, "portfolio/orders_other"));
+
+	kalshi::RateLimitConfig config;
+	config.costs = {
+		{.method = HttpMethod::DEL, .path = "/portfolio/orders/{order_id}", .cost = 2.0}};
+	config.read = {.capacity = 10.0, .refill_per_second = 0.001, .initial_tokens = 0.0};
+	config.write = config.read;
+	config.max_wait = 0ms;
+	const std::shared_ptr<ScriptedTransport> inner = std::make_shared<ScriptedTransport>();
+	for (int i = 0; i < 3; ++i) {
+		inner->responses.emplace_back(status(200));
+	}
+	const RateLimitedTransport transport(inner, config);
+	EXPECT_DOUBLE_EQ(transport.cost(HttpMethod::DEL, "portfolio/orders/o1", ""), 2.0);
+	EXPECT_DOUBLE_EQ(transport.cost(HttpMethod::GET, "portfolio/balance", ""), 1.0);
+
+	// Read and Write are empty, so each request passes only through its own bucket.
+	EXPECT_TRUE(transport.post("fcm/positions/transfers", "{}").has_value());
+	EXPECT_TRUE(transport.post("portfolio/intra_exchange_instance_transfer", "{}").has_value());
+	EXPECT_TRUE(transport.get("portfolio/balance?subaccount=0").has_value());
+	EXPECT_EQ(inner->calls, 3);
+}
+
 TEST(RateLimitedTransport, WriteRoutesRespectPathSegmentsAndApiPrefixes) {
 	EXPECT_TRUE(kalshi::RateLimitedTransport::is_write(kalshi::HttpMethod::POST,
 													   "/communications/rfq_batches"));
