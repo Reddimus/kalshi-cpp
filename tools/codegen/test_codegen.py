@@ -144,11 +144,13 @@ class SupportedSpec(unittest.TestCase):
         self.assertEqual(members["other"].cpp_type, "std::optional<Thing>")
 
     def test_all_of_with_validation_keywords_is_allowed(self) -> None:
-        spec = copy.deepcopy(BASE)  # Kalshi's Perps spec puts maxLength and pattern here
+        # Kalshi's Perps spec puts maxLength and pattern here. A response is used because
+        # validate() cannot check `pattern`, so a request with one stops the run.
+        spec = copy.deepcopy(BASE)
         spec["components"]["schemas"]["Code"] = {"type": "string"}
-        spec["components"]["schemas"]["Thing"]["properties"]["code"] = {
+        spec["components"]["schemas"]["GetThingResponse"]["properties"]["code"] = {
             "allOf": [ref("Code")], "maxLength": 8, "pattern": "^[A-Z]+$"}
-        members = {m.json_name: m for m in generate(spec).structs["Thing"].members}
+        members = {m.json_name: m for m in generate(spec).structs["GetThingResponse"].members}
         self.assertEqual(members["code"].cpp_type, "std::optional<Code>")
 
     def test_nullable_component_makes_members_optional(self) -> None:
@@ -322,16 +324,53 @@ class SupportedSpec(unittest.TestCase):
         self.assertTrue(gen.default_is_invalid("Thing"))
         self.assertFalse(gen.default_is_invalid("GetThingParams"))
 
-    def test_integer_enum_query_parameters_are_allowed(self) -> None:
-        spec = copy.deepcopy(BASE)  # Kalshi's candlestick period_interval parameters
+    def test_integer_enum_query_parameters_are_validated(self) -> None:
+        spec = copy.deepcopy(BASE)  # Kalshi's candlestick and forecast period_interval parameters (#135)
         spec["paths"]["/things/{id}"]["get"]["parameters"].extend([
             {"name": "period_interval", "in": "query", "schema": {"type": "integer", "enum": [1, 60, 1440]}},
-            {"name": "periods", "in": "query",
-             "schema": {"type": "array", "items": {"type": "integer", "enum": [1, 60]}}},
+            {"name": "forecast_interval", "in": "query", "required": True,
+             "schema": {"type": "integer", "enum": [0, 1, 60, 1440]}},
         ])
-        members = {m.json_name: m for m in generate(spec).structs["GetThingParams"].members}
+        gen = generate(spec)
+        members = {m.json_name: m for m in gen.structs["GetThingParams"].members}
         self.assertEqual(members["period_interval"].cpp_type, "std::optional<std::int64_t>")
-        self.assertEqual(members["periods"].cpp_type, "std::vector<std::int64_t>")
+        self.assertEqual(members["period_interval"].one_of, [1, 60, 1440])
+        header = gen.validate_header()
+        self.assertIn("value.period_interval && (*value.period_interval != 1 && *value.period_interval != 60 && "
+                      "*value.period_interval != 1440)", header)
+        self.assertIn("value.forecast_interval != 0 && value.forecast_interval != 1", header)
+        self.assertFalse(gen.default_is_invalid("GetThingParams"))  # 0 is one of the values
+
+    def test_integer_enum_and_go_validator_oneof_intersect(self) -> None:
+        spec = copy.deepcopy(BASE)
+        spec["paths"]["/things/{id}"]["get"]["parameters"].append(
+            {"name": "period", "in": "query", "schema": {"type": "integer", "enum": [1, 60, 1440]},
+             "x-oapi-codegen-extra-tags": {"validate": "omitempty,oneof=5 60 1440"}})
+        members = {m.json_name: m for m in generate(spec).structs["GetThingParams"].members}
+        self.assertEqual(members["period"].one_of, [60, 1440])
+
+    def test_integer_array_item_bounds_are_validated(self) -> None:
+        spec = copy.deepcopy(BASE)  # Kalshi's forecast percentiles parameter (#135)
+        spec["paths"]["/things/{id}"]["get"]["parameters"].extend([
+            {"name": "percentiles", "in": "query", "required": True, "schema": {
+                "type": "array", "maxItems": 10, "items": {"type": "integer", "minimum": 0, "maximum": 9999}}},
+            {"name": "levels", "in": "query", "schema": {
+                "type": "array", "items": {"type": "integer", "minimum": 1}}},
+        ])
+        gen = generate(spec)
+        header = gen.validate_header()
+        self.assertIn("for (const std::int64_t item : value.percentiles) {\n\t\tif (item < 0 || item > 9999)", header)
+        self.assertIn("for (const std::int64_t item : value.levels) {\n\t\tif (item < 1)", header)
+        self.assertIn("has an item outside its allowed range", header)
+        self.assertFalse(gen.default_is_invalid("GetThingParams"))  # no items to check
+
+    def test_unchecked_keywords_outside_requests_are_allowed(self) -> None:
+        spec = copy.deepcopy(BASE)  # validate() only checks requests, so responses may use any keyword
+        spec["components"]["schemas"]["GetThingResponse"]["properties"].update({
+            "code": {"type": "string", "pattern": "^[A-Z]+$"},
+            "scores": {"type": "array", "items": {"type": "number", "minimum": 0}},
+        })
+        generate(spec).validate_header()
 
     def test_go_validator_tags_are_validated(self) -> None:
         spec = copy.deepcopy(BASE)  # Kalshi's create-market requests and query parameters (#131)
@@ -785,6 +824,56 @@ class Rejected(unittest.TestCase):
                 self.setUp()
                 mutate()
                 self.stops(f"{where}: only string enums are supported outside query parameters")
+
+    def test_non_integer_enum_query_parameters(self) -> None:
+        cases = {
+            "number enum": {"type": "number", "enum": [0.5, 1.0]},
+            "integer enum items": {"type": "array", "items": {"type": "integer", "enum": [1, 60]}},
+        }
+        for case, schema in cases.items():
+            with self.subTest(case=case):
+                self.setUp()
+                self.get["parameters"].append({"name": "level", "in": "query", "schema": schema})
+                self.stops("GetThingParams.level: validate() cannot check `enum`")
+
+    # ----- keywords validate() cannot check (#135) ---------------------------
+
+    def test_unchecked_keywords_in_requests(self) -> None:
+        cases = {
+            "Thing.name: validate() cannot check `pattern`":
+                lambda: self.schemas["Thing"]["properties"]["name"].update(pattern="^[a-z]+$"),
+            "Thing.count: validate() cannot check `exclusiveMinimum`":
+                lambda: self.schemas["Thing"]["properties"].update(
+                    count={"type": "integer", "minimum": 0, "exclusiveMinimum": True}),
+            "Thing.count: validate() cannot check `multipleOf`":
+                lambda: self.schemas["Thing"]["properties"].update(count={"type": "integer", "multipleOf": 5}),
+            "Thing.count: validate() cannot check `minimum`":
+                lambda: self.schemas["Thing"]["properties"].update(count={"type": "integer", "minimum": 0.5}),
+            "Thing.name: validate() cannot check `minimum`":
+                lambda: self.schemas["Thing"]["properties"]["name"].update(minimum=1),
+            "Thing.tags: validate() cannot check `uniqueItems`":
+                lambda: self.schemas["Thing"]["properties"].update(
+                    tags={"type": "array", "items": {"type": "string"}, "uniqueItems": True}),
+            "Thing.tags: validate() cannot check `minimum` on array items":
+                lambda: self.schemas["Thing"]["properties"].update(
+                    tags={"type": "array", "items": {"type": "string", "minimum": 1}}),
+            "Thing.tags: validate() cannot check `pattern` on array items":
+                lambda: self.schemas["Thing"]["properties"].update(
+                    tags={"type": "array", "items": {"type": "string", "pattern": "^[a-z]+$"}}),
+            "Thing.scores: validate() cannot check `minimum` on array items":
+                lambda: self.schemas["Thing"]["properties"].update(
+                    scores={"type": "array", "items": {"type": "number", "minimum": 0}}),
+            "Thing.counts: validate() cannot check `minLength` on array items":
+                lambda: self.schemas["Thing"]["properties"].update(
+                    counts={"type": "array", "items": {"type": "integer", "minLength": 1}}),
+            "GetThingParams.ids: validate() cannot check `pattern` on array items":
+                lambda: self.get["parameters"][1]["schema"]["items"].update(pattern="^[a-z]+$"),
+        }
+        for message, mutate in cases.items():
+            with self.subTest(message=message):
+                self.setUp()
+                mutate()
+                self.stops(message)
 
     def test_inline_object_named_like_a_component(self) -> None:
         self.schemas["ThingDetail"] = {"type": "object", "properties": {"other": {"type": "integer"}}}

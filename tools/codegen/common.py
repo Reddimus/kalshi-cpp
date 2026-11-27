@@ -145,6 +145,10 @@ class Member:
     date: bool = False  # a calendar date in YYYY-MM-DD form
     item_min_length: int | None = None  # for arrays of strings
     item_max_length: int | None = None
+    item_minimum: int | None = None  # for arrays of integers
+    item_maximum: int | None = None
+    # Schema keywords validate() would drop. check_request_fields() stops on any in a request.
+    unchecked: list[str] = field(default_factory=list)
 
 
 @dataclass

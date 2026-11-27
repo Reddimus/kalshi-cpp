@@ -410,11 +410,14 @@ TEST(ApiSupport, ValidationEnforcesDecreaseAndRfqBatchProseRules) {
 	batch.rest_remainder = false;
 	EXPECT_TRUE(kalshi::detail::validate(batch));
 
-	// Every child setting its own size works without a batch size.
+	// Every child setting its own size works without a batch size, as long as
+	// every child is sized the same way.
 	kalshi::CreateRFQBatchRequest child_sized;
 	child_sized.children = {{.market_ticker = "KXA", .contracts_fp = "1.00"},
-							{.market_ticker = "KXB", .target_cost_dollars = "5.00"}};
+							{.market_ticker = "KXB", .contracts_fp = "2.00"}};
 	EXPECT_TRUE(kalshi::detail::validate(child_sized));
+	child_sized.children[1] = {.market_ticker = "KXB", .target_cost_dollars = "5.00"};
+	EXPECT_FALSE(kalshi::detail::validate(child_sized));
 
 	// selected_markets requires mve_collection_ticker.
 	kalshi::CreateRFQBatchRequest with_legs;
@@ -681,4 +684,94 @@ TEST(ApiSupport, CandlestickOperationsSendAValidPeriodInterval) {
 	EXPECT_EQ(transport->target,
 			  "/historical/markets/KXM/candlesticks?start_ts=1&end_ts=2&period_interval=1");
 	EXPECT_EQ(transport->calls, 3);
+}
+
+// The spec gives period_interval as a JSON Schema enum and the percentiles as
+// item bounds, with no go-validator tag beside them (#135).
+TEST(ApiSupport, ForecastHistoryValidatesPeriodIntervalAndPercentiles) {
+	using Forecast = kalshi::GetEventForecastPercentilesHistoryParams;
+	const Forecast forecast{.percentiles = {0, 5000, 9999}, .start_ts = 1, .end_ts = 2};
+	EXPECT_TRUE(kalshi::detail::validate(forecast)); // period_interval 0 is 5-second periods
+	for (const std::int64_t period : {1, 60, 1440}) {
+		EXPECT_TRUE(valid_with(forecast, [period](Forecast& p) { p.period_interval = period; }))
+			<< period;
+	}
+	for (const std::int64_t period : {-1, 2, 5, 30, 1441}) {
+		EXPECT_FALSE(valid_with(forecast, [period](Forecast& p) { p.period_interval = period; }))
+			<< period;
+	}
+	EXPECT_FALSE(valid_with(forecast, [](Forecast& p) { p.percentiles = {-1}; }));
+	EXPECT_FALSE(valid_with(forecast, [](Forecast& p) { p.percentiles = {10000}; }));
+	EXPECT_FALSE(valid_with(forecast, [](Forecast& p) { p.percentiles = {5000, 10000}; }));
+	EXPECT_TRUE(valid_with(forecast, [](Forecast& p) { p.percentiles = {}; }));
+
+	const std::shared_ptr<kalshi::test::RecordingTransport> transport =
+		std::make_shared<kalshi::test::RecordingTransport>();
+	kalshi::KalshiClient client{transport};
+	const kalshi::Result<std::vector<kalshi::ForecastPercentilesPoint>> rejected =
+		client.get_event_forecast_percentiles_history(
+			"KXS", "KXE", {.percentiles = {10000}, .start_ts = 1, .end_ts = 2});
+	ASSERT_FALSE(rejected.has_value());
+	EXPECT_EQ(rejected.error().code, kalshi::ErrorCode::InvalidRequest);
+	EXPECT_EQ(transport->calls, 0);
+}
+
+// Prose rules the demo exchange enforces with 400 invalid_parameters (#136):
+// "count_fp must match count", "target_cost_excludes_fees requires a target
+// cost", and "every child must be sized by contracts_fp, or every child by
+// target_cost_dollars".
+TEST(ApiSupport, ValidationEnforcesMatchingCountsAndTargetCostRules) {
+	using Rfq = kalshi::CreateRFQRequest;
+	const Rfq rfq{.market_ticker = "KXA", .contracts = 10, .contracts_fp = "10.00"};
+	EXPECT_TRUE(kalshi::detail::validate(rfq));
+	EXPECT_TRUE(valid_with(rfq, [](Rfq& r) { r.contracts_fp = "10"; }));
+	EXPECT_FALSE(valid_with(rfq, [](Rfq& r) { r.contracts_fp = "5.00"; }));
+	EXPECT_FALSE(valid_with(rfq, [](Rfq& r) { r.contracts_fp = "10.50"; }));
+	// Kalshi reads a zero `contracts` as unset, so only contracts_fp counts.
+	EXPECT_TRUE(valid_with(rfq, [](Rfq& r) { r.contracts = 0; }));
+
+	using Group = kalshi::CreateOrderGroupRequest;
+	const Group group{.contracts_limit = 5, .contracts_limit_fp = "5.00"};
+	EXPECT_TRUE(kalshi::detail::validate(group));
+	EXPECT_FALSE(valid_with(group, [](Group& g) { g.contracts_limit_fp = "3.00"; }));
+	EXPECT_TRUE(valid_with(group, [](Group& g) { g.contracts_limit.reset(); }));
+	using Limit = kalshi::UpdateOrderGroupLimitRequest;
+	const Limit limit{.contracts_limit = 5, .contracts_limit_fp = "5.00"};
+	EXPECT_TRUE(kalshi::detail::validate(limit));
+	EXPECT_FALSE(valid_with(limit, [](Limit& l) { l.contracts_limit_fp = "3.00"; }));
+
+	const Rfq sized{
+		.market_ticker = "KXA", .contracts_fp = "5.00", .target_cost_excludes_fees = true};
+	EXPECT_FALSE(kalshi::detail::validate(sized));
+	EXPECT_FALSE(valid_with(sized, [](Rfq& r) { r.target_cost_centi_cents = 0; }));
+	EXPECT_TRUE(valid_with(sized, [](Rfq& r) { r.target_cost_excludes_fees = false; }));
+	EXPECT_TRUE(valid_with(sized, [](Rfq& r) {
+		r.contracts_fp.reset();
+		r.target_cost_dollars = "5.00";
+	}));
+	EXPECT_TRUE(valid_with(sized, [](Rfq& r) {
+		r.contracts_fp.reset();
+		r.target_cost_centi_cents = 50000;
+	}));
+
+	using Batch = kalshi::CreateRFQBatchRequest;
+	Batch batch;
+	batch.children = {{.market_ticker = "KXA"}, {.market_ticker = "KXB"}};
+	batch.contracts_fp = "1.00";
+	EXPECT_TRUE(kalshi::detail::validate(batch));
+	EXPECT_FALSE(valid_with(batch, [](Batch& b) { b.target_cost_excludes_fees = true; }));
+	EXPECT_TRUE(valid_with(batch, [](Batch& b) {
+		b.contracts_fp.reset();
+		b.target_cost_dollars = "5.00";
+		b.target_cost_excludes_fees = true;
+	}));
+	// One child sized by target cost while the other takes the batch's contracts.
+	EXPECT_FALSE(valid_with(batch, [](Batch& b) { b.children[0].target_cost_dollars = "5.00"; }));
+	EXPECT_TRUE(valid_with(batch, [](Batch& b) { b.children[0].contracts_fp = "2.00"; }));
+	EXPECT_TRUE(valid_with(batch, [](Batch& b) {
+		b.contracts_fp.reset();
+		b.target_cost_dollars = "5.00";
+		b.children[0].target_cost_dollars = "2.00";
+		b.target_cost_excludes_fees = true;
+	}));
 }

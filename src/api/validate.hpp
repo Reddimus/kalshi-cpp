@@ -84,6 +84,16 @@ inline bool is_valid_date(std::string_view text) noexcept {
 	return month >= 1 && month <= 12 && day >= 1 && day <= last;
 }
 
+/// Whether the fixed-point `text` is exactly the whole number `whole`.
+inline bool fixed_point_equals(std::string_view text, std::int64_t whole) {
+	const Result<FixedPoint> value = FixedPoint::parse(text);
+	if (!value) {
+		return false;
+	}
+	const Result<std::int64_t> scaled = value->scaled_integer(0);
+	return scaled && *scaled == whole;
+}
+
 inline Result<void> validate(const AcceptBlockTradeProposalRequest& value);
 inline Result<void> validate(const AcceptQuoteRequest& value);
 inline Result<void> validate(const RFQBatchAcceptLimit& value);
@@ -535,6 +545,11 @@ inline Result<void> validate(const CreateOrderGroupRequest& value) {
 		return invalid("CreateOrderGroupRequest", "contracts_limit_fp",
 					   "is not a fixed-point decimal");
 	}
+	if (value.contracts_limit && *value.contracts_limit != 0 && value.contracts_limit_fp &&
+		!fixed_point_equals(*value.contracts_limit_fp, *value.contracts_limit)) {
+		return invalid("CreateOrderGroupRequest", "contracts_limit_fp",
+					   "must match contracts_limit");
+	}
 	return {};
 }
 
@@ -682,17 +697,33 @@ inline Result<void> validate(const CreateRFQBatchRequest& value) {
 	}
 	const bool has_batch_size =
 		value.contracts_fp.has_value() || value.target_cost_dollars.has_value();
+	bool sized_by_cost = false;
+	bool sized_by_contracts = false;
 	for (const CreateRFQBatchChild& child : value.children) {
 		if (!has_batch_size && !child.contracts_fp && !child.target_cost_dollars) {
 			return invalid(
 				"CreateRFQBatchRequest", "fields",
 				"requires contracts_fp or target_cost_dollars unless every child sets its own");
 		}
+		// A child without its own size takes the batch's.
+		if (child.target_cost_dollars || (!child.contracts_fp && value.target_cost_dollars)) {
+			sized_by_cost = true;
+		} else {
+			sized_by_contracts = true;
+		}
 		if (child.selected_markets && !child.selected_markets->empty() &&
 			(!value.mve_collection_ticker || value.mve_collection_ticker->empty())) {
 			return invalid("CreateRFQBatchRequest", "mve_collection_ticker",
 						   "is required when any child uses selected_markets");
 		}
+	}
+	if (sized_by_cost && sized_by_contracts) {
+		return invalid("CreateRFQBatchRequest", "children",
+					   "must all be sized the same way, by contracts or by target cost");
+	}
+	if (value.target_cost_excludes_fees.value_or(false) && !sized_by_cost) {
+		return invalid("CreateRFQBatchRequest", "target_cost_excludes_fees",
+					   "requires the children to be sized by target cost");
 	}
 	return {};
 }
@@ -706,6 +737,15 @@ inline Result<void> validate(const CreateRFQRequest& value) {
 	}
 	if ((value.target_cost_dollars && !FixedPoint::parse(*value.target_cost_dollars))) {
 		return invalid("CreateRFQRequest", "target_cost_dollars", "is not a fixed-point decimal");
+	}
+	if (value.contracts && *value.contracts != 0 && value.contracts_fp &&
+		!fixed_point_equals(*value.contracts_fp, *value.contracts)) {
+		return invalid("CreateRFQRequest", "contracts_fp", "must match contracts");
+	}
+	const bool has_target_cost =
+		value.target_cost_dollars.has_value() || value.target_cost_centi_cents.value_or(0) != 0;
+	if (value.target_cost_excludes_fees.value_or(false) && !has_target_cost) {
+		return invalid("CreateRFQRequest", "target_cost_excludes_fees", "requires a target cost");
 	}
 	return {};
 }
@@ -882,9 +922,20 @@ inline Result<void> validate(const GetEventFeeChangesParams& value) {
 }
 
 inline Result<void> validate(const GetEventForecastPercentilesHistoryParams& value) {
+	for (const std::int64_t item : value.percentiles) {
+		if (item < 0 || item > 9999) {
+			return invalid("GetEventForecastPercentilesHistoryParams", "percentiles",
+						   "has an item outside its allowed range");
+		}
+	}
 	if (value.percentiles.size() > 10U) {
 		return invalid("GetEventForecastPercentilesHistoryParams", "percentiles",
 					   "size is outside its allowed range");
+	}
+	if (value.period_interval != 0 && value.period_interval != 1 && value.period_interval != 60 &&
+		value.period_interval != 1440) {
+		return invalid("GetEventForecastPercentilesHistoryParams", "period_interval",
+					   "must be one of 0, 1, 60, 1440");
 	}
 	return {};
 }
@@ -1455,6 +1506,11 @@ inline Result<void> validate(const UpdateOrderGroupLimitRequest& value) {
 	if ((value.contracts_limit_fp && !FixedPoint::parse(*value.contracts_limit_fp))) {
 		return invalid("UpdateOrderGroupLimitRequest", "contracts_limit_fp",
 					   "is not a fixed-point decimal");
+	}
+	if (value.contracts_limit && *value.contracts_limit != 0 && value.contracts_limit_fp &&
+		!fixed_point_equals(*value.contracts_limit_fp, *value.contracts_limit)) {
+		return invalid("UpdateOrderGroupLimitRequest", "contracts_limit_fp",
+					   "must match contracts_limit");
 	}
 	return {};
 }
