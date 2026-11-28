@@ -6,6 +6,15 @@ uses [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve a sequence gap revealed by a malformed `list_subscriptions` reply in `Reaction::gap`
+  instead of overwriting it with the list parse error, so `on_error` still receives the gap before
+  the parse error
+  ([#141](https://github.com/Reddimus/kalshi-cpp/issues/141)).
+- Treat a replayed WebSocket frame at `INT64_MAX` as a replay rather than a missed-message gap
+  ([#142](https://github.com/Reddimus/kalshi-cpp/issues/142)).
+
 ## [0.9.8] - 2026-11-27
 
 ### Fixed

@@ -532,6 +532,7 @@ Reaction SubscriptionRegistry::on_ok(const OkFrame& frame, bool resync) {
 			parse_subscription_list(frame.msg);
 		if (!list) {
 			// Reporting an empty list would tell the caller it has no subscriptions.
+			reaction.gap = std::move(reaction.error);
 			reaction.error = WsError{0,
 									 "Could not parse a list_subscriptions reply",
 									 frame.id,
@@ -732,6 +733,10 @@ std::optional<WsError> SubscriptionRegistry::check_seq(Entry& entry, std::int64_
 	std::optional<WsError> gap;
 	constexpr std::int64_t kMaxSeq = std::numeric_limits<std::int64_t>::max();
 	if (entry.last_seq) {
+		if (seq == *entry.last_seq) {
+			// Exact replay: nothing was missed, even at INT64_MAX.
+			return std::nullopt;
+		}
 		if (*entry.last_seq == kMaxSeq) {
 			gap = WsError{0,
 						  "Missed messages on subscription " + std::to_string(entry.handle.id) +
@@ -746,8 +751,8 @@ std::optional<WsError> SubscriptionRegistry::check_seq(Entry& entry, std::int64_
 			entry.last_seq = seq;
 			return gap;
 		}
-		if (seq <= *entry.last_seq) {
-			// Replayed or out-of-order frame: nothing was missed; keep last_seq intact.
+		if (seq < *entry.last_seq) {
+			// Out-of-order frame: nothing was missed; keep last_seq intact.
 			return std::nullopt;
 		}
 		if (seq > *entry.last_seq + 1) {

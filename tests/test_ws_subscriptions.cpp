@@ -1599,3 +1599,71 @@ TEST(WsSubscriptions, SequencedErrorFrameThatSkipsASeqReportsTheGap) {
 	kalshi::WsMessage eight = delta(3, 8);
 	EXPECT_FALSE(registry.on_data(eight, false).error.has_value());
 }
+
+TEST(WsSubscriptions, MalformedListReplyPreservesSequenceGap) {
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	const kalshi::ws::Subscription book =
+		registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames).value();
+	registry.on_subscribed({2, "orderbook_delta", 5});
+	kalshi::WsMessage ten = delta(5, 10);
+	ASSERT_FALSE(registry.on_data(ten, true).error.has_value());
+
+	const std::int64_t list_id = registry.list_subscriptions(frames);
+	const Reaction reply = registry.on_ok({list_id, 5, 12, "{}", 1234}, true);
+	ASSERT_TRUE(reply.gap.has_value());
+	EXPECT_NE(reply.gap->message.find("expected seq 11, got 12"), std::string::npos)
+		<< reply.gap->message;
+	EXPECT_EQ(reply.gap->subscription, book);
+	EXPECT_EQ(reply.gap->sid, 5);
+	EXPECT_EQ(reply.gap->seq, 12);
+	ASSERT_TRUE(reply.error.has_value());
+	EXPECT_EQ(reply.error->message, "Could not parse a list_subscriptions reply");
+	EXPECT_EQ(reply.error->id, list_id);
+	EXPECT_EQ(reply.error->sending_ts_ms, 1234);
+	EXPECT_FALSE(reply.message.has_value());
+	ASSERT_EQ(reply.frames.size(), 1U);
+	EXPECT_NE(reply.frames[0].find(R"("action":"get_snapshot")"), std::string::npos);
+
+	kalshi::WsMessage thirteen = delta(5, 13);
+	EXPECT_FALSE(registry.on_data(thirteen, true).error.has_value());
+
+	// A valid list reply with a gap still delivers the list and reports the gap.
+	const std::int64_t second_list_id = registry.list_subscriptions(frames);
+	const Reaction valid = registry.on_ok(
+		{second_list_id, 5, 15, R"([{"channel":"orderbook_delta","sid":5}])", 1235}, true);
+	EXPECT_FALSE(valid.gap.has_value());
+	ASSERT_TRUE(valid.error.has_value());
+	EXPECT_NE(valid.error->message.find("expected seq 14, got 15"), std::string::npos)
+		<< valid.error->message;
+	ASSERT_TRUE(valid.message.has_value());
+	EXPECT_TRUE(std::holds_alternative<kalshi::ws::SubscriptionList>(*valid.message));
+}
+
+TEST(WsSubscriptions, ReplayedFrameAtMaxSequenceDoesNotReportGap) {
+	constexpr std::int64_t kMax = std::numeric_limits<std::int64_t>::max();
+	SubscriptionRegistry registry;
+	std::vector<std::string> frames;
+	ASSERT_TRUE(registry.subscribe(Channel::OrderbookDelta, {.market_ticker = "A"}, true, frames));
+	registry.on_subscribed({2, "orderbook_delta", 9});
+
+	kalshi::WsMessage prev = delta(9, kMax - 1);
+	kalshi::WsMessage at_max = delta(9, kMax);
+	kalshi::WsMessage replay = delta(9, kMax);
+	EXPECT_FALSE(registry.on_data(prev, true).error.has_value());
+	EXPECT_FALSE(registry.on_data(at_max, true).error.has_value());
+
+	const Reaction dup_data = registry.on_data(replay, true);
+	EXPECT_FALSE(dup_data.error.has_value());
+	EXPECT_TRUE(dup_data.frames.empty());
+
+	const Reaction dup_ok = registry.on_ok({std::nullopt, 9, kMax}, true);
+	EXPECT_FALSE(dup_ok.error.has_value());
+	EXPECT_TRUE(dup_ok.frames.empty());
+
+	// Wrapping past INT64_MAX still reports a gap.
+	kalshi::WsMessage wrapped = delta(9, 1);
+	const Reaction overflow = registry.on_data(wrapped, false);
+	ASSERT_TRUE(overflow.error.has_value());
+	EXPECT_NE(overflow.error->message.find("beyond INT64_MAX"), std::string::npos);
+}
