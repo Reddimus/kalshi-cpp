@@ -3,35 +3,50 @@
 [![CI](https://github.com/Reddimus/kalshi-cpp/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/Reddimus/kalshi-cpp/actions/workflows/ci.yml)
 [![Release](https://img.shields.io/github/v/release/Reddimus/kalshi-cpp)](https://github.com/Reddimus/kalshi-cpp/releases)
 
-A C++23 client for Kalshi's Predictions API. It covers every
+A C++23 client for Kalshi's Predictions API covering every
 [REST operation](docs/operations.md) and [WebSocket channel](docs/channels.md).
-Its types and methods come from Kalshi's OpenAPI and AsyncAPI documents in
-[`spec/`](https://github.com/Reddimus/kalshi-cpp/tree/main/spec), so their names
-match [Kalshi's API docs](https://docs.kalshi.com). Kalshi's separate Margin
-and Perpetuals API is out of scope. The
-[API reference](https://reddimus.github.io/kalshi-cpp/) lists every type and method.
+Types and method names come directly from Kalshi's OpenAPI and AsyncAPI contracts in
+[`spec/`](https://github.com/Reddimus/kalshi-cpp/tree/main/spec) and match
+[Kalshi's API docs](https://docs.kalshi.com) (Kalshi's Margin and Perpetuals API
+is out of scope). Browse every type and method in the
+[API reference](https://reddimus.github.io/kalshi-cpp/).
+
+## Overview
+
+```mermaid
+flowchart LR
+    app["Application"] --> rest["KalshiClient (145 REST ops)"]
+    app --> ws["WebSocketClient (14 channels)"]
+    rest --> retry["RetryingTransport (optional)"]
+    retry --> rate["RateLimitedTransport (optional)"]
+    rate --> http["HttpClient + Signer"]
+    http --> api["Kalshi REST API"]
+    ws --> reg["SubscriptionRegistry + Signer"]
+    reg --> wss["Kalshi WebSocket API"]
+```
+
+See [ARCHITECTURE.md](https://github.com/Reddimus/kalshi-cpp/blob/main/ARCHITECTURE.md)
+for layer boundaries, request sequences, WebSocket connection states, and code generation.
 
 ## Install
 
-You need a C++23 compiler, CMake 3.31+, OpenSSL 3 or later, libcurl 7.65 or
-later, and libwebsockets. When libwebsockets uses OpenSSL, as the packages
-below do, kalshi-cpp must use the same OpenSSL, because it calls OpenSSL on
-libwebsockets' TLS connections. CMake warns when it can tell they differ.
-CI tests GCC 13 on Ubuntu 24.04, Apple Clang on Apple silicon, and MSVC on
-Windows, where [`vcpkg.json`](https://github.com/Reddimus/kalshi-cpp/blob/main/vcpkg.json)
-supplies the dependencies. On macOS, the deployment target must be 13.3 or later.
+Requires a C++23 compiler, CMake 3.31+, OpenSSL 3+, libcurl 7.65+, and
+libwebsockets. When libwebsockets uses OpenSSL, `kalshi-cpp` must link against
+that same OpenSSL build; CMake warns if they mismatch. CI tests Ubuntu 24.04
+(GCC 13), macOS Apple silicon (Apple Clang, deployment target 13.3+), and
+Windows (MSVC with [`vcpkg.json`](https://github.com/Reddimus/kalshi-cpp/blob/main/vcpkg.json)).
 
 ```bash
 # macOS: build against the OpenSSL that Homebrew's libwebsockets links
 brew install cmake libwebsockets pkg-config
 export CMAKE_PREFIX_PATH="$(brew --prefix "$(brew deps libwebsockets | grep -E '^openssl@[0-9]+$' | head -n 1)")"
 
-# Ubuntu 24.04, whose apt CMake is older than 3.31
+# Ubuntu 24.04 (apt CMake is older than 3.31)
 sudo apt install build-essential pkg-config pipx libssl-dev libcurl4-openssl-dev libwebsockets-dev
 pipx install cmake && pipx ensurepath   # then open a new shell
 ```
 
-Add the library to your CMake project:
+Add `kalshi-cpp` via CMake `FetchContent`:
 
 ```cmake
 include(FetchContent)
@@ -42,15 +57,15 @@ FetchContent_MakeAvailable(kalshi)
 target_link_libraries(myapp PRIVATE kalshi::kalshi)
 ```
 
-Or add `kalshi-cpp` to your `vcpkg.json`, and [vcpkg](https://vcpkg.io) builds
-it along with OpenSSL, libcurl, and libwebsockets, so you can skip the package
-installs above. vcpkg and `cmake --install` both provide the same target through
-`find_package(kalshi CONFIG REQUIRED)`. Until 1.0, a minor release may break
-the API. [CHANGELOG.md](CHANGELOG.md) has migration notes.
+Or add `kalshi-cpp` to `vcpkg.json` with [vcpkg](https://vcpkg.io) to install
+OpenSSL, libcurl, and libwebsockets automatically; both vcpkg and
+`cmake --install` expose `find_package(kalshi CONFIG REQUIRED)` and
+`kalshi::kalshi`. Until 1.0, minor releases may break the API; see
+[CHANGELOG.md](CHANGELOG.md) for migration notes.
 
 ## Read market data
 
-Public endpoints need no key.
+Public endpoints need no API key.
 
 ```cpp
 #include <kalshi/kalshi.hpp>
@@ -74,20 +89,19 @@ int main() {
 }
 ```
 
-`kalshi::collect_pages` follows cursors when you want every page.
+Use `kalshi::collect_pages` to paginate across cursors automatically.
 
 ## Errors
 
-Calls that can fail return `kalshi::Result<T>`, which is
-`std::expected<T, kalshi::Error>`, instead of throwing. `Error::code` classifies
-the failure, such as `RateLimited` or `NetworkError`. When Kalshi rejects a
-request, `Error::http_status` and `Error::api_code` hold its HTTP status and
-error code.
+Failing calls return `kalshi::Result<T>` (`std::expected<T, kalshi::Error>`)
+instead of throwing exceptions. Check `Error::code` (for example `RateLimited`
+or `NetworkError`), `Error::http_status`, and `Error::api_code` for exchange
+rejections.
 
 ## Authenticate
 
-Create an API key at <https://kalshi.com/account/profile>. Save the private key
-file and note the key ID. `Signer` loads unencrypted RSA and Ed25519 PEM keys.
+Create an API key at <https://kalshi.com/account/profile>, save the private key,
+and note the key ID. `Signer` loads unencrypted RSA and Ed25519 PEM keys:
 
 ```cpp
 kalshi::Result<kalshi::Signer> signer = kalshi::Signer::from_pem_file("your-key-id", "kalshi.key");
@@ -99,14 +113,14 @@ kalshi::KalshiClient client{kalshi::HttpClient{*signer}};   // Signer is cheap t
 kalshi::Result<kalshi::GetBalanceResponse> balance = client.get_balance();
 ```
 
-Kalshi's demo exchange uses play money and its own keys. To use it, pass
+Kalshi's demo exchange uses play money and separate keys. Pass
 `kalshi::ClientConfig::for_environment(kalshi::Environment::Demo)` to
-`HttpClient` after the signer. `kalshi::WsConfig::for_environment` does the same
-for `WebSocketClient`.
+`HttpClient`, or `kalshi::WsConfig::for_environment(kalshi::Environment::Demo)`
+to `WebSocketClient`.
 
 ## Place an order
 
-This places a real order unless `client` points at the demo exchange.
+This places a live order unless configured for `Environment::Demo`.
 
 ```cpp
 kalshi::CreateOrderV2Request order;
@@ -120,9 +134,8 @@ order.self_trade_prevention_type = kalshi::SelfTradePreventionType::TakerAtCross
 kalshi::Result<kalshi::CreateOrderV2Response> placed = client.create_order(order);
 ```
 
-Counts and prices are fixed-point strings, not doubles. The client checks them
-and the required fields before sending, so `order.price = "56c"` fails locally
-with `InvalidRequest`.
+Counts and prices are fixed-point decimal strings (`order.price = "56c"` and
+missing required fields fail locally with `InvalidRequest`).
 
 ## Stream updates
 
@@ -139,17 +152,17 @@ kalshi::Result<kalshi::ws::Subscription> book = ws.subscribe(
 kalshi::Result<void> connected = ws.connect();
 ```
 
-`connect()` waits until the connection opens or fails. Callbacks then run on the
-client's network thread until you call `disconnect()` or destroy `ws`, so keep
-your program running. After a dropped connection, the client reconnects,
-resubscribes, and keeps your `ws::Subscription` handles valid. When it sees a
-skipped order book sequence number, it reports the gap to `on_error` and
-requests fresh snapshots. [docs/channels.md](docs/channels.md) lists each
-channel's message types.
+- `connect()` blocks until the connection opens or fails; callbacks run on the
+  network thread until `disconnect()` or destruction.
+- On dropped connections, `WebSocketClient` reconnects, resubscribes, and keeps
+  existing `ws::Subscription` handles valid.
+- Sequence gaps on sequenced channels invoke `on_error` and request fresh
+  snapshots on `orderbook_delta`. See [docs/channels.md](docs/channels.md) for
+  each channel's message types.
 
 ## Retries and rate limits
 
-Both are transports you stack under the client:
+Stack `RateLimitedTransport` and `RetryingTransport` around `HttpClient`:
 
 ```cpp
 std::shared_ptr<kalshi::HttpClient> http = std::make_shared<kalshi::HttpClient>(*signer);
@@ -158,33 +171,29 @@ std::shared_ptr<kalshi::RateLimitedTransport> paced =
 kalshi::KalshiClient client{std::make_shared<kalshi::RetryingTransport>(paced)};
 ```
 
-By default, `RetryingTransport` repeats a POST, PUT, or DELETE only after a 429,
-to avoid repeating a write whose outcome is unknown. `RateLimitConfig{}` matches Kalshi's Basic
-tier. To match your account's limits, pass the results of
-`get_account_api_limits()` and `get_account_endpoint_costs()` to
-`kalshi::rate_limit_config()`. Balance requests have a separate bucket: one
-call/s for Basic and Advanced, five for higher known tiers. Write pacing is
-conservative across exchange shards. Share one paced transport per account;
-separate instances cannot coordinate their budgets.
-
-`ClientConfig::max_response_bytes` limits decompressed HTTP bodies to 64 MiB;
-set it to zero to disable the limit. A larger body returns `ParseError` after
-the server has handled the request, so check whether a write took effect.
-WebSocket messages have the same default limit through
-`WsConfig::max_message_bytes`.
+- **Safe write retries:** By default, `RetryingTransport` retries `POST`, `PUT`,
+  and `DELETE` only on HTTP `429` so writes are not duplicated when the outcome
+  is unknown.
+- **Tier pacing:** `RateLimitConfig{}` matches Kalshi's Basic tier (1 call/s for
+  balance requests on Basic and Advanced, 5/s on higher known tiers; write pacing
+  is conservative across exchange shards).
+- **Account calibration:** Pass `get_account_api_limits()` and
+  `get_account_endpoint_costs()` to `kalshi::rate_limit_config()`, and share
+  one paced transport per account.
+- **Body size limits:** `ClientConfig::max_response_bytes` and
+  `WsConfig::max_message_bytes` default to 64 MiB (`0` disables). Larger HTTP
+  bodies return `ParseError` after the server has processed the request, so check
+  whether writes took effect before retrying.
 
 ## Examples
 
-[`examples/`](https://github.com/Reddimus/kalshi-cpp/tree/main/examples) has
-four programs: public market data, your portfolio, an order placed and canceled
-on the demo exchange, and a live order book. From a clone,
-`make run-market_data` runs the first one without a key. For the others,
-`make run-<name>` loads your key from `.env`, as the
-[examples README](https://github.com/Reddimus/kalshi-cpp/blob/main/examples/README.md)
-shows.
+[`examples/`](https://github.com/Reddimus/kalshi-cpp/tree/main/examples) includes
+four runnable programs (public market data, portfolio, demo order placement, and
+live order book streaming). Run `make run-market_data` without a key, or follow
+the [examples README](https://github.com/Reddimus/kalshi-cpp/blob/main/examples/README.md)
+to configure `.env` for `make run-<name>`.
 
 ## Contributing
 
-[CONTRIBUTING.md](CONTRIBUTING.md) covers building from source, tests, updating
-the specs, and releases. Report security issues as
-[SECURITY.md](SECURITY.md) describes.
+See [CONTRIBUTING.md](CONTRIBUTING.md) for building, testing, spec updates, and
+releases, and [SECURITY.md](SECURITY.md) for reporting vulnerabilities.
