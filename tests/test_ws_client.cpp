@@ -770,3 +770,35 @@ TEST_F(WsClient, MalformedFrameThatSkipsASeqReportsTheGapFirst) {
 	EXPECT_TRUE(has(*resync, R"("action":"get_snapshot")")) << *resync;
 	EXPECT_FALSE(server.next_command(200ms).has_value());
 }
+
+TEST_F(WsClient, MalformedListReplyReportsGapBeforeParseError) {
+	Recorder recorder;
+	kalshi::WebSocketClient ws(kalshi::test::make_signer(), local(server));
+	recorder.attach(ws);
+	ASSERT_TRUE(ws.connect().has_value());
+	const kalshi::ws::Subscription book = subscribe_acked(
+		ws, server, recorder, kalshi::ws::Channel::OrderbookDelta, {.market_tickers = {"KXA"}}, 3);
+
+	server.send(delta(3, 1));
+	ASSERT_TRUE(recorder.next<kalshi::ws::Update<kalshi::ws::OrderbookDelta>>().has_value());
+
+	const kalshi::Result<std::int64_t> list_id = ws.list_subscriptions();
+	ASSERT_TRUE(list_id.has_value());
+	ASSERT_TRUE(server.next_command().has_value());
+	server.send(R"({"id":)" + std::to_string(*list_id) +
+				R"(,"sid":3,"seq":3,"type":"ok","msg":{}})");
+
+	const std::optional<kalshi::WsError> gap = recorder.next_error();
+	ASSERT_TRUE(gap.has_value());
+	EXPECT_TRUE(has(gap->message, "expected seq 2, got 3")) << gap->message;
+	EXPECT_EQ(gap->subscription, book);
+	const std::optional<kalshi::WsError> parse_error = recorder.next_error();
+	ASSERT_TRUE(parse_error.has_value());
+	EXPECT_EQ(parse_error->message, "Could not parse a list_subscriptions reply");
+	EXPECT_EQ(parse_error->id, *list_id);
+
+	const std::optional<std::string> resync = server.next_command();
+	ASSERT_TRUE(resync.has_value());
+	EXPECT_TRUE(has(*resync, R"("action":"get_snapshot")")) << *resync;
+	EXPECT_FALSE(server.next_command(200ms).has_value());
+}
