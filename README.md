@@ -32,7 +32,7 @@ for layer boundaries, request sequences, WebSocket connection states, and code g
 
 Requires a C++23 compiler, CMake 3.31+, OpenSSL 3+, libcurl 7.65+, and
 libwebsockets. When libwebsockets uses OpenSSL, `kalshi-cpp` must link against
-that same OpenSSL build; CMake warns if they mismatch. CI tests Ubuntu 24.04
+that same OpenSSL build; CMake warns when it can tell they differ. CI tests Ubuntu 24.04
 (GCC 13), macOS Apple silicon (Apple Clang, deployment target 13.3+), and
 Windows (MSVC with [`vcpkg.json`](https://github.com/Reddimus/kalshi-cpp/blob/main/vcpkg.json)).
 

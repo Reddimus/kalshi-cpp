@@ -22,7 +22,7 @@ On macOS, `make` picks up Homebrew's keg-only `llvm@18` automatically, and PyYAM
 
 ```bash
 brew install cmake ninja pkg-config libwebsockets llvm@18 jq
-# Link against the same OpenSSL that Homebrew's libwebsockets uses; CMake warns otherwise.
+# Link against the same OpenSSL that Homebrew's libwebsockets uses; CMake warns when it can tell they differ.
 export CMAKE_PREFIX_PATH="$(brew --prefix "$(brew deps libwebsockets | grep -E '^openssl@[0-9]+$' | head -n 1)")"
 python3 -m venv .venv && .venv/bin/pip install pyyaml
 export PYTHON=.venv/bin/python
