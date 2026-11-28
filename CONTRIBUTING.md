@@ -1,7 +1,6 @@
 # Contributing
 
-Report security problems privately as described in [SECURITY.md](SECURITY.md),
-not in a public issue.
+Report security issues privately via [SECURITY.md](SECURITY.md), not in a public issue.
 
 ## Set up
 
@@ -10,7 +9,7 @@ git clone https://github.com/Reddimus/kalshi-cpp.git
 cd kalshi-cpp
 ```
 
-On Ubuntu 24.04, whose apt CMake is older than the 3.31 this build needs:
+On Ubuntu 24.04 (apt ships CMake older than 3.31):
 
 ```bash
 sudo apt install build-essential ninja-build pkg-config clang-format-18 python3-yaml \
@@ -19,31 +18,29 @@ pipx install cmake && pipx ensurepath   # then open a new shell
 make test
 ```
 
-On macOS, Homebrew's `llvm@18` provides clang-format and clang-tidy 18, which
-`make` finds on its own. PyYAML goes in a virtual environment:
+On macOS, `make` picks up Homebrew's keg-only `llvm@18` automatically, and PyYAML runs from a virtual environment:
 
 ```bash
 brew install cmake ninja pkg-config libwebsockets llvm@18 jq
-# The SDK must use the OpenSSL that libwebsockets links; CMake warns otherwise.
+# Link against the same OpenSSL that Homebrew's libwebsockets uses; CMake warns when it can tell they differ.
 export CMAKE_PREFIX_PATH="$(brew --prefix "$(brew deps libwebsockets | grep -E '^openssl@[0-9]+$' | head -n 1)")"
 python3 -m venv .venv && .venv/bin/pip install pyyaml
 export PYTHON=.venv/bin/python
 make test lint
 ```
 
-Windows builds use vcpkg; the `build-windows` job in `.github/workflows/ci.yml`
-has the steps.
+Windows builds use vcpkg; see the `build-windows` job in `.github/workflows/ci.yml`.
 
 ## Everyday commands
 
 ```bash
 make test            # Release build and tests
 make debug           # Debug build in build-debug/
-make sanitize tsan   # ASan + UBSan, ThreadSanitizer
+make sanitize tsan   # ASan + UBSan and ThreadSanitizer
 make tidy            # clang-tidy build
 make lint            # clang-format 18, explicit-type audit, generated-code check
 make format          # Apply clang-format
-make codegen         # Regenerate from spec/
+make codegen         # Regenerate REST/WebSocket code and docs from spec/
 make docs            # Doxygen API reference in build-docs/html (needs Doxygen)
 make bench           # Google Benchmark suite
 make consumers       # Build installed and FetchContent consumers
@@ -51,13 +48,9 @@ make coverage        # lcov report (needs lcov)
 make lint-docs       # markdownlint (needs markdownlint-cli2)
 ```
 
-Run `make format lint test` before pushing, and `make lint-docs` (needs
-`markdownlint-cli2`) after editing Markdown. `make install-hooks` runs
-`make lint` on every commit. CI builds and tests on Linux, macOS, and Windows,
-and runs the sanitizers, clang-tidy, and the consumer check on Linux.
+Run `make format lint test` before pushing, plus `make lint-docs` after editing Markdown (`make install-hooks` runs `make lint` on each commit). CI checks Linux, macOS, Windows, sanitizers, `clang-tidy`, and consumers.
 
-`make tidy` needs clang-tidy 18. On Ubuntu, build with the matching clang and
-libc++, as CI does:
+`make tidy` needs clang-tidy 18. On Ubuntu, match CI with clang and `libc++`:
 
 ```bash
 make tidy CMAKE_ARGS="-DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_CXX_FLAGS=-stdlib=libc++"
@@ -65,118 +58,46 @@ make tidy CMAKE_ARGS="-DCMAKE_CXX_COMPILER=clang++-18 -DCMAKE_CXX_FLAGS=-stdlib=
 
 ## Generated code
 
-`tools/codegen/generate.py` writes the REST client from `spec/openapi.yaml` and
-the WebSocket types from `spec/asyncapi.yaml`: `include/kalshi/api.hpp`,
-`models.hpp`, and `ws_models.hpp`, `src/api/operations/`,
-`src/api/validate.hpp`, `src/models/json_meta.hpp`, `src/ws/wire.hpp`,
-`tests/test_operation_routes.cpp`, `tests/test_ws_messages.cpp`,
-`docs/operations.md`, and `docs/channels.md`. Change the generator, a template
-in `tools/codegen/`, or a spec, run `make codegen`, and commit the result.
-`make lint` fails on stale output. [docs/research.md](docs/research.md)
-explains how to refresh the specs. Prose-only exit-trigger leg requirements live
-in `REQUIRED_ALTERNATIVES`; review them when refreshing the contract.
+`tools/codegen/generate.py` generates the REST client from `spec/openapi.yaml` and WebSocket types from `spec/asyncapi.yaml` (`include/kalshi/api.hpp`, `models.hpp`, `ws_models.hpp`, `src/api/operations/`, `src/api/validate.hpp`, `src/models/json_meta.hpp`, `src/ws/wire.hpp`, `tests/test_operation_routes.cpp`, `tests/test_ws_messages.cpp`, `docs/operations.md`, and `docs/channels.md`).
 
-The script stops with an error on spec features it can't map yet, such as
-`oneOf`, PATCH, and header parameters, rather than
-dropping them. `tools/codegen/test_codegen.py` covers each of these checks, and
-`make lint` runs it.
+After editing a spec, generator script, or `tools/codegen/*.in` template, run `make codegen` and commit the result (`make lint` rejects stale output). See [docs/research.md](docs/research.md) for spec refresh steps, and review `REQUIRED_ALTERNATIVES` when updating exit-trigger contracts.
+
+The generator fails fast on unmapped spec features such as `oneOf`, `PATCH`, or header parameters rather than silently dropping them. `tools/codegen/test_codegen.py` covers these checks as part of `make lint`.
 
 ## Code style
 
-- Public functions return `kalshi::Result<T>` (`std::expected<T, Error>`) and
-  don't throw.
-- Spell out local variable types. `auto` is fine for structured bindings,
-  lambdas, and iterators. Anything else needs an `// auto-ok: reason` comment
-  or an entry in `tools/cpp_auto_allowlist.txt`; `make lint` checks this.
-- `.clang-format` sets the layout: tabs, 100 columns, project includes before
-  system includes.
-- Glaze reads and writes JSON. Null fallback runs only after validating the
-  complete input.
-- Keep tests offline. Inject an `HttpTransport`, or use the local HTTP and
-  WebSocket servers in `tests/`.
+- Return `kalshi::Result<T>` (`std::expected<T, Error>`) from public APIs; do not throw exceptions.
+- Spell out local variable types (`auto` is allowed only for structured bindings, lambdas, iterators, `// auto-ok: reason` annotations, or `tools/cpp_auto_allowlist.txt`; checked by `make lint`).
+- Follow `.clang-format` (tabs, 100 columns, project headers before system headers).
+- Read/write JSON through Glaze; null-stripping fallback runs only after validating the full payload.
+- Keep tests offline using an injected `HttpTransport` or the local servers in `tests/`.
 
 ## Pull requests
 
-- Name branches `feat/`, `fix/`, `perf/`, `docs/`, `ci/`, `refactor/`, `test/`,
-  or `chore/`.
-- Title PRs as [Conventional Commits](https://www.conventionalcommits.org/),
-  such as `fix(ws): keep subscriptions across reconnects`. PRs are
-  squash-merged, so the title becomes the commit subject.
-- Note user-visible changes in `CHANGELOG.md` under `[Unreleased]`.
+```mermaid
+flowchart LR
+    A["Branch from main"] --> B["Edit code or spec/"]
+    B --> C["Run make format lint test"]
+    C --> D["Open Conventional PR"]
+    D --> E["CI passes & squash merge"]
+```
+
+- Name branches `feat/`, `fix/`, `perf/`, `docs/`, `ci/`, `refactor/`, `test/`, or `chore/`.
+- Title PRs using [Conventional Commits](https://www.conventionalcommits.org/), e.g. `fix(ws): keep subscriptions across reconnects` (PRs are squash-merged).
+- Write PR descriptions, commit titles, and documentation for public readers: keep them short, clear, and concrete, and add diagrams or screenshots when visual context helps.
+- Record user-visible changes in `CHANGELOG.md` under `[Unreleased]`.
 
 ## Releases
 
-1. Set `VERSION` in `CMakeLists.txt`, move the `[Unreleased]` notes into a new
-   `[X.Y.Z]` section, update the compare links at the bottom of
-   `CHANGELOG.md`, and update the `GIT_TAG` in `README.md`. Release notes
-   come from that section, so link with absolute URLs.
-2. Merge that change to `main`.
-3. Run `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` publishes the
-   GitHub release after CI passes on the tagged commit, and `docs.yml`
-   publishes the API reference.
-4. Update the vcpkg and ConanCenter ports, working from your forks of those
-   repositories. Both need a hash of the tag's archive:
-   `curl -sL https://github.com/Reddimus/kalshi-cpp/archive/refs/tags/vX.Y.Z.tar.gz | shasum -a 512`,
-   or `-a 256` for Conan.
-   - vcpkg: in `ports/kalshi-cpp`, set `version` in `vcpkg.json` and `SHA512`
-     in `portfile.cmake`. Run `./vcpkg x-add-version kalshi-cpp`, commit
-     everything, and open a PR against microsoft/vcpkg.
-   - ConanCenter, once
-     [the first recipe](https://github.com/conan-io/conan-center-index/pull/31050)
-     merges: add the version to `recipes/kalshi-cpp/config.yml` and its URL
-     and sha256 to `recipes/kalshi-cpp/all/conandata.yml`, then open a PR
-     against conan-io/conan-center-index.
+1. Set `VERSION` in `CMakeLists.txt`, move `[Unreleased]` entries to `[X.Y.Z]` with updated compare links in `CHANGELOG.md` (using absolute URLs), and update `GIT_TAG` in `README.md`.
+2. Merge that release PR to `main`.
+3. Tag and push `git tag vX.Y.Z && git push origin vX.Y.Z`. `release.yml` publishes the GitHub release once CI passes, and `docs.yml` deploys the API reference.
+4. Compute the release archive hashes (`curl -sL https://github.com/Reddimus/kalshi-cpp/archive/refs/tags/vX.Y.Z.tar.gz | shasum -a 512`, or `-a 256` for Conan) and update both downstream registries from your forks:
+   - **vcpkg:** update `version` in `ports/kalshi-cpp/vcpkg.json` and `SHA512` in `portfile.cmake`, run `./vcpkg x-add-version kalshi-cpp`, commit, and open a PR against `microsoft/vcpkg`.
+   - **ConanCenter** (once [kalshi-cpp#31050](https://github.com/conan-io/conan-center-index/pull/31050) merges): update `recipes/kalshi-cpp/config.yml` and `recipes/kalshi-cpp/all/conandata.yml`, and open a PR against `conan-io/conan-center-index`.
 
-While the version is 0.x, a minor release may break the API; patch releases
-only fix things.
+While in `0.x`, minor releases may introduce API changes; patch releases contain only fixes.
 
 ## License
 
 Contributions are licensed under the repository's MIT license.
-
-## Repository tools
-
-`.mcp.json` (Claude) and `.codex/config.toml` (Codex) provide Kalshi's
-[documentation MCP](https://docs.kalshi.com/mcp). It needs no API key and
-has no trading tools. Codex enables only documentation searches and file reads.
-Start a new trusted client session to load it; keep credentials outside git.
-
-`.greptile/config.json` requests Apex reviews on ready PRs and new pushes, leaves the PR
-description unchanged, and disables automatic approval. Each Apex review costs 10 credits.
-
-## Review fallback
-
-Greptile reviews ready PRs and new pushes first. Only its authenticated
-App's credit-refusal message on a default-branch PR enables CodeRabbit
-through the Review fallback workflow and `review:greptile-quota-fallback`
-label. CodeRabbit's open and push reviews are disabled; each backup request
-needs a Greptile credit refusal.
-
-A refusal reports exhausted organization credits, without a commit SHA. The
-workflow observes the current head; CodeRabbit may see a newer one. A
-completed Greptile review of the current head suppresses fallback and
-removes the opt-in label. Timeouts, generic failures, and an in-progress
-summary never enable it.
-
-The workflow records a reservation before adding the label to suppress
-duplicate automatic requests. Deduplication relies on GitHub comment-list
-visibility. If delivery fails or CodeRabbit is rate-limited, inspect the
-latest feedback, then retry Review fallback from Actions with the PR number.
-Historical retries stop after newer completed Greptile activity. Each event
-reconciles the full PR state, so a replaced queued event does not lose the
-credit refusal or recovery. The label
-means requested, not completed: verify the reviewed commit before merging.
-Skipped-review comments are disabled. Greptile footers stay visible so the
-workflow can recognize the reviewed commit.
-Maintainers can still request either reviewer manually. No paid review
-overages are enabled by this workflow.
-
-Test the helper with `node --test .github/scripts/review-fallback.test.cjs`.
-
-`statusCommentsEnabled` enables Greptile review summaries.
-Enable **Post Status Comments** in Greptile's dashboard for error notices.
-The fallback needs summary footers and authenticated credit refusals.
-
-If Greptile shows exhausted credits only in its dashboard, no GitHub event can
-start the fallback. After verifying that refusal, comment `@coderabbitai full review`
-on the PR. Do not request a backup for timeouts or other errors.
